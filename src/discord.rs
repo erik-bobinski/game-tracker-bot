@@ -23,14 +23,17 @@ pub struct MatchResult {
 
 pub fn val_match_to_result(
     match_summary: &valorant::MatchSummary,
-    tracked_puuid: &str,
+    tracked_puuids: &[&str],
 ) -> MatchResult {
-    let tracked_team = match_summary
-        .players
-        .all_players
-        .iter()
-        .find(|p| p.puuid == tracked_puuid)
-        .map(|p| p.team.clone());
+    // tracked users may end up on both sides; the first one's team is "own"
+    let tracked_team = tracked_puuids.iter().find_map(|puuid| {
+        match_summary
+            .players
+            .all_players
+            .iter()
+            .find(|p| &p.puuid == puuid)
+            .map(|p| p.team.clone())
+    });
 
     let (own_team, enemy_team): (Vec<_>, Vec<_>) = match_summary
         .players
@@ -44,7 +47,7 @@ pub fn val_match_to_result(
         character: p.character.clone(),
         kills: p.stats.kills,
         deaths: p.stats.deaths,
-        is_tracked_user: p.puuid == tracked_puuid,
+        is_tracked_user: tracked_puuids.contains(&p.puuid.as_str()),
     };
 
     let round_score = tracked_team.as_deref().map(|team| {
@@ -67,13 +70,19 @@ pub fn val_match_to_result(
     }
 }
 
-pub fn lol_match_to_result(match_summary: &lol::MatchSummary, tracked_puuid: &str) -> MatchResult {
-    let tracked_team_id = match_summary
-        .info
-        .participants
-        .iter()
-        .find(|p| p.puuid == tracked_puuid)
-        .map(|p| p.team_id);
+pub fn lol_match_to_result(
+    match_summary: &lol::MatchSummary,
+    tracked_puuids: &[&str],
+) -> MatchResult {
+    // tracked users may end up on both sides; the first one's team is "own"
+    let tracked_team_id = tracked_puuids.iter().find_map(|puuid| {
+        match_summary
+            .info
+            .participants
+            .iter()
+            .find(|p| &p.puuid == puuid)
+            .map(|p| p.team_id)
+    });
 
     let (own_team, enemy_team): (Vec<_>, Vec<_>) = match_summary
         .info
@@ -87,7 +96,7 @@ pub fn lol_match_to_result(match_summary: &lol::MatchSummary, tracked_puuid: &st
         character: p.champion_name.clone(),
         kills: p.kills,
         deaths: p.deaths,
-        is_tracked_user: p.puuid == tracked_puuid,
+        is_tracked_user: tracked_puuids.contains(&p.puuid.as_str()),
     };
 
     MatchResult {
@@ -101,10 +110,11 @@ pub fn lol_match_to_result(match_summary: &lol::MatchSummary, tracked_puuid: &st
     }
 }
 
-pub fn format_match_message(discord_name: &str, result: &MatchResult) -> String {
+pub fn format_match_message(discord_names: &[&str], result: &MatchResult) -> String {
     let mut message = format!(
-        "**{}** just finished a **{}** game\n",
-        discord_name, result.game_name
+        "{} just finished a **{}** game\n",
+        format_name_list(discord_names),
+        result.game_name
     );
 
     let mut header_parts = vec![result.game_mode.clone()];
@@ -124,6 +134,18 @@ pub fn format_match_message(discord_name: &str, result: &MatchResult) -> String 
     message.push_str(&format_leaderboard(&result.enemy_team));
 
     message
+}
+
+// "**A**", "**A** and **B**", "**A**, **B** and **C**", ...
+fn format_name_list(names: &[&str]) -> String {
+    let bolded: Vec<String> = names.iter().map(|name| format!("**{}**", name)).collect();
+
+    match bolded.split_last() {
+        Some((last, rest)) if !rest.is_empty() => {
+            format!("{} and {}", rest.join(", "), last)
+        }
+        _ => bolded.concat(),
+    }
 }
 
 fn format_leaderboard(players: &[PlayerLine]) -> String {

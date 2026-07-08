@@ -4,7 +4,10 @@ use std::time::Duration;
 
 use crate::db::{self, Database};
 use crate::discord;
-use crate::riot_api::{lol::RiotClient, valorant::HenrikClient};
+use crate::riot_api::{
+    lol::RiotClient,
+    valorant::{self, HenrikClient},
+};
 
 pub async fn run(
     http: Arc<serenity::http::Http>,
@@ -23,9 +26,15 @@ pub async fn run(
             continue;
         }
 
-        let accounts = db.lock().await.get_accounts();
+        let mut accounts = db.lock().await.get_accounts();
 
-        for mut account in accounts {
+        // matches discovered this cycle that still need reporting, deduped across
+        // accounts so a match shared by several tracked users is reported once,
+        // naming everyone involved
+        let mut pending_val_matches: Vec<valorant::MatchSummary> = Vec::new();
+        let mut pending_lol_matches: Vec<(String, String)> = Vec::new(); // (match id, region)
+
+        for account in &mut accounts {
             // henrik can't resolve an account with no match history yet, so a riot id
             // entered at signup may still be unresolved; retry it here now that the
             // player may have finished a game since then
@@ -58,24 +67,17 @@ pub async fn run(
                         .collect();
                     account.reported_val_match_ids.truncate(db::REPORTED_MATCH_CAP);
                 } else {
-                    let new_val_matches = val_matches
-                        .iter()
-                        .filter(|m| {
-                            !db::contains_match(&account.reported_val_match_ids, &m.metadata.matchid)
-                        })
-                        .collect::<Vec<_>>();
-
-                    for m in new_val_matches {
-                        let msg = discord::format_match_message(
-                            &account.discord_name,
-                            &discord::val_match_to_result(m, &account.val_puuid),
-                        );
-
-                        if let Err(e) = notification_channel_id.say(&http, msg).await {
-                            eprintln!("failed to send val match notification: {e}");
+                    for m in val_matches {
+                        if db::contains_match(&account.reported_val_match_ids, &m.metadata.matchid)
+                        {
+                            continue;
                         }
-
-                        db::remember_match(&mut account.reported_val_match_ids, &m.metadata.matchid);
+                        let already_pending = pending_val_matches.iter().any(|p| {
+                            p.metadata.matchid.eq_ignore_ascii_case(&m.metadata.matchid)
+                        });
+                        if !already_pending {
+                            pending_val_matches.push(m);
+                        }
                     }
                 }
             }
@@ -122,33 +124,122 @@ pub async fn run(
                         .collect();
                     account.reported_lol_match_ids.truncate(db::REPORTED_MATCH_CAP);
                 } else {
-                    let new_lol_match_ids = lol_match_ids
-                        .iter()
-                        .filter(|id| !db::contains_match(&account.reported_lol_match_ids, id))
-                        .collect::<Vec<_>>();
-
-                    for match_id in new_lol_match_ids {
-                        let summary = match riot_client.get_match(match_id, lol_region).await {
-                            Ok(summary) => summary,
-                            // not remembered, so the next poll retries this match
-                            Err(_) => continue,
-                        };
-
-                        let msg = discord::format_match_message(
-                            &account.discord_name,
-                            &discord::lol_match_to_result(&summary, &account.lol_puuid),
-                        );
-
-                        if let Err(e) = notification_channel_id.say(&http, msg).await {
-                            eprintln!("failed to send lol match notification: {e}");
+                    for match_id in lol_match_ids {
+                        if db::contains_match(&account.reported_lol_match_ids, &match_id) {
+                            continue;
                         }
-
-                        db::remember_match(&mut account.reported_lol_match_ids, match_id);
+                        let already_pending = pending_lol_matches
+                            .iter()
+                            .any(|(id, _)| id.eq_ignore_ascii_case(&match_id));
+                        if !already_pending {
+                            pending_lol_matches.push((match_id, lol_region.clone()));
+                        }
                     }
                 }
             }
+        }
 
-            // persist the updated reported-match rings
+        for m in &pending_val_matches {
+            // every tracked account in the lobby, in tracked-account order; the
+            // first one's team decides which side the report calls "own"
+            let involved: Vec<usize> = accounts
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| {
+                    !a.val_puuid.is_empty()
+                        && m.players.all_players.iter().any(|p| p.puuid == a.val_puuid)
+                })
+                .map(|(i, _)| i)
+                .collect();
+            if involved.is_empty() {
+                continue;
+            }
+
+            let names: Vec<&str> = involved
+                .iter()
+                .map(|&i| accounts[i].discord_name.as_str())
+                .collect();
+            let puuids: Vec<&str> = involved
+                .iter()
+                .map(|&i| accounts[i].val_puuid.as_str())
+                .collect();
+
+            let msg = discord::format_match_message(
+                &names,
+                &discord::val_match_to_result(m, &puuids),
+            );
+
+            if let Err(e) = notification_channel_id.say(&http, msg).await {
+                eprintln!("failed to send val match notification: {e}");
+            }
+
+            for &i in &involved {
+                // an empty ring means the account hasn't been baselined yet; leave it
+                // empty so a single remembered id can't masquerade as a baseline
+                if !accounts[i].reported_val_match_ids.is_empty() {
+                    db::remember_match(
+                        &mut accounts[i].reported_val_match_ids,
+                        &m.metadata.matchid,
+                    );
+                }
+            }
+        }
+
+        for (match_id, region) in &pending_lol_matches {
+            let summary = match riot_client.get_match(match_id, region).await {
+                Ok(summary) => summary,
+                // not remembered, so the next poll retries this match
+                Err(_) => continue,
+            };
+
+            // every tracked account in the lobby, in tracked-account order; the
+            // first one's team decides which side the report calls "own"
+            let involved: Vec<usize> = accounts
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| {
+                    !a.lol_puuid.is_empty()
+                        && summary
+                            .info
+                            .participants
+                            .iter()
+                            .any(|p| p.puuid == a.lol_puuid)
+                })
+                .map(|(i, _)| i)
+                .collect();
+            if involved.is_empty() {
+                continue;
+            }
+
+            let names: Vec<&str> = involved
+                .iter()
+                .map(|&i| accounts[i].discord_name.as_str())
+                .collect();
+            let puuids: Vec<&str> = involved
+                .iter()
+                .map(|&i| accounts[i].lol_puuid.as_str())
+                .collect();
+
+            let msg = discord::format_match_message(
+                &names,
+                &discord::lol_match_to_result(&summary, &puuids),
+            );
+
+            if let Err(e) = notification_channel_id.say(&http, msg).await {
+                eprintln!("failed to send lol match notification: {e}");
+            }
+
+            for &i in &involved {
+                // an empty ring means the account hasn't been baselined yet; leave it
+                // empty so a single remembered id can't masquerade as a baseline
+                if !accounts[i].reported_lol_match_ids.is_empty() {
+                    db::remember_match(&mut accounts[i].reported_lol_match_ids, match_id);
+                }
+            }
+        }
+
+        // persist the updated reported-match rings
+        for account in accounts {
             if let Err(e) = db.lock().await.update_account(account) {
                 eprintln!("failed to persist updated account: {e}");
             }
