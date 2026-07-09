@@ -2,6 +2,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use serenity::builder::CreateMessage;
+use std::collections::HashMap;
+
 use crate::db::{self, Database};
 use crate::discord;
 use crate::riot_api::{
@@ -155,6 +158,38 @@ pub async fn run(
                 continue;
             }
 
+            // RR changes for tracked players, joined from mmr history by match id;
+            // only competitive games appear there, so other modes skip the calls
+            let mut rank_updates: HashMap<String, discord::RankUpdate> = HashMap::new();
+            if m.metadata.mode.eq_ignore_ascii_case("competitive") {
+                for &i in &involved {
+                    let Some(region) = accounts[i].val_region.clone() else {
+                        continue;
+                    };
+                    let history = match henrik_client
+                        .get_mmr_history(&accounts[i].val_puuid, &region)
+                        .await
+                    {
+                        Ok(history) => history,
+                        Err(_) => continue,
+                    };
+
+                    if let Some(entry) = history
+                        .iter()
+                        .find(|e| e.match_id.eq_ignore_ascii_case(&m.metadata.matchid))
+                    {
+                        rank_updates.insert(
+                            accounts[i].val_puuid.clone(),
+                            discord::RankUpdate {
+                                delta: Some(entry.mmr_change_to_last_game),
+                                current: Some(entry.currenttier_patched.clone()),
+                                unit: "RR",
+                            },
+                        );
+                    }
+                }
+            }
+
             let names: Vec<&str> = involved
                 .iter()
                 .map(|&i| accounts[i].discord_name.as_str())
@@ -164,12 +199,15 @@ pub async fn run(
                 .map(|&i| accounts[i].val_puuid.as_str())
                 .collect();
 
-            let msg = discord::format_match_message(
+            let embed = discord::build_match_embed(
                 &names,
-                &discord::val_match_to_result(m, &puuids),
+                &discord::val_match_to_result(m, &puuids, &rank_updates),
             );
 
-            if let Err(e) = notification_channel_id.say(&http, msg).await {
+            if let Err(e) = notification_channel_id
+                .send_message(&http, CreateMessage::new().embed(embed))
+                .await
+            {
                 eprintln!("failed to send val match notification: {e}");
             }
 
@@ -211,6 +249,72 @@ pub async fn run(
                 continue;
             }
 
+            // LP changes for tracked players in ranked queues, diffed against the
+            // last league-v4 snapshot stored for that queue
+            let mut rank_updates: HashMap<String, discord::RankUpdate> = HashMap::new();
+            let ranked_queue = match summary.info.queue_id {
+                420 => Some("RANKED_SOLO_5x5"),
+                440 => Some("RANKED_FLEX_SR"),
+                _ => None,
+            };
+            if let Some(queue_type) = ranked_queue {
+                // league-v4 wants the platform host (na1, euw1, ...), which the
+                // match itself names
+                let platform = summary.info.platform_id.to_ascii_lowercase();
+
+                for &i in &involved {
+                    let entries = match riot_client
+                        .get_league_entries(&accounts[i].lol_puuid, &platform)
+                        .await
+                    {
+                        Ok(entries) => entries,
+                        Err(_) => continue,
+                    };
+                    let Some(entry) = entries.into_iter().find(|e| e.queue_type == queue_type)
+                    else {
+                        continue;
+                    };
+
+                    // LP is only comparable within the same tier+division; across a
+                    // promotion/demotion just show the new standing without a delta.
+                    // league-v4 only exposes the *current* standing, so when several
+                    // ranked matches land in one poll cycle (bot restart, outage) the
+                    // first report absorbs the combined LP change and later ones
+                    // show +0 — a known limit of snapshot diffing
+                    let previous = accounts[i].lol_rank_snapshots.get(queue_type);
+                    let delta = previous.and_then(|prev| {
+                        (prev.tier == entry.tier && prev.division == entry.rank)
+                            .then(|| entry.league_points - prev.league_points)
+                    });
+                    let current = match delta {
+                        Some(_) => format!("{} {}", title_case(&entry.tier), entry.rank),
+                        None => format!(
+                            "{} {} · {} LP",
+                            title_case(&entry.tier),
+                            entry.rank,
+                            entry.league_points
+                        ),
+                    };
+
+                    rank_updates.insert(
+                        accounts[i].lol_puuid.clone(),
+                        discord::RankUpdate {
+                            delta,
+                            current: Some(current),
+                            unit: "LP",
+                        },
+                    );
+                    accounts[i].lol_rank_snapshots.insert(
+                        queue_type.to_string(),
+                        db::LolRankSnapshot {
+                            tier: entry.tier,
+                            division: entry.rank,
+                            league_points: entry.league_points,
+                        },
+                    );
+                }
+            }
+
             let names: Vec<&str> = involved
                 .iter()
                 .map(|&i| accounts[i].discord_name.as_str())
@@ -220,12 +324,15 @@ pub async fn run(
                 .map(|&i| accounts[i].lol_puuid.as_str())
                 .collect();
 
-            let msg = discord::format_match_message(
+            let embed = discord::build_match_embed(
                 &names,
-                &discord::lol_match_to_result(&summary, &puuids),
+                &discord::lol_match_to_result(&summary, &puuids, &rank_updates),
             );
 
-            if let Err(e) = notification_channel_id.say(&http, msg).await {
+            if let Err(e) = notification_channel_id
+                .send_message(&http, CreateMessage::new().embed(embed))
+                .await
+            {
                 eprintln!("failed to send lol match notification: {e}");
             }
 
@@ -238,11 +345,20 @@ pub async fn run(
             }
         }
 
-        // persist the updated reported-match rings
+        // persist the updated reported-match rings and rank snapshots
         for account in accounts {
             if let Err(e) = db.lock().await.update_account(account) {
                 eprintln!("failed to persist updated account: {e}");
             }
         }
+    }
+}
+
+// league-v4 tiers arrive ALL CAPS ("EMERALD"); prettify for display
+fn title_case(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase(),
+        None => String::new(),
     }
 }

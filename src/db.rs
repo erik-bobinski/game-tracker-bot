@@ -36,6 +36,16 @@ pub fn contains_match(reported: &[String], matchid: &str) -> bool {
     reported.iter().any(|id| id.eq_ignore_ascii_case(matchid))
 }
 
+// last-seen league-v4 standing for one ranked queue, kept so the next ranked
+// match report can show the LP gained/lost since this snapshot
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LolRankSnapshot {
+    pub tier: String,
+    // division within the tier: "I".."IV"
+    pub division: String,
+    pub league_points: i32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct DatabaseAccount {
     pub discord_user_id: u64,
@@ -52,6 +62,10 @@ pub struct DatabaseAccount {
     pub lol_region: Option<String>,
     #[serde(default)]
     pub reported_lol_match_ids: Vec<String>,
+    // keyed by league-v4 queue type ("RANKED_SOLO_5x5" / "RANKED_FLEX_SR");
+    // additive field, so #[serde(default)] covers old files without a bump
+    #[serde(default)]
+    pub lol_rank_snapshots: std::collections::HashMap<String, LolRankSnapshot>,
     pub added_at: DateTime<Utc>,
 }
 
