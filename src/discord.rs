@@ -107,11 +107,12 @@ pub fn val_match_to_result(
         }
     };
 
-    let tracked_team_stats = tracked_team.as_deref().map(|team| {
+    // free-for-all modes (deathmatch) have no team results at all
+    let tracked_team_stats = tracked_team.as_deref().and_then(|team| {
         if team.eq_ignore_ascii_case("red") {
-            &match_summary.teams.red
+            match_summary.teams.red.as_ref()
         } else {
-            &match_summary.teams.blue
+            match_summary.teams.blue.as_ref()
         }
     });
 
@@ -276,13 +277,19 @@ pub fn build_match_embed(discord_names: &[&str], result: &MatchResult) -> Create
         info_parts.push(format!("{}–{}", rounds_won, rounds_lost));
     }
 
+    // free-for-all modes put everyone on one side; skip the empty block
+    let leaderboards: Vec<String> = [&result.own_team, &result.enemy_team]
+        .into_iter()
+        .filter(|team| !team.is_empty())
+        .map(|team| format_leaderboard(team))
+        .collect();
+
     let description = format!(
-        "{} just finished a **{}** game\n{}\n\n{}\n\n{}",
+        "{} just finished a **{}** game\n{}\n\n{}",
         format_name_list(discord_names),
         result.game_name,
         info_parts.join(" · "),
-        format_leaderboard(&result.own_team),
-        format_leaderboard(&result.enemy_team),
+        leaderboards.join("\n\n"),
     );
 
     let mut embed = CreateEmbed::new()

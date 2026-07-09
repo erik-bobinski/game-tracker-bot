@@ -132,10 +132,13 @@ pub struct MatchMetadata {
     pub matchid: String,
 }
 
+// red/blue are null for free-for-all modes (deathmatch), which have no team
+// results; keeping them optional stops one such match from failing the whole
+// match-list deserialization
 #[derive(Debug, Deserialize)]
 pub struct MatchTeams {
-    pub red: TeamStats,
-    pub blue: TeamStats,
+    pub red: Option<TeamStats>,
+    pub blue: Option<TeamStats>,
 }
 
 #[derive(Debug, Deserialize)]
