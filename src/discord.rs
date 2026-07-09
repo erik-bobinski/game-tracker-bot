@@ -134,9 +134,11 @@ pub fn val_match_to_result(
         game_mode: match_summary.metadata.mode.clone(),
         map: Some(match_summary.metadata.map.clone()),
         duration_secs: Some(match_summary.metadata.game_length),
-        start_epoch_secs: Some(match_summary.metadata.game_start),
+        // a defaulted game_start would render as 1970; omit the line instead
+        start_epoch_secs: (match_summary.metadata.game_start > 0)
+            .then_some(match_summary.metadata.game_start),
         round_score: tracked_team_stats.map(|s| (s.rounds_won, s.rounds_lost)),
-        won: tracked_team_stats.map(|s| s.has_won),
+        won: tracked_team_stats.and_then(|s| s.has_won),
         surrendered: false,
         thumbnail_url,
         own_team: own_team.into_iter().map(to_line).collect(),

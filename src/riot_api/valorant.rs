@@ -125,8 +125,11 @@ pub struct MatchMetadata {
     pub map: String,
     pub mode: String,
     pub game_length: u64,
-    // unix seconds when the match started
+    // unix seconds when the match started; defaulted (like rounds_played) so an
+    // edge-case mode omitting it can't fail the whole match-list deserialization
+    #[serde(default)]
     pub game_start: u64,
+    #[serde(default)]
     pub rounds_played: u32,
     region: String,
     pub matchid: String,
@@ -145,9 +148,9 @@ pub struct MatchTeams {
 pub struct TeamStats {
     pub rounds_won: u32,
     pub rounds_lost: u32,
-    // absent for modes without team wins (e.g. deathmatch)
-    #[serde(default)]
-    pub has_won: bool,
+    // None when absent, so a missing field renders as "no result" rather
+    // than silently flipping a win into a defeat
+    pub has_won: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

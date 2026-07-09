@@ -276,7 +276,11 @@ pub async fn run(
                     };
 
                     // LP is only comparable within the same tier+division; across a
-                    // promotion/demotion just show the new standing without a delta
+                    // promotion/demotion just show the new standing without a delta.
+                    // league-v4 only exposes the *current* standing, so when several
+                    // ranked matches land in one poll cycle (bot restart, outage) the
+                    // first report absorbs the combined LP change and later ones
+                    // show +0 — a known limit of snapshot diffing
                     let previous = accounts[i].lol_rank_snapshots.get(queue_type);
                     let delta = previous.and_then(|prev| {
                         (prev.tier == entry.tier && prev.division == entry.rank)
