@@ -86,6 +86,27 @@ impl RiotClient {
         Ok(matches)
     }
 
+    // League-V4 is platform-routed (na1, euw1, ...) rather than continental;
+    // callers get the platform from the match they're reporting (info.platform_id)
+    pub async fn get_league_entries(
+        &self,
+        puuid: &str,
+        platform: &str,
+    ) -> Result<Vec<LeagueEntry>, reqwest::Error> {
+        let url = format!(
+            "https://{}.api.riotgames.com/lol/league/v4/entries/by-puuid/{}",
+            platform, puuid
+        );
+
+        self.http
+            .get(url)
+            .header("X-Riot-Token", &self.api_key)
+            .send()
+            .await?
+            .json::<Vec<LeagueEntry>>()
+            .await
+    }
+
     // Unlike account-v1, match-v5 results only come back non-empty from the
     // continental cluster the account's platform actually belongs to, so we
     // have to probe each one. Returns None if the account has no match history
@@ -130,6 +151,10 @@ pub struct MatchMetadata {
 pub struct MatchInfo {
     pub game_mode: String,
     pub game_duration: u64,
+    // epoch millis when the game started
+    pub game_start_timestamp: u64,
+    // distinguishes ranked solo vs flex vs normals, which game_mode can't
+    pub queue_id: u32,
     pub platform_id: String,
     pub participants: Vec<MatchParticipant>,
 }
@@ -144,4 +169,25 @@ pub struct MatchParticipant {
     pub champion_name: String,
     pub kills: u32,
     pub deaths: u32,
+    pub assists: u32,
+    pub win: bool,
+    pub total_minions_killed: u32,
+    pub neutral_minions_killed: u32,
+    pub total_damage_dealt_to_champions: u32,
+    pub largest_multi_kill: u32,
+    #[serde(default)]
+    pub game_ended_in_surrender: bool,
+}
+
+// entry from /lol/league/v4/entries/by-puuid/{puuid}; one per ranked queue
+// the player has placed in this season
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeagueEntry {
+    // "RANKED_SOLO_5x5" or "RANKED_FLEX_SR"
+    pub queue_type: String,
+    pub tier: String,
+    // division within the tier: "I".."IV"
+    pub rank: String,
+    pub league_points: i32,
 }
