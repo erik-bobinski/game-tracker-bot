@@ -4,6 +4,16 @@ use serde::Deserialize;
 // exactly one of these; there's no way to know which without asking or probing.
 const MATCH_REGIONS: [&str; 4] = ["americas", "asia", "europe", "sea"];
 
+// League-V4 platform hosts grouped by the continental cluster they route
+// through, so a continental region (the only region a stored account carries)
+// can be probed for the platform it actually belongs to.
+const PLATFORMS_BY_CONTINENT: [(&str, &[&str]); 4] = [
+    ("americas", &["na1", "br1", "la1", "la2"]),
+    ("asia", &["kr", "jp1"]),
+    ("europe", &["euw1", "eun1", "tr1", "ru"]),
+    ("sea", &["oc1", "ph2", "sg2", "th2", "tw2", "vn2"]),
+];
+
 pub struct RiotClient {
     http: reqwest::Client,
     api_key: String,
@@ -105,6 +115,42 @@ impl RiotClient {
             .await?
             .json::<Vec<LeagueEntry>>()
             .await
+    }
+
+    // League-v4 is platform-routed and a stored account only knows its
+    // continental region (never a match's platform_id), so this probes each
+    // platform in that continent until one accepts the puuid. Returns None if
+    // the account doesn't belong to any known platform in the continent.
+    pub async fn find_league_entries(
+        &self,
+        puuid: &str,
+        continental_region: &str,
+    ) -> Result<Option<(String, Vec<LeagueEntry>)>, reqwest::Error> {
+        let platforms = PLATFORMS_BY_CONTINENT
+            .iter()
+            .find(|(region, _)| *region == continental_region)
+            .map(|(_, platforms)| *platforms)
+            .unwrap_or(&[]);
+
+        for platform in platforms {
+            let url = format!(
+                "https://{}.api.riotgames.com/lol/league/v4/entries/by-puuid/{}",
+                platform, puuid
+            );
+            let response = self
+                .http
+                .get(url)
+                .header("X-Riot-Token", &self.api_key)
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let entries = response.json::<Vec<LeagueEntry>>().await?;
+                return Ok(Some((platform.to_string(), entries)));
+            }
+        }
+
+        Ok(None)
     }
 
     // Unlike account-v1, match-v5 results only come back non-empty from the

@@ -62,6 +62,22 @@ impl HenrikClient {
             .collect())
     }
 
+    // current competitive standing, including the rank emblem image urls used
+    // to make /rank-check's output legible at a glance
+    pub async fn get_current_mmr(&self, puuid: &str, region: &str) -> Result<CurrentMmr, reqwest::Error> {
+        let url = format!("{}/valorant/v2/by-puuid/mmr/{}/{}", self.base_url, region, puuid);
+
+        Ok(self
+            .http
+            .get(url)
+            .header("Authorization", &self.api_key)
+            .send()
+            .await?
+            .json::<HenrikResponse<CurrentMmr>>()
+            .await?
+            .data)
+    }
+
     // recent competitive games with the RR change each caused; callers join
     // entries back to a reported match by match_id. only competitive matches
     // appear here, so a missing entry just means the match wasn't ranked (or
@@ -209,4 +225,29 @@ pub struct MmrHistoryEntry {
     // spells this without the underscore
     #[serde(rename = "currenttierpatched")]
     pub currenttier_patched: String,
+}
+
+// response from /valorant/v2/by-puuid/mmr/{region}/{puuid}
+#[derive(Debug, Deserialize)]
+pub struct CurrentMmr {
+    pub current_data: CurrentMmrData,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CurrentMmrData {
+    // unranked players still get a row here with currenttier 0 ("Unrated") and
+    // no images, so callers don't need a separate "no rank yet" branch
+    #[serde(rename = "currenttierpatched")]
+    pub currenttier_patched: String,
+    #[serde(default)]
+    pub ranking_in_tier: i32,
+    #[serde(default)]
+    pub images: MmrImages,
+}
+
+// rank emblem urls henrik bundles per tier; large makes a good embed thumbnail
+#[derive(Debug, Default, Deserialize)]
+pub struct MmrImages {
+    #[serde(default)]
+    pub large: String,
 }

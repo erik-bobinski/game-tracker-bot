@@ -1,4 +1,5 @@
 pub mod pause;
+pub mod rank_check;
 pub mod resume;
 pub mod signout;
 pub mod signup;
@@ -11,5 +12,6 @@ pub fn all() -> Vec<poise::Command<Data, Error>> {
         signout::signout(),
         pause::pause(),
         resume::resume(),
+        rank_check::rank_check(),
     ]
 }

@@ -60,6 +60,12 @@ pub struct DatabaseAccount {
     pub reported_val_match_ids: Vec<String>,
     pub lol_puuid: String,
     pub lol_region: Option<String>,
+    // league-v4 platform host (na1, euw1, ...); unlike lol_region (continental,
+    // detected via match-v5 probing) this can only be learned from a match's
+    // platform_id or by probing league-v4 itself, so it's cached here once known
+    // to save repeat probing on every /rank-check
+    #[serde(default)]
+    pub lol_platform: Option<String>,
     #[serde(default)]
     pub reported_lol_match_ids: Vec<String>,
     // keyed by league-v4 queue type ("RANKED_SOLO_5x5" / "RANKED_FLEX_SR");

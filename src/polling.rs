@@ -263,6 +263,9 @@ pub async fn run(
                 let platform = summary.info.platform_id.to_ascii_lowercase();
 
                 for &i in &involved {
+                    // cache it so /rank-check doesn't have to probe for it later
+                    accounts[i].lol_platform = Some(platform.clone());
+
                     let entries = match riot_client
                         .get_league_entries(&accounts[i].lol_puuid, &platform)
                         .await
