@@ -177,7 +177,7 @@ async fn lol_rank(ctx: &Context<'_>, account: &DatabaseAccount, user: &User) -> 
             queue_label
         ))
         .colour(0x0AC8B9) // league teal
-        .thumbnail(format!(
+        .image(format!(
             "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-{}.png",
             entry.tier.to_ascii_lowercase()
         ));
