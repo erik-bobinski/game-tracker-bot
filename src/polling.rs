@@ -253,6 +253,8 @@ pub async fn run(
                 .await
             {
                 eprintln!("failed to send val match notification: {e}");
+                // Leave the match unreported so a later poll can retry delivery.
+                continue;
             }
 
             for &i in &involved {
@@ -296,6 +298,8 @@ pub async fn run(
             // LP changes for tracked players in ranked queues, diffed against the
             // last league-v4 snapshot stored for that queue
             let mut rank_updates: HashMap<String, discord::RankUpdate> = HashMap::new();
+            let mut pending_rank_snapshots: Vec<(usize, String, db::LolRankSnapshot)> =
+                Vec::new();
             let ranked_queue = match summary.info.queue_id {
                 420 => Some("RANKED_SOLO_5x5"),
                 440 => Some("RANKED_FLEX_SR"),
@@ -351,14 +355,15 @@ pub async fn run(
                             unit: "LP",
                         },
                     );
-                    accounts[i].lol_rank_snapshots.insert(
+                    pending_rank_snapshots.push((
+                        i,
                         queue_type.to_string(),
                         db::LolRankSnapshot {
                             tier: entry.tier,
                             division: entry.rank,
                             league_points: entry.league_points,
                         },
-                    );
+                    ));
                 }
             }
 
@@ -381,6 +386,13 @@ pub async fn run(
                 .await
             {
                 eprintln!("failed to send lol match notification: {e}");
+                // Preserve both the reported-id ring and previous rank snapshot so
+                // the retry reports the original LP change.
+                continue;
+            }
+
+            for (i, queue_type, snapshot) in pending_rank_snapshots {
+                accounts[i].lol_rank_snapshots.insert(queue_type, snapshot);
             }
 
             for &i in &involved {
