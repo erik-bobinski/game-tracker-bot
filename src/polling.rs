@@ -12,6 +12,12 @@ use crate::riot_api::{
     valorant::{self, HenrikClient},
 };
 
+// Match history is a recovery-oriented API: a successful response can fill holes
+// left by earlier processing delays or failed polls. Do not turn those old holes
+// into a burst of stale Discord notifications. Fifteen minutes leaves room for
+// Henrik/Riot processing lag while still treating this as a live tracker.
+const MAX_VAL_REPORT_DELAY_SECS: u64 = 15 * 60;
+
 pub async fn run(
     http: Arc<serenity::http::Http>,
     db: Arc<tokio::sync::Mutex<Database>>,
@@ -21,6 +27,7 @@ pub async fn run(
     paused: Arc<AtomicBool>,
 ) {
     let mut interval = tokio::time::interval(Duration::from_secs(60));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         interval.tick().await;
@@ -29,6 +36,7 @@ pub async fn run(
             continue;
         }
 
+        let poll_epoch_secs = chrono::Utc::now().timestamp().max(0) as u64;
         let mut accounts = db.lock().await.get_accounts();
 
         // matches discovered this cycle that still need reporting, deduped across
@@ -58,7 +66,13 @@ pub async fn run(
                     .await
                 {
                     Ok(matches) => matches,
-                    Err(_) => Vec::new(),
+                    Err(e) => {
+                        eprintln!(
+                            "failed to poll valorant matches for discord user {}: {e}",
+                            account.discord_user_id
+                        );
+                        Vec::new()
+                    }
                 };
 
                 if account.reported_val_match_ids.is_empty() {
@@ -75,6 +89,25 @@ pub async fn run(
                         {
                             continue;
                         }
+
+                        if !is_recent_val_match(
+                            m.metadata.game_start,
+                            m.metadata.game_length,
+                            poll_epoch_secs,
+                        ) {
+                            // Remember a stale history backfill without notifying so it
+                            // cannot be reconsidered on every subsequent poll.
+                            db::remember_match(
+                                &mut account.reported_val_match_ids,
+                                &m.metadata.matchid,
+                            );
+                            eprintln!(
+                                "skipping stale valorant match {} for discord user {}",
+                                m.metadata.matchid, account.discord_user_id
+                            );
+                            continue;
+                        }
+
                         let already_pending = pending_val_matches.iter().any(|p| {
                             p.metadata.matchid.eq_ignore_ascii_case(&m.metadata.matchid)
                         });
@@ -141,6 +174,10 @@ pub async fn run(
                 }
             }
         }
+
+        // History endpoints return newest first, which reads backwards when more
+        // than one legitimate notification is discovered in a single cycle.
+        pending_val_matches.sort_by_key(|m| m.metadata.game_start);
 
         for m in &pending_val_matches {
             // every tracked account in the lobby, in tracked-account order; the
@@ -363,5 +400,43 @@ fn title_case(s: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase(),
         None => String::new(),
+    }
+}
+
+fn is_recent_val_match(game_start: u64, game_length: u64, poll_epoch_secs: u64) -> bool {
+    // Metadata defaults to zero for unusual modes that omit timing. Keep those
+    // reportable instead of silently discarding a match we cannot date.
+    if game_start == 0 {
+        return true;
+    }
+
+    let completed_at = game_start.saturating_add(game_length);
+    poll_epoch_secs.saturating_sub(completed_at) <= MAX_VAL_REPORT_DELAY_SECS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_recent_val_match, MAX_VAL_REPORT_DELAY_SECS};
+
+    #[test]
+    fn accepts_matches_completed_within_delivery_window() {
+        let now = 10_000;
+        let completed_at = now - MAX_VAL_REPORT_DELAY_SECS;
+
+        assert!(is_recent_val_match(completed_at - 2_000, 2_000, now));
+    }
+
+    #[test]
+    fn rejects_matches_completed_before_delivery_window() {
+        let now = 10_000;
+        let completed_at = now - MAX_VAL_REPORT_DELAY_SECS - 1;
+
+        assert!(!is_recent_val_match(completed_at - 2_000, 2_000, now));
+    }
+
+    #[test]
+    fn accepts_missing_or_future_timing_metadata() {
+        assert!(is_recent_val_match(0, 0, 10_000));
+        assert!(is_recent_val_match(10_100, 2_000, 10_000));
     }
 }

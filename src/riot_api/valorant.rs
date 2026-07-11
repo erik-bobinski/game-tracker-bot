@@ -23,6 +23,7 @@ impl HenrikClient {
             .header("Authorization", &self.api_key)
             .send()
             .await?
+            .error_for_status()?
             .json::<HenrikResponse<AccountData>>()
             .await?
             .data)
@@ -45,6 +46,7 @@ impl HenrikClient {
             .header("Authorization", &self.api_key)
             .send()
             .await?
+            .error_for_status()?
             .json::<HenrikResponse<Vec<RawMatchSummary>>>()
             .await?
             .data
@@ -73,6 +75,7 @@ impl HenrikClient {
             .header("Authorization", &self.api_key)
             .send()
             .await?
+            .error_for_status()?
             .json::<HenrikResponse<CurrentMmr>>()
             .await?
             .data)
@@ -98,6 +101,7 @@ impl HenrikClient {
             .header("Authorization", &self.api_key)
             .send()
             .await?
+            .error_for_status()?
             .json::<HenrikResponse<Vec<MmrHistoryEntry>>>()
             .await?
             .data)
