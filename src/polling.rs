@@ -15,7 +15,8 @@ use crate::riot_api::{
 // Match history is a recovery-oriented API: a successful response can fill holes
 // left by earlier processing delays or failed polls. Do not turn those old holes
 // into a burst of stale Discord notifications. Fifteen minutes leaves room for
-// Henrik/Riot processing lag while still treating this as a live tracker.
+// normal Henrik/Riot processing lag while still treating this as a live tracker.
+// This intentionally suppresses catch-up after longer pauses, outages, or restarts.
 const MAX_VAL_REPORT_DELAY_SECS: u64 = 15 * 60;
 
 pub async fn run(
@@ -177,7 +178,7 @@ pub async fn run(
 
         // History endpoints return newest first, which reads backwards when more
         // than one legitimate notification is discovered in a single cycle.
-        pending_val_matches.sort_by_key(|m| m.metadata.game_start);
+        pending_val_matches.sort_by_key(|m| val_match_sort_key(m.metadata.game_start));
 
         for m in &pending_val_matches {
             // every tracked account in the lobby, in tracked-account order; the
@@ -208,7 +209,13 @@ pub async fn run(
                         .await
                     {
                         Ok(history) => history,
-                        Err(_) => continue,
+                        Err(e) => {
+                            eprintln!(
+                                "failed to fetch valorant MMR history for discord user {} while reporting match {}: {e}",
+                                accounts[i].discord_user_id, m.metadata.matchid
+                            );
+                            continue;
+                        }
                     };
 
                     if let Some(entry) = history
@@ -414,9 +421,14 @@ fn is_recent_val_match(game_start: u64, game_length: u64, poll_epoch_secs: u64) 
     poll_epoch_secs.saturating_sub(completed_at) <= MAX_VAL_REPORT_DELAY_SECS
 }
 
+fn val_match_sort_key(game_start: u64) -> (bool, u64) {
+    // Unknown timestamps should not masquerade as the oldest possible match.
+    (game_start == 0, game_start)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{is_recent_val_match, MAX_VAL_REPORT_DELAY_SECS};
+    use super::{is_recent_val_match, val_match_sort_key, MAX_VAL_REPORT_DELAY_SECS};
 
     #[test]
     fn accepts_matches_completed_within_delivery_window() {
@@ -438,5 +450,14 @@ mod tests {
     fn accepts_missing_or_future_timing_metadata() {
         assert!(is_recent_val_match(0, 0, 10_000));
         assert!(is_recent_val_match(10_100, 2_000, 10_000));
+    }
+
+    #[test]
+    fn sorts_known_match_times_oldest_first_and_unknown_times_last() {
+        let mut starts = [300, 0, 100, 200];
+
+        starts.sort_by_key(|start| val_match_sort_key(*start));
+
+        assert_eq!(starts, [100, 200, 300, 0]);
     }
 }
