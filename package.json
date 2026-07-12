@@ -1,0 +1,22 @@
+{
+  "name": "riot-tracker-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "type": "module",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.19.0",
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "discord-api-types": "^0.38.49",
+    "discord.js": "^14.26.5",
+    "effect": "4.0.0-beta.97"
+  }
+}

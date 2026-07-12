@@ -1,3 +1,5 @@
 /target
 .env*
 accounts.test.json
+*node_modules/
+*nvim.log
