@@ -3,3 +3,6 @@
 accounts.test.json
 *node_modules/
 *nvim.log
+*.pnpm-store
+*.sqlite
+*.sqlite-*

@@ -1,3 +1,4 @@
 {
-  "todo-tree.ripgrep.ripgrep": "/usr/local/bin/rg"
+  "todo-tree.ripgrep.ripgrep": "/usr/local/bin/rg",
+  "js/ts.experimental.useTsgo": true
 }
