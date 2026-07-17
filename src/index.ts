@@ -1,7 +1,7 @@
 import { NodeRuntime } from "@effect/platform-node";
 import { DiscordGateway } from "dfx/gateway";
 import { Effect, Layer } from "effect";
-import { Polling, PollingLive } from "./polling.js";
+import { Polling, PollingLive } from "./services/polling/index.js";
 import { DatabaseLive } from "./services/database/index.js";
 import { DiscordLive } from "./services/discord/index.js";
 import { GameAdaptersLive } from "./services/game-adapters/index.js";

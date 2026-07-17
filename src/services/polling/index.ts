@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schedule } from "effect";
-import { MatchEngine } from "./services/match-engine/index.js";
+import { MatchEngine } from "../match-engine/index.js";
 
 export class Polling extends Context.Service<
   Polling,
