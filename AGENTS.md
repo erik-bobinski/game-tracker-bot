@@ -2,6 +2,7 @@ This a repo for a discord bot that reports newly completed matches of video game
 
 ## General Points
 
+- Respond concisely unless told otherwise
 - Do not write code unless explicitly asked - default to review and suggest code unless warranted otherwise
 - Simplicity and maintainability over all else
 - If a simpler approach exists, say so and push back when warranted
