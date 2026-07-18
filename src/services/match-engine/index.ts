@@ -23,7 +23,10 @@ const makeMatchEngine = Effect.gen(function* () {
         if (!gameState) continue;
 
         // gameState.reportedMatchIds is the ring buffer for this game.
-        // TODO: Ask the adapter for recent matches.
+
+        // Ask the adapter for recent matches.
+        const recentmatches = yield* adapter.getRecentMatches(gameState.puuid);
+
         // TODO: Compare candidates with reportedMatchIds.
         // TODO: Send notifications through Discord.
         // TODO: Mark matches as reported only after successful delivery.

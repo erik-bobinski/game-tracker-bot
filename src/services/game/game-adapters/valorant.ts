@@ -1,6 +1,17 @@
-import type { GameAdapter } from "./contract.js";
+import { Effect } from "effect";
+import { HenrikApiClient } from "../game-api/val/henrik-api-client.js";
+import type { GameAdapter } from "./index.js";
 
-// TODO: Implement the GameAdapter contract using HenrikApiClient.
-export const makeValorantGameAdapter = (): GameAdapter => {
-  throw new Error("Not implemented");
-};
+// TODO: implement getRecentMatches via HenrikApiClient.
+export const makeValorantGameAdapter = Effect.gen(function* () {
+  const henrikClient = yield* HenrikApiClient;
+
+  const adapter: GameAdapter = {
+    game: "valorant",
+    resolveAccount: henrikClient.getAccountByRiotId,
+    getRecentMatches: () =>
+      Effect.die("makeValorantGameAdapter.getRecentMatches not implemented"),
+  };
+
+  return adapter;
+});

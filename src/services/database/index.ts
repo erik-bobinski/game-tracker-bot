@@ -3,7 +3,7 @@ import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-node";
 import { SqlSchema } from "effect/unstable/sql";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
-import { GameId } from "../game/index.js";
+import { GameId, Puuid } from "../game/index.js";
 
 // -----------------------------------------------------------------------------
 // Domain model and service contract
@@ -11,7 +11,7 @@ import { GameId } from "../game/index.js";
 
 // Per-game state for an account
 const GameState = Schema.Struct({
-  puuid: Schema.String,
+  puuid: Puuid,
   reportedMatchIds: Schema.Array(Schema.String),
 });
 interface GameState extends Schema.Schema.Type<typeof GameState> {}
@@ -56,7 +56,7 @@ const AccountRow = Schema.Struct({
 const GameRow = Schema.Struct({
   discordUserId: Schema.String,
   game: GameId,
-  puuid: Schema.String,
+  puuid: Puuid,
   reportedMatchIds: ReportedMatchIds,
 });
 
