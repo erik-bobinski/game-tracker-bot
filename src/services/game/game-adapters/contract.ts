@@ -1,6 +1,5 @@
 import { Effect } from "effect";
-
-export type GameId = "lol" | "valorant";
+import { type GameId } from "../index.js";
 
 export interface GameAccount {
   readonly game: GameId;

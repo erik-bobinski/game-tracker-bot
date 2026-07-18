@@ -1,5 +1,6 @@
 import { Context, Effect, Layer } from "effect";
-import type { GameAdapter, GameId } from "./contract.js";
+import type { GameAdapter } from "./contract.js";
+import type { GameId } from "../index.js";
 
 export class GameAdapters extends Context.Service<
   GameAdapters,
