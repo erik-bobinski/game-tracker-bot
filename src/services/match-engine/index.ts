@@ -1,6 +1,9 @@
 import { Context, Effect, Layer } from "effect";
 import { Database } from "../database/index.js";
-import { GameAdapters } from "../game/game-adapters/index.js";
+import {
+  GameAdapters,
+  type MatchCandidate,
+} from "../game/game-adapters/index.js";
 
 export class MatchEngine extends Context.Service<
   MatchEngine,
@@ -22,18 +25,22 @@ const makeMatchEngine = Effect.gen(function* () {
         const gameState = account.games[adapter.game];
         if (!gameState) continue;
 
-        // gameState.reportedMatchIds is the ring buffer for this game.
+        const storedMatchIds = new Set(
+          gameState.reportedMatches.map((m) => m.matchId),
+        );
+        const latestStoredDate = gameState.reportedMatches.reduce(
+          (max, m) => (m.date > max ? m.date : max),
+          0,
+        );
 
-        // Ask the adapter for recent matches.
-        const recentmatches = yield* adapter.getRecentMatches(gameState.puuid);
+        const recentMatches = yield* adapter.getRecentMatches(gameState.puuid);
+        // Newest timestamp we've already reported. Seed with 0 so a brand-new
+        const matchesToReport = recentMatches.filter(
+          (rm) => !storedMatchIds.has(rm.matchId) && rm.date > latestStoredDate,
+        );
 
-        // TODO: Compare candidates with reportedMatchIds.
         // TODO: Send notifications through Discord.
         // TODO: Mark matches as reported only after successful delivery.
-        yield* Effect.logDebug(
-          `Polling ${account.discordUserId} for ${adapter.game} ` +
-            `(${gameState.reportedMatchIds.length} reported)`,
-        );
       }
     }
   });
