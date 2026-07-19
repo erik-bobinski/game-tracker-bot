@@ -8,7 +8,6 @@ import {
 export class MatchEngine extends Context.Service<
   MatchEngine,
   {
-    // Performs one polling cycle
     readonly pollOnce: () => Effect.Effect<void, unknown>;
   }
 >()("app/MatchEngine") {}
@@ -34,7 +33,6 @@ const makeMatchEngine = Effect.gen(function* () {
         );
 
         const recentMatches = yield* adapter.getRecentMatches(gameState.puuid);
-        // Newest timestamp we've already reported. Seed with 0 so a brand-new
         const matchesToReport = recentMatches.filter(
           (rm) => !storedMatchIds.has(rm.matchId) && rm.date > latestStoredDate,
         );
