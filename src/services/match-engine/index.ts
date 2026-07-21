@@ -16,6 +16,9 @@ const makeMatchEngine = Effect.gen(function* () {
   const pollOnce = Effect.gen(function* () {
     const accounts = yield* database.getAccounts();
 
+    // TODO: restructure match engine to get all user's new match IDs batched per-game
+    // for each match fetch its full details, find all tracked users, build the embed, send notification
+    // then mark reported for each user involved
     for (const account of accounts) {
       for (const adapter of gameAdapters.all) {
         const gameState = account.games[adapter.game];
