@@ -25,6 +25,7 @@ export interface GameAdapter {
     HttpClientError.HttpClientError | Schema.SchemaError
   >;
 
+  // use URL param to limit to 3 matches returned since we're polling every minute
   readonly getRecentMatches: (
     puuid: Puuid,
   ) => Effect.Effect<ReadonlyArray<MatchCandidate>>;
