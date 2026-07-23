@@ -1,10 +1,10 @@
 import { Context, Effect, Layer } from "effect";
-import { Database } from "../database/index.js";
+import { Database } from "../database/index.ts";
 import {
   GameAdapters,
   type MatchCandidate,
-} from "../game/game-adapters/index.js";
-import { GameId, MatchId } from "../game/index.js";
+} from "../game/game-adapters/index.ts";
+import { GameId, MatchId } from "../game/index.ts";
 
 export class MatchEngine extends Context.Service<
   MatchEngine,

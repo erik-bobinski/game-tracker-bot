@@ -1,13 +1,13 @@
 import { NodeHttpClient, NodeRuntime } from "@effect/platform-node";
 import { DiscordGateway } from "dfx/gateway";
 import { Effect, Layer } from "effect";
-import { Polling, PollingLive } from "./services/polling/index.js";
-import { DatabaseLive } from "./services/database/index.js";
-import { DiscordLive } from "./services/discord/index.js";
-import { GameAdaptersLive } from "./services/game/game-adapters/index.js";
-import { RiotApiLive } from "./services/game/game-api/lol/riot-api-client.js";
-import { HenrikApiClientLive } from "./services/game/game-api/val/henrik-api-client.js";
-import { MatchEngineLive } from "./services/match-engine/index.js";
+import { Polling, PollingLive } from "./services/polling/index.ts";
+import { DatabaseLive } from "./services/database/index.ts";
+import { DiscordLive } from "./services/discord/index.ts";
+import { GameAdaptersLive } from "./services/game/game-adapters/index.ts";
+import { RiotApiLive } from "./services/game/game-api/lol/riot-api-client.ts";
+import { HenrikApiClientLive } from "./services/game/game-api/val/henrik-api-client.ts";
+import { MatchEngineLive } from "./services/match-engine/index.ts";
 
 const main = Effect.gen(function* () {
   const polling = yield* Polling;

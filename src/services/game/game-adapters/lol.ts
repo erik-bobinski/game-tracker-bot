@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { RiotApiClient } from "../game-api/lol/riot-api-client.js";
-import type { GameAdapter } from "./index.js";
-import type { Puuid } from "../index.js";
+import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
+import type { GameAdapter } from "./index.ts";
+import type { Puuid } from "../index.ts";
 
 // TODO: implement getRecentMatches via RiotApi (Match-V5).
 export const makeLolGameAdapter = Effect.gen(function* () {

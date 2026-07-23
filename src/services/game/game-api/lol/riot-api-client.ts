@@ -2,7 +2,7 @@ import { Config, Context, Effect, Layer, Redacted, Schema } from "effect";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
-import { Puuid } from "../../index.js";
+import { Puuid } from "../../index.ts";
 
 export class RiotApiClient extends Context.Service<
   RiotApiClient,

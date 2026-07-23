@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { HenrikApiClient } from "../game-api/val/henrik-api-client.js";
-import type { GameAdapter } from "./index.js";
-import type { Puuid } from "../index.js";
+import { HenrikApiClient } from "../game-api/val/henrik-api-client.ts";
+import type { GameAdapter } from "./index.ts";
+import type { Puuid } from "../index.ts";
 
 // TODO: implement getRecentMatches via HenrikApiClient.
 export const makeValorantGameAdapter = Effect.gen(function* () {

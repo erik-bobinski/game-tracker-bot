@@ -1,6 +1,6 @@
 // Raw decode schemas for LoL APIs
 import { Effect, Schema, SchemaGetter } from "effect";
-import { MatchId, Puuid } from "../../index.js";
+import { MatchId, Puuid } from "../../index.ts";
 
 // A field that Riot may omit; decodes to `fallback` when the key is absent.
 const withDefault = <S extends Schema.Top>(schema: S, fallback: S["Type"]) =>

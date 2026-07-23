@@ -3,8 +3,8 @@ import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-node";
 import { SqlSchema } from "effect/unstable/sql";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
-import { GameId, MatchId, Puuid } from "../game/index.js";
-import { EpochMillis } from "../game/game-adapters/index.js";
+import { GameId, MatchId, Puuid } from "../game/index.ts";
+import { EpochMillis } from "../game/game-adapters/index.ts";
 
 // -----------------------------------------------------------------------------
 // Domain model and service contract
