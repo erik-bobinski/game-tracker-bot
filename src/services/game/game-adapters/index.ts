@@ -1,14 +1,14 @@
 // Base game adapter service and contract to fulfill on game's impl
 import { Context, Effect, Layer, Schema } from "effect";
 import type * as HttpClientError from "effect/unstable/http/HttpClientError";
-import type { GameId, Puuid } from "../index.js";
+import type { GameId, MatchId, Puuid } from "../index.js";
 import { makeLolGameAdapter } from "./lol.js";
 import { makeValorantGameAdapter } from "./valorant.js";
 
 export const EpochMillis = Schema.Number.pipe(Schema.brand("EpochMillis"));
 export type EpochMillis = typeof EpochMillis.Type;
 export interface MatchCandidate {
-  readonly matchId: string;
+  readonly matchId: MatchId;
   readonly game: GameId;
   readonly date: EpochMillis;
 }

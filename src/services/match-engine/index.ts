@@ -1,6 +1,10 @@
 import { Context, Effect, Layer } from "effect";
 import { Database } from "../database/index.js";
-import { GameAdapters } from "../game/game-adapters/index.js";
+import {
+  GameAdapters,
+  type MatchCandidate,
+} from "../game/game-adapters/index.js";
+import { GameId, MatchId } from "../game/index.js";
 
 export class MatchEngine extends Context.Service<
   MatchEngine,
@@ -14,13 +18,13 @@ const makeMatchEngine = Effect.gen(function* () {
   const gameAdapters = yield* GameAdapters;
 
   const pollOnce = Effect.gen(function* () {
-    const accounts = yield* database.getAccounts();
+    const accounts = yield* database.getAccounts(); // retrieve fresh accts from DB per-poll
 
-    // TODO: restructure match engine to get all user's new match IDs batched per-game
-    // for each match fetch its full details, find all tracked users, build the embed, send notification
-    // then mark reported for each user involved
-    for (const account of accounts) {
-      for (const adapter of gameAdapters.all) {
+    // unreported matches, grouped by game, grouped by matchId
+    const matchesToReport = new Map<GameId, Map<MatchId, MatchCandidate>>();
+    for (const adapter of gameAdapters.all) {
+      const matchesPerGame = new Map<MatchId, MatchCandidate>();
+      for (const account of accounts) {
         const gameState = account.games[adapter.game];
         if (!gameState) continue;
 
@@ -33,14 +37,16 @@ const makeMatchEngine = Effect.gen(function* () {
         );
 
         const recentMatches = yield* adapter.getRecentMatches(gameState.puuid);
-        const matchesToReport = recentMatches.filter(
-          (rm) => !storedMatchIds.has(rm.matchId) && rm.date > latestStoredDate,
+        const unreportedMatches = recentMatches.filter(
+          (m) => !storedMatchIds.has(m.matchId) && m.date > latestStoredDate,
         );
-
-        // TODO: Send notifications through Discord.
-        // TODO: Mark matches as reported only after successful delivery.
+        for (const m of unreportedMatches) matchesPerGame.set(m.matchId, m);
       }
+      matchesToReport.set(adapter.game, matchesPerGame);
     }
+
+    // TODO: Send notifications through Discord.
+    // TODO: Mark matches as reported only after successful delivery.
   });
 
   return MatchEngine.of({ pollOnce: () => pollOnce });

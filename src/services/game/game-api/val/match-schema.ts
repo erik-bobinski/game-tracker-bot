@@ -1,6 +1,6 @@
 // Raw decode schemas for Henrik(Val) APIs.
 import { Effect, Schema, SchemaGetter } from "effect";
-import { Puuid } from "../../index.js";
+import { MatchId, Puuid } from "../../index.js";
 
 // A field HenrikDev may omit; decodes to `fallback` when the key is absent.
 const withDefault = <S extends Schema.Top>(schema: S, fallback: S["Type"]) =>
@@ -25,7 +25,7 @@ export const ValMatchMetadata = Schema.Struct({
   game_length: Schema.Number,
   game_start: withDefault(Schema.Number, 0),
   rounds_played: withDefault(Schema.Number, 0),
-  matchid: Schema.String,
+  matchid: MatchId,
 });
 export interface ValMatchMetadata extends Schema.Schema.Type<
   typeof ValMatchMetadata
@@ -104,7 +104,7 @@ export const ValMatchesResponse = HenrikResponse(Schema.Array(ValRawMatch));
 // -----------------------------------------------------------------------------
 
 export const ValMmrHistoryEntry = Schema.Struct({
-  match_id: Schema.String,
+  match_id: MatchId,
   mmr_change_to_last_game: Schema.Number,
   currenttierpatched: Schema.String,
 });

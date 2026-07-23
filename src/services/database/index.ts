@@ -3,7 +3,7 @@ import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-node";
 import { SqlSchema } from "effect/unstable/sql";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
-import { GameId, Puuid } from "../game/index.js";
+import { GameId, MatchId, Puuid } from "../game/index.js";
 import { EpochMillis } from "../game/game-adapters/index.js";
 
 // -----------------------------------------------------------------------------
@@ -11,7 +11,7 @@ import { EpochMillis } from "../game/game-adapters/index.js";
 // -----------------------------------------------------------------------------
 
 const ReportedMatch = Schema.Struct({
-  matchId: Schema.String,
+  matchId: MatchId,
   date: EpochMillis,
 });
 
@@ -193,12 +193,10 @@ const makeDatabase = Effect.gen(function* () {
       gamesByUser.set(row.discordUserId, games);
     }
 
-    return accountRows.map(
-      (row): Account => ({
-        ...row,
-        games: gamesByUser.get(row.discordUserId) ?? {},
-      }),
-    );
+    return accountRows.map((row): Account => ({
+      ...row,
+      games: gamesByUser.get(row.discordUserId) ?? {},
+    }));
   });
 
   return Database.of({ addAccount, getAccounts });

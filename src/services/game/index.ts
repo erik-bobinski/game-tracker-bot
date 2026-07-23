@@ -8,3 +8,6 @@ export type GameId = typeof GameId.Type;
 // A Riot puuid, branded so it can't be mixed up with other id strings
 export const Puuid = Schema.String.pipe(Schema.brand("Puuid"));
 export type Puuid = typeof Puuid.Type;
+
+export const MatchId = Schema.String.pipe(Schema.brand("MatchId"));
+export type MatchId = typeof MatchId.Type;
