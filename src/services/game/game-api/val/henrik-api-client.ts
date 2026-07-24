@@ -3,6 +3,7 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
 import { Puuid } from "../../index.ts";
+import { ValMatchesResponse, type ValRawMatch } from "./match-schema.ts";
 
 export class HenrikApiClient extends Context.Service<
   HenrikApiClient,
@@ -12,6 +13,13 @@ export class HenrikApiClient extends Context.Service<
       tag: string,
     ) => Effect.Effect<
       Puuid,
+      HttpClientError.HttpClientError | Schema.SchemaError
+    >;
+    getRecentMatches: (
+      puuid: Puuid,
+      count: number,
+    ) => Effect.Effect<
+      ReadonlyArray<ValRawMatch>,
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
   }
@@ -25,6 +33,10 @@ export const HenrikApiClientLive = Layer.effect(
   HenrikApiClient,
   Effect.gen(function* () {
     const apiKey = yield* Config.redacted("HENRIK_API_KEY");
+    // TODO: replace with per-account region once Database stores it.
+    const region = yield* Config.string("VAL_REGION").pipe(
+      Config.withDefault("na"),
+    );
     const client = (yield* HttpClient.HttpClient).pipe(
       HttpClient.mapRequest(
         HttpClientRequest.prependUrl("https://api.henrikdev.xyz"),
@@ -50,6 +62,19 @@ export const HenrikApiClientLive = Layer.effect(
       },
     );
 
-    return HenrikApiClient.of({ getAccountByRiotId });
+    const getRecentMatches = Effect.fn("HenrikApiClient.getRecentMatches")(
+      function* (puuid: Puuid, count: number) {
+        const res = yield* client.get(
+          `/valorant/v3/by-puuid/matches/${region}/${encodeURIComponent(puuid)}?size=${count}`,
+        );
+        const json = yield* res.json;
+        const { data } = yield* Schema.decodeUnknownEffect(ValMatchesResponse)(
+          json,
+        );
+        return data;
+      },
+    );
+
+    return HenrikApiClient.of({ getAccountByRiotId, getRecentMatches });
   }),
 );

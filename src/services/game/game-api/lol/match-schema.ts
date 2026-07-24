@@ -1,6 +1,6 @@
 // Raw decode schemas for LoL APIs
 import { Effect, Schema, SchemaGetter } from "effect";
-import { MatchId, Puuid } from "../../index.ts";
+import { EpochMillis, MatchId, Puuid } from "../../index.ts";
 
 // A field that Riot may omit; decodes to `fallback` when the key is absent.
 const withDefault = <S extends Schema.Top>(schema: S, fallback: S["Type"]) =>
@@ -40,8 +40,7 @@ export const LolMatchInfo = Schema.Struct({
   gameMode: Schema.String,
   // seconds
   gameDuration: Schema.Number,
-  // epoch millis
-  gameStartTimestamp: Schema.Number,
+  gameStartTimestamp: EpochMillis,
   // distinguishes ranked solo (420) vs flex (440) vs normals, which gameMode can't
   queueId: Schema.Number,
   // platform host the match ran on (na1, euw1, ...); league-v4 is routed by this

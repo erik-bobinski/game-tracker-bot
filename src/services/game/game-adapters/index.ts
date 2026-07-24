@@ -1,17 +1,17 @@
 // Base game adapter service and contract to fulfill on game's impl
 import { Context, Effect, Layer, Schema } from "effect";
 import type * as HttpClientError from "effect/unstable/http/HttpClientError";
-import type { GameId, MatchId, Puuid } from "../index.ts";
+import { GameId, type MatchCandidate, type Puuid } from "../index.ts";
 import { makeLolGameAdapter } from "./lol.ts";
 import { makeValorantGameAdapter } from "./valorant.ts";
 
-export const EpochMillis = Schema.Number.pipe(Schema.brand("EpochMillis"));
-export type EpochMillis = typeof EpochMillis.Type;
-export interface MatchCandidate {
-  readonly matchId: MatchId;
-  readonly game: GameId;
-  readonly date: EpochMillis;
-}
+// Cap per-poll fetches; we poll every minute so 3 is plenty.
+export const RECENT_MATCH_COUNT = 3;
+
+export class GameApiError extends Schema.TaggedErrorClass<GameApiError>()(
+  "GameApiError",
+  { game: GameId, operation: Schema.String, cause: Schema.Defect() },
+) {}
 
 export interface GameAdapter {
   readonly game: GameId;
@@ -25,10 +25,9 @@ export interface GameAdapter {
     HttpClientError.HttpClientError | Schema.SchemaError
   >;
 
-  // use URL param to limit to 3 matches returned since we're polling every minute
   readonly getRecentMatches: (
     puuid: Puuid,
-  ) => Effect.Effect<ReadonlyArray<MatchCandidate>>;
+  ) => Effect.Effect<ReadonlyArray<MatchCandidate>, GameApiError>;
 }
 
 export class GameAdapters extends Context.Service<

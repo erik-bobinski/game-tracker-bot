@@ -4,7 +4,7 @@ import { SqlSchema } from "effect/unstable/sql";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { GameId, MatchId, Puuid } from "../game/index.ts";
-import { EpochMillis } from "../game/game-adapters/index.ts";
+import { EpochMillis } from "../game/index.ts";
 
 // -----------------------------------------------------------------------------
 // Domain model and service contract

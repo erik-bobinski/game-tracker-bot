@@ -1,15 +1,17 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 import { Database } from "../database/index.ts";
-import {
-  GameAdapters,
-  type MatchCandidate,
-} from "../game/game-adapters/index.ts";
+import { type MatchCandidate } from "../game/index.ts";
+import { GameAdapters } from "../game/game-adapters/index.ts";
 import { GameId, MatchId } from "../game/index.ts";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 
 export class MatchEngine extends Context.Service<
   MatchEngine,
   {
-    readonly pollOnce: () => Effect.Effect<void, unknown>;
+    readonly pollOnce: () => Effect.Effect<
+      void,
+      SqlError | Schema.SchemaError
+    >;
   }
 >()("app/MatchEngine") {}
 
@@ -36,7 +38,16 @@ const makeMatchEngine = Effect.gen(function* () {
           0,
         );
 
-        const recentMatches = yield* adapter.getRecentMatches(gameState.puuid);
+        const recentMatches = yield* adapter
+          .getRecentMatches(gameState.puuid)
+          .pipe(
+            Effect.catchTag("GameApiError", (error) =>
+              Effect.logWarning("skipping account this poll", error).pipe(
+                Effect.annotateLogs({ discordUserId: account.discordUserId }),
+                Effect.as([]),
+              ),
+            ),
+          );
         const unreportedMatches = recentMatches.filter(
           (m) => !storedMatchIds.has(m.matchId) && m.date > latestStoredDate,
         );

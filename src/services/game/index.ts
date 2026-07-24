@@ -5,6 +5,15 @@ import { Schema } from "effect";
 export const GameId = Schema.Literals(["lol", "valorant"]);
 export type GameId = typeof GameId.Type;
 
+export const EpochMillis = Schema.Number.pipe(Schema.brand("EpochMillis"));
+export type EpochMillis = typeof EpochMillis.Type;
+
+export interface MatchCandidate {
+  readonly matchId: MatchId;
+  readonly game: GameId;
+  readonly date: EpochMillis;
+}
+
 // A Riot puuid, branded so it can't be mixed up with other id strings
 export const Puuid = Schema.String.pipe(Schema.brand("Puuid"));
 export type Puuid = typeof Puuid.Type;
