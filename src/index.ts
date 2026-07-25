@@ -1,5 +1,4 @@
 import { NodeHttpClient, NodeRuntime } from "@effect/platform-node";
-import { DiscordGateway } from "dfx/gateway";
 import { Effect, Layer } from "effect";
 import { Polling, PollingLive } from "./services/polling/index.ts";
 import { DatabaseLive } from "./services/database/index.ts";
@@ -11,7 +10,6 @@ import { MatchEngineLive } from "./services/match-engine/index.ts";
 
 const main = Effect.gen(function* () {
   const polling = yield* Polling;
-  yield* DiscordGateway;
   yield* Effect.forkScoped(polling.run);
 
   // Keep the parent scope alive for both the gateway and polling fiber.
@@ -25,8 +23,9 @@ const ApiClientsLive = Layer.mergeAll(RiotApiLive, HenrikApiClientLive).pipe(
 
 const GameLive = GameAdaptersLive.pipe(Layer.provide(ApiClientsLive));
 
-const AppLive = Layer.mergeAll(PollingLive, DiscordLive).pipe(
+const AppLive = PollingLive.pipe(
   Layer.provide(MatchEngineLive),
+  Layer.provide(DiscordLive),
   Layer.provide(Layer.mergeAll(DatabaseLive, GameLive)),
 );
 
