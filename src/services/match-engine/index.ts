@@ -85,6 +85,7 @@ const makeMatchEngine = Effect.gen(function* () {
     }
 
     // TODO: Mark matches as reported only after successful delivery.
+    // Need to ensure ring buffer maintains a static size
   });
 
   return MatchEngine.of({ pollOnce: () => pollOnce });
