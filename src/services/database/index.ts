@@ -14,6 +14,19 @@ const ReportedMatch = Schema.Struct({
   matchId: MatchId,
   date: EpochMillis,
 });
+export interface ReportedMatch extends Schema.Schema.Type<
+  typeof ReportedMatch
+> {}
+const REPORTED_MATCH_CAPACITY = 10;
+// maintains a ring buffer of newest N-matches
+function pushReportedMatch(
+  existing: ReadonlyArray<ReportedMatch>,
+  newMatch: ReportedMatch,
+) {
+  return [...existing, newMatch]
+    .sort((a, b) => a.date - b.date)
+    .slice(-REPORTED_MATCH_CAPACITY);
+}
 
 const GameState = Schema.Struct({
   puuid: Puuid,
@@ -39,6 +52,11 @@ export class Database extends Context.Service<
       ReadonlyArray<Account>,
       SqlError | Schema.SchemaError
     >;
+    readonly markMatchAsReported: (input: {
+      readonly discordUserIds: ReadonlyArray<string>;
+      readonly game: GameId;
+      readonly match: ReportedMatch;
+    }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
   }
 >()("app/Database") {}
 
@@ -66,7 +84,7 @@ const GameRow = Schema.Struct({
 // Database implementation
 // -----------------------------------------------------------------------------
 
-/** Migrations run once, in order, when the database layer is constructed. */
+// Migrations run once, in order, when the database layer is constructed
 const migrations = SqliteMigrator.fromRecord({
   "1_create_accounts": Effect.gen(function* () {
     const sql = yield* SqlClient;
@@ -99,6 +117,8 @@ const migrations = SqliteMigrator.fromRecord({
 const makeDatabase = Effect.gen(function* () {
   const sql = yield* SqlClient;
 
+  // addAccount
+  // -----------------------------------------------------------------------------
   const insertAccountRow = SqlSchema.void({
     Request: AccountRow,
     execute: (account) => sql`
@@ -148,6 +168,8 @@ const makeDatabase = Effect.gen(function* () {
     }
   }, sql.withTransaction);
 
+  // getAccounts
+  // -----------------------------------------------------------------------------
   const accountRowsQuery = SqlSchema.findAll({
     Request: Schema.Struct({}),
     Result: AccountRow,
@@ -199,24 +221,78 @@ const makeDatabase = Effect.gen(function* () {
     }));
   });
 
-  return Database.of({ addAccount, getAccounts });
+  // markMatchAsReported
+  // -----------------------------------------------------------------------------
+  const reportedMatchesQuery = SqlSchema.findAll({
+    Request: Schema.Struct({
+      game: GameId,
+      discordUserIds: Schema.Array(Schema.String),
+    }),
+    Result: Schema.Struct({
+      discordUserId: Schema.String,
+      reportedMatches: ReportedMatches,
+    }),
+    execute: ({ game, discordUserIds }) => sql`
+    SELECT discord_user_id AS "discordUserId",
+           reported_matches AS "reportedMatches"
+    FROM account_games
+    WHERE game = ${game} AND ${sql.in("discord_user_id", discordUserIds)}
+  `,
+  });
+
+  const updateReportedMatches = SqlSchema.void({
+    Request: Schema.Struct({
+      discordUserId: Schema.String,
+      game: GameId,
+      reportedMatches: ReportedMatches,
+    }),
+    execute: (row) => sql`
+    UPDATE account_games
+    SET reported_matches = ${row.reportedMatches}
+    WHERE discord_user_id = ${row.discordUserId} AND game = ${row.game}
+  `,
+  });
+
+  const markMatchAsReported = Effect.fn("Database.markReported")(
+    function* (input: {
+      readonly discordUserIds: ReadonlyArray<string>;
+      readonly game: GameId;
+      readonly match: ReportedMatch;
+    }) {
+      const rows = yield* reportedMatchesQuery(input);
+      for (const row of rows) {
+        yield* updateReportedMatches({
+          discordUserId: row.discordUserId,
+          game: input.game,
+          reportedMatches: pushReportedMatch(row.reportedMatches, input.match),
+        });
+      }
+    },
+    sql.withTransaction,
+  );
+
+  return Database.of({
+    addAccount,
+    getAccounts,
+    markMatchAsReported,
+  });
 });
 
 // -----------------------------------------------------------------------------
 // Live layers
 // -----------------------------------------------------------------------------
 
-/** Low-level SQLite connection. Its lifetime is managed by the Effect scope. */
+// Low-level SQLite connection. Its lifetime is managed by the Effect scope
 export const SqliteLive = SqliteClient.layer({
   filename: process.env.DB_PATH ?? "riot-tracker.sqlite",
 });
 
-/** SQLite connection plus pending database migrations. */
+// SQLite connection plus pending database migrations
 const DatabaseSchemaLive = SqliteMigrator.layer({
   loader: migrations,
 }).pipe(Layer.provideMerge(SqliteLive));
 
-/** Domain database service, backed by the migrated SQLite connection. */
+// Domain database service, backed by the migrated SQLite connection
 export const DatabaseLive = Layer.effect(Database, makeDatabase).pipe(
   Layer.provide(DatabaseSchemaLive),
 );

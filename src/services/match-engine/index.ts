@@ -20,6 +20,7 @@ export class MatchEngine extends Context.Service<
 interface PendingMatch {
   readonly candidate: MatchCandidate;
   readonly discordNames: Array<string>;
+  readonly discordUserIds: Array<string>;
 }
 
 const makeMatchEngine = Effect.gen(function* () {
@@ -65,11 +66,14 @@ const makeMatchEngine = Effect.gen(function* () {
         // users who shared a match land on the same entry, so it reports once
         for (const m of unreportedMatches) {
           const pending = matchesPerGame.get(m.matchId);
-          if (pending) pending.discordNames.push(account.discordName);
-          else
+          if (pending) {
+            pending.discordNames.push(account.discordName);
+            pending.discordUserIds.push(account.discordUserId);
+          } else
             matchesPerGame.set(m.matchId, {
               candidate: m,
               discordNames: [account.discordName],
+              discordUserIds: [account.discordUserId],
             });
         }
       }
@@ -80,12 +84,14 @@ const makeMatchEngine = Effect.gen(function* () {
       .flatMap((perGame) => [...perGame.values()])
       .sort((a, b) => a.candidate.date - b.candidate.date);
 
-    for (const { candidate, discordNames } of pending) {
+    for (const { candidate, discordNames, discordUserIds } of pending) {
       yield* discord.notifyMatch({ discordNames, match: candidate });
+      yield* database.markMatchAsReported({
+        discordUserIds,
+        game: candidate.game,
+        match: { matchId: candidate.matchId, date: candidate.date },
+      });
     }
-
-    // TODO: Mark matches as reported only after successful delivery.
-    // Need to ensure ring buffer maintains a static size
   });
 
   return MatchEngine.of({ pollOnce: () => pollOnce });
