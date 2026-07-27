@@ -16,7 +16,6 @@ export class MatchEngine extends Context.Service<
   }
 >()("app/MatchEngine") {}
 
-// an unreported match plus every tracked user who played in it
 interface PendingMatch {
   readonly candidate: MatchCandidate;
   readonly discordNames: Array<string>;
@@ -29,9 +28,8 @@ const makeMatchEngine = Effect.gen(function* () {
   const discord = yield* Discord;
 
   const pollOnce = Effect.gen(function* () {
-    const accounts = yield* database.getAccounts(); // retrieve fresh accts from DB per-poll
+    const accounts = yield* database.getAccounts();
 
-    // unreported matches, grouped by game, grouped by matchId
     const matchesToReport = new Map<GameId, Map<MatchId, PendingMatch>>();
 
     for (const adapter of gameAdapters.all) {
