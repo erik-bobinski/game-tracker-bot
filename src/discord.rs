@@ -131,7 +131,7 @@ pub fn val_match_to_result(
 
     MatchResult {
         game_name: "Valorant",
-        game_mode: match_summary.metadata.mode.clone(),
+        game_mode: match_summary.metadata.mode().to_string(),
         map: Some(match_summary.metadata.map.clone()),
         duration_secs: Some(match_summary.metadata.game_length),
         // a defaulted game_start would render as 1970; omit the line instead
