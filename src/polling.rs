@@ -69,8 +69,9 @@ pub async fn run(
                     Ok(matches) => matches,
                     Err(e) => {
                         eprintln!(
-                            "failed to poll valorant matches for discord user {}: {e}",
-                            account.discord_user_id
+                            "failed to poll valorant matches for discord user {}: {}",
+                            account.discord_user_id,
+                            error_chain(&e)
                         );
                         Vec::new()
                     }
@@ -199,7 +200,7 @@ pub async fn run(
             // RR changes for tracked players, joined from mmr history by match id;
             // only competitive games appear there, so other modes skip the calls
             let mut rank_updates: HashMap<String, discord::RankUpdate> = HashMap::new();
-            if m.metadata.mode.eq_ignore_ascii_case("competitive") {
+            if m.metadata.mode().eq_ignore_ascii_case("competitive") {
                 for &i in &involved {
                     let Some(region) = accounts[i].val_region.clone() else {
                         continue;
@@ -211,8 +212,10 @@ pub async fn run(
                         Ok(history) => history,
                         Err(e) => {
                             eprintln!(
-                                "failed to fetch valorant MMR history for discord user {} while reporting match {}: {e}",
-                                accounts[i].discord_user_id, m.metadata.matchid
+                                "failed to fetch valorant MMR history for discord user {} while reporting match {}: {}",
+                                accounts[i].discord_user_id,
+                                m.metadata.matchid,
+                                error_chain(&e)
                             );
                             continue;
                         }
@@ -411,6 +414,19 @@ pub async fn run(
             }
         }
     }
+}
+
+// reqwest's Display stops at the top-level cause ("error decoding response body
+// for url (...)"), hiding the serde message that names the offending field and
+// offset. Walk the source chain so a schema drift is diagnosable from logs alone.
+fn error_chain(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut source = e.source();
+    while let Some(cause) = source {
+        out.push_str(&format!(": {cause}"));
+        source = cause.source();
+    }
+    out
 }
 
 // league-v4 tiers arrive ALL CAPS ("EMERALD"); prettify for display

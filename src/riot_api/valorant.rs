@@ -39,18 +39,44 @@ impl HenrikClient {
             self.base_url, region, puuid
         );
 
-        // filter out henrik match results that are still being processed by riot's APIs
-        Ok(self
+        // Decode the list one match at a time. Henrik nulls out fields for edge-case
+        // modes and players (agent-select disconnects, anonymized accounts), and
+        // decoding the whole array at once means a single such match fails the entire
+        // fetch — which silently stops all reporting for that player. Skip the
+        // undecodable entry instead, and log enough to fix the schema afterwards.
+        let raw_matches = self
             .http
             .get(url)
             .header("Authorization", &self.api_key)
             .send()
             .await?
             .error_for_status()?
-            .json::<HenrikResponse<Vec<RawMatchSummary>>>()
+            .json::<HenrikResponse<Vec<serde_json::Value>>>()
             .await?
-            .data
+            .data;
+
+        // filter out henrik match results that are still being processed by riot's APIs
+        Ok(raw_matches
             .into_iter()
+            .filter_map(|raw| {
+                // pull the id out first so a decode failure can still name the match
+                let matchid = raw
+                    .get("metadata")
+                    .and_then(|m| m.get("matchid"))
+                    .and_then(|id| id.as_str())
+                    .unwrap_or("<unknown>")
+                    .to_string();
+
+                match serde_json::from_value::<RawMatchSummary>(raw) {
+                    Ok(m) => Some(m),
+                    Err(e) => {
+                        eprintln!(
+                            "skipping undecodable valorant match {matchid} for puuid {puuid}: {e}"
+                        );
+                        None
+                    }
+                }
+            })
             .filter_map(|m| match (m.metadata, m.players, m.teams) {
                 (Some(metadata), Some(players), Some(teams)) if m.is_available => {
                     Some(MatchSummary {
@@ -143,7 +169,13 @@ pub struct MatchSummary {
 #[derive(Debug, Deserialize)]
 pub struct MatchMetadata {
     pub map: String,
-    pub mode: String,
+    // riot leaves `mode` null for newer/rotating modes (Skirmish 2v2 as of
+    // release-13.01); `queue` is still named there, so fall back to it rather
+    // than failing the decode. read through mode() instead of directly.
+    #[serde(default, deserialize_with = "nullable_string")]
+    mode: String,
+    #[serde(default, deserialize_with = "nullable_string")]
+    queue: String,
     pub game_length: u64,
     // unix seconds when the match started; defaulted (like rounds_played) so an
     // edge-case mode omitting it can't fail the whole match-list deserialization
@@ -153,6 +185,29 @@ pub struct MatchMetadata {
     pub rounds_played: u32,
     region: String,
     pub matchid: String,
+}
+
+impl MatchMetadata {
+    // display label for the game mode, falling back to the queue name when riot
+    // omits the mode entirely
+    pub fn mode(&self) -> &str {
+        if !self.mode.is_empty() {
+            &self.mode
+        } else if !self.queue.is_empty() {
+            &self.queue
+        } else {
+            "Unknown"
+        }
+    }
+}
+
+// henrik sends explicit nulls where it used to send strings; treat those as
+// absent so one rotating mode can't fail the whole match-list decode
+fn nullable_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 // red/blue are null for free-for-all modes (deathmatch), which have no team
@@ -218,6 +273,42 @@ pub struct PlayerStats {
     pub bodyshots: u32,
     #[serde(default)]
     pub legshots: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MatchMetadata;
+
+    // shape taken from a real Skirmish 2v2 match that failed the whole match-list
+    // decode in production (henrik release-13.01)
+    #[test]
+    fn falls_back_to_queue_when_mode_is_null() {
+        let metadata: MatchMetadata = serde_json::from_str(
+            r#"{"map":"Skirmish E","mode":null,"queue":"Skirmish","game_length":232,
+                "game_start":1785154626,"rounds_played":13,"region":"na",
+                "matchid":"994567e1-deda-4626-991e-0d8d6131ca38"}"#,
+        )
+        .expect("null mode must not fail the decode");
+
+        assert_eq!(metadata.mode(), "Skirmish");
+    }
+
+    #[test]
+    fn prefers_mode_and_degrades_when_neither_is_named() {
+        let named: MatchMetadata = serde_json::from_str(
+            r#"{"map":"Ascent","mode":"Competitive","queue":"competitive","game_length":1,
+                "region":"na","matchid":"a"}"#,
+        )
+        .unwrap();
+        assert_eq!(named.mode(), "Competitive");
+
+        let neither: MatchMetadata = serde_json::from_str(
+            r#"{"map":"Ascent","mode":null,"queue":null,"game_length":1,
+                "region":"na","matchid":"a"}"#,
+        )
+        .unwrap();
+        assert_eq!(neither.mode(), "Unknown");
+    }
 }
 
 // entry from /valorant/v1/by-puuid/mmr-history/{region}/{puuid}
