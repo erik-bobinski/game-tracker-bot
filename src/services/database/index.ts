@@ -52,6 +52,9 @@ export class Database extends Context.Service<
       ReadonlyArray<Account>,
       SqlError | Schema.SchemaError
     >;
+    readonly hasAccount: (
+      discordUserId: string,
+    ) => Effect.Effect<boolean, SqlError | Schema.SchemaError>;
     readonly markMatchAsReported: (input: {
       readonly discordUserIds: ReadonlyArray<string>;
       readonly game: GameId;
@@ -242,6 +245,25 @@ const makeDatabase = Effect.gen(function* () {
     }));
   });
 
+  // hasAccount
+  // -----------------------------------------------------------------------------
+  const accountExistsQuery = SqlSchema.findAll({
+    Request: Schema.Struct({ discordUserId: Schema.String }),
+    Result: Schema.Struct({ discordUserId: Schema.String }),
+    execute: ({ discordUserId }) => sql`
+      SELECT discord_user_id AS "discordUserId"
+      FROM accounts
+      WHERE discord_user_id = ${discordUserId}
+    `,
+  });
+
+  const hasAccount = Effect.fn("Database.hasAccount")(function* (
+    discordUserId: string,
+  ) {
+    const rows = yield* accountExistsQuery({ discordUserId });
+    return rows.length > 0;
+  });
+
   // markMatchAsReported
   // -----------------------------------------------------------------------------
   const reportedMatchesQuery = SqlSchema.findAll({
@@ -324,6 +346,7 @@ const makeDatabase = Effect.gen(function* () {
   return Database.of({
     addAccount,
     getAccounts,
+    hasAccount,
     markMatchAsReported,
     getPollingPaused,
     setPollingPaused,

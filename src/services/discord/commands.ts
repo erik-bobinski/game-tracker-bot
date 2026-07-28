@@ -53,6 +53,20 @@ const signup = ({ database, gameAdapters, rest }: CommandDeps) =>
 
         if (!user) return reply("Couldn't tell who ran that command :(");
 
+        const existing = yield* database
+          .hasAccount(user.id)
+          .pipe(
+            Effect.catch((error) =>
+              Effect.logError("signup lookup failed", error).pipe(
+                Effect.as(undefined),
+              ),
+            ),
+          );
+        if (existing === undefined) {
+          return reply("Signup failed, try again in a bit :(");
+        }
+        if (existing) return reply("You're already signed up, dummy");
+
         const followUp = (content: string) =>
           rest.updateOriginalWebhookMessage(
             i.interaction.application_id,
@@ -72,7 +86,14 @@ const signup = ({ database, gameAdapters, rest }: CommandDeps) =>
                     puuid,
                   }),
                 ),
-                Effect.catch(() => Effect.succeed(undefined)),
+                // a failed lookup is not the same as "no such account", but
+                // both leave this game untracked
+                Effect.catch((error) =>
+                  Effect.logWarning("resolveAccount failed", error).pipe(
+                    Effect.annotateLogs({ game: adapter.game }),
+                    Effect.as(undefined),
+                  ),
+                ),
               ),
             { concurrency: "unbounded" },
           );
@@ -142,7 +163,7 @@ const resume = ({ pollingState }: CommandDeps) =>
   Ix.global(
     {
       name: "resume",
-      description: "Resume all match reports(the bot will appear as online)",
+      description: "Resume all match reports (the bot will appear as online)",
     },
     () =>
       SubscriptionRef.set(pollingState.paused, false).pipe(
