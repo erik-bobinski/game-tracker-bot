@@ -1,5 +1,6 @@
-import { Context, Effect, Layer, Schedule } from "effect";
+import { Context, Effect, Layer, Schedule, SubscriptionRef } from "effect";
 import { MatchEngine } from "../match-engine/index.ts";
+import { PollingState } from "./state.ts";
 
 export class Polling extends Context.Service<
   Polling,
@@ -11,8 +12,14 @@ export class Polling extends Context.Service<
 
 const makePolling = Effect.gen(function* () {
   const matchEngine = yield* MatchEngine;
+  const { paused } = yield* PollingState;
 
-  const pollLoop = matchEngine.pollOnce().pipe(
+  const pollTick = Effect.gen(function* () {
+    if (yield* SubscriptionRef.get(paused)) return;
+    yield* matchEngine.pollOnce();
+  });
+
+  const pollLoop = pollTick.pipe(
     // TODO: Decide whether errors should be logged, retried, or reported.
     Effect.catchIf(
       () => true,
@@ -25,5 +32,4 @@ const makePolling = Effect.gen(function* () {
   return Polling.of({ run: pollLoop });
 });
 
-/** Polling depends on MatchEngine; the application root wires it. */
 export const PollingLive = Layer.effect(Polling, makePolling);

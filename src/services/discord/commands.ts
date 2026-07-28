@@ -1,11 +1,15 @@
-import { Discord, Ix } from "dfx";
-import { Effect } from "effect";
-import type { Database } from "../database/index.ts";
+import { Discord, DiscordREST, Ix } from "dfx";
+import { Effect, SubscriptionRef } from "effect";
+import type { Account, Database } from "../database/index.ts";
 import type { GameAdapters } from "../game/game-adapters/index.ts";
+import type { GameId, Puuid } from "../game/index.ts";
+import type { PollingState } from "../polling/state.ts";
 
 export interface CommandDeps {
   readonly database: Database["Service"];
   readonly gameAdapters: GameAdapters["Service"];
+  readonly rest: Effect.Success<typeof DiscordREST>;
+  readonly pollingState: PollingState["Service"];
 }
 
 const reply = (content: string): Discord.CreateInteractionResponseRequest => ({
@@ -13,31 +17,105 @@ const reply = (content: string): Discord.CreateInteractionResponseRequest => ({
   data: { content },
 });
 
+// discord needs <= 3s to respond, the follow-up edits this placeholder
+const deferredReply: Discord.CreateInteractionResponseRequest = {
+  type: Discord.InteractionCallbackTypes.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+};
+
 const todo = (name: string) =>
   Effect.succeed(reply(`\`/${name}\` isn't implemented yet.`));
 
-// TODO: resolve the riot id against every adapter, then Database.addAccount.
-const signup = Ix.global(
-  {
-    name: "signup",
-    description: "Get your riot account's match results reported",
-    options: [
-      {
-        type: Discord.ApplicationCommandOptionType.STRING,
-        name: "riot_name",
-        description: "before the # (e.g. syan)",
-        required: true,
-      },
-      {
-        type: Discord.ApplicationCommandOptionType.STRING,
-        name: "riot_tag",
-        description: "after the # (e.g. NA1)",
-        required: true,
-      },
-    ],
-  },
-  () => todo("signup"),
-);
+const signup = ({ database, gameAdapters, rest }: CommandDeps) =>
+  Ix.global(
+    {
+      name: "signup",
+      description: "Get your riot account's match results reported",
+      options: [
+        {
+          type: Discord.ApplicationCommandOptionType.STRING,
+          name: "riot_name",
+          description: "before the # (e.g. syan)",
+          required: true,
+        },
+        {
+          type: Discord.ApplicationCommandOptionType.STRING,
+          name: "riot_tag",
+          description: "after the # (e.g. NA1)",
+          required: true,
+        },
+      ],
+    },
+    (i) =>
+      Effect.gen(function* () {
+        const riotName = i.optionValue("riot_name");
+        const riotTag = i.optionValue("riot_tag");
+        const user = i.interaction.member?.user ?? i.interaction.user;
+
+        if (!user) return reply("Couldn't tell who ran that command :(");
+
+        const followUp = (content: string) =>
+          rest.updateOriginalWebhookMessage(
+            i.interaction.application_id,
+            i.interaction.token,
+            { payload: { content } },
+          );
+
+        const register = Effect.gen(function* () {
+          // a riot id may exist in only one game, so each lookup fails on its own
+          const resolved = yield* Effect.forEach(
+            gameAdapters.all,
+            (adapter) =>
+              adapter.resolveAccount(riotName, riotTag).pipe(
+                Effect.map(
+                  (puuid): { game: GameId; puuid: Puuid } | undefined => ({
+                    game: adapter.game,
+                    puuid,
+                  }),
+                ),
+                Effect.catch(() => Effect.succeed(undefined)),
+              ),
+            { concurrency: "unbounded" },
+          );
+
+          // tracked matches start empty
+          const games: Account["games"] = {};
+          for (const entry of resolved) {
+            if (entry)
+              games[entry.game] = { puuid: entry.puuid, reportedMatches: [] };
+          }
+
+          // discord user has no puuid for any game
+          if (Object.keys(games).length === 0) {
+            return yield* followUp(
+              "Couldn't find recent account data for that Riot ID :(",
+            );
+          }
+
+          yield* database.addAccount({
+            discordUserId: user.id,
+            discordName: user.username,
+            riotName,
+            riotTag,
+            games,
+          });
+
+          return yield* followUp(`**${user.username}** just signed up!`);
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.logError("signup failed", error).pipe(
+              Effect.andThen(followUp("Signup failed, try again in a bit :(")),
+              Effect.ignore({
+                log: "Error",
+                message: "signup follow-up failed",
+              }),
+            ),
+          ),
+        );
+
+        yield* Effect.forkDetach(register);
+        return deferredReply;
+      }),
+  );
 
 // TODO: needs Database.deleteAccount.
 const signout = Ix.global(
@@ -48,23 +126,29 @@ const signout = Ix.global(
   () => todo("signout"),
 );
 
-// TODO: pause/resume need a paused flag both Polling and this service can
-// reach; it cannot live on Polling itself without a dependency cycle.
-const pause = Ix.global(
-  {
-    name: "pause",
-    description: "Pause all match reports",
-  },
-  () => todo("pause"),
-);
+const pause = ({ pollingState }: CommandDeps) =>
+  Ix.global(
+    {
+      name: "pause",
+      description: "Pause all match reports (the bot will appear as idle)",
+    },
+    () =>
+      SubscriptionRef.set(pollingState.paused, true).pipe(
+        Effect.as(reply("Match reports paused.")),
+      ),
+  );
 
-const resume = Ix.global(
-  {
-    name: "resume",
-    description: "Resume all match reports",
-  },
-  () => todo("resume"),
-);
+const resume = ({ pollingState }: CommandDeps) =>
+  Ix.global(
+    {
+      name: "resume",
+      description: "Resume all match reports(the bot will appear as online)",
+    },
+    () =>
+      SubscriptionRef.set(pollingState.paused, false).pipe(
+        Effect.as(reply("Match reports resumed.")),
+      ),
+  );
 
 // TODO: needs a GameAdapter.getRank and the account's stored region.
 const rankCheck = Ix.global(
@@ -93,11 +177,11 @@ const rankCheck = Ix.global(
   () => todo("rank_check"),
 );
 
-export const commands = (_deps: CommandDeps) =>
+export const commands = (deps: CommandDeps) =>
   Ix.builder
-    .add(signup)
+    .add(signup(deps))
     .add(signout)
-    .add(pause)
-    .add(resume)
+    .add(pause(deps))
+    .add(resume(deps))
     .add(rankCheck)
     .catchAllCause(Effect.logError);

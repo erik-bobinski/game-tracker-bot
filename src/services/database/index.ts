@@ -57,6 +57,13 @@ export class Database extends Context.Service<
       readonly game: GameId;
       readonly match: ReportedMatch;
     }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    readonly getPollingPaused: () => Effect.Effect<
+      boolean,
+      SqlError | Schema.SchemaError
+    >;
+    readonly setPollingPaused: (
+      paused: boolean,
+    ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
   }
 >()("app/Database") {}
 
@@ -111,6 +118,20 @@ const migrations = SqliteMigrator.fromRecord({
         UNIQUE (game, puuid)
       )
     `;
+  }),
+
+  "2_create_settings": Effect.gen(function* () {
+    const sql = yield* SqlClient;
+
+    // single row, so the check constraint keeps it that way
+    yield* sql`
+      CREATE TABLE settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        polling_paused INTEGER NOT NULL DEFAULT 0
+      )
+    `;
+
+    yield* sql`INSERT INTO settings (id, polling_paused) VALUES (1, 0)`;
   }),
 });
 
@@ -271,10 +292,41 @@ const makeDatabase = Effect.gen(function* () {
     sql.withTransaction,
   );
 
+  // polling pause flag
+  // -----------------------------------------------------------------------------
+  const settingsQuery = SqlSchema.findAll({
+    Request: Schema.Struct({}),
+    // sqlite has no boolean type, map the flag from 0 or 1
+    Result: Schema.Struct({ pollingPaused: Schema.Number }),
+    execute: () => sql`
+      SELECT polling_paused AS "pollingPaused" FROM settings WHERE id = 1
+    `,
+  });
+
+  const updatePollingPaused = SqlSchema.void({
+    Request: Schema.Struct({ pollingPaused: Schema.Number }),
+    execute: ({ pollingPaused }) => sql`
+      UPDATE settings SET polling_paused = ${pollingPaused} WHERE id = 1
+    `,
+  });
+
+  const getPollingPaused = Effect.fn("Database.getPollingPaused")(function* () {
+    const rows = yield* settingsQuery({});
+    return (rows[0]?.pollingPaused ?? 0) !== 0;
+  });
+
+  const setPollingPaused = Effect.fn("Database.setPollingPaused")(function* (
+    paused: boolean,
+  ) {
+    yield* updatePollingPaused({ pollingPaused: paused ? 1 : 0 });
+  });
+
   return Database.of({
     addAccount,
     getAccounts,
     markMatchAsReported,
+    getPollingPaused,
+    setPollingPaused,
   });
 });
 

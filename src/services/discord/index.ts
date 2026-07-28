@@ -1,9 +1,28 @@
 import { NodeHttpClient, NodeSocket } from "@effect/platform-node";
-import { Config, Context, Effect, Layer, Schema } from "effect";
-import { DiscordConfig, DiscordREST, Intents } from "dfx";
-import { DiscordIxLive, InteractionsRegistry } from "dfx/gateway";
+import {
+  Config,
+  Context,
+  Effect,
+  Layer,
+  Schema,
+  Stream,
+  SubscriptionRef,
+} from "effect";
+import {
+  Discord as DiscordApi,
+  DiscordConfig,
+  DiscordREST,
+  Intents,
+} from "dfx";
+import {
+  DiscordGateway,
+  DiscordIxLive,
+  InteractionsRegistry,
+  SendEvent,
+} from "dfx/gateway";
 import { Database } from "../database/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
+import { PollingState } from "../polling/state.ts";
 import { commands } from "./commands.ts";
 import { matchEmbed, type MatchReport } from "./embed.ts";
 
@@ -39,12 +58,43 @@ const DiscordApiLive = DiscordIxLive.pipe(
 const makeDiscord = Effect.gen(function* () {
   const rest = yield* DiscordREST;
   const registry = yield* InteractionsRegistry;
+  const gateway = yield* DiscordGateway;
   const database = yield* Database;
   const gameAdapters = yield* GameAdapters;
+  const pollingState = yield* PollingState;
   const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
 
   // registering forks the interaction loop and syncs the commands with discord.
-  yield* registry.register(commands({ database, gameAdapters }));
+  yield* registry.register(
+    commands({ database, gameAdapters, rest, pollingState }),
+  );
+
+  const setPresence = (paused: boolean) =>
+    gateway.send(
+      SendEvent.presenceUpdate({
+        status: paused
+          ? DiscordApi.PresenceUpdateStatus.Idle
+          : DiscordApi.PresenceUpdateStatus.Online,
+        since: paused ? Date.now() : null,
+        activities: [],
+        afk: false,
+      }),
+    );
+
+  yield* SubscriptionRef.changes(pollingState.paused).pipe(
+    Stream.changes,
+    Stream.runForEach(setPresence),
+    Effect.forkScoped,
+  );
+
+  // presence is per-connection state that discord drops on reconnect
+  yield* gateway
+    .handleDispatch("READY", () =>
+      SubscriptionRef.get(pollingState.paused).pipe(
+        Effect.flatMap(setPresence),
+      ),
+    )
+    .pipe(Effect.forkScoped);
 
   const notifyMatch = Effect.fn("Discord.notifyMatch")(
     function* (report: MatchReport) {
