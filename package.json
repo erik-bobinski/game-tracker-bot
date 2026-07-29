@@ -5,7 +5,8 @@
   "main": "index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "log-watcher": "tsx src/log-watcher/index.ts"
   },
   "type": "module",
   "keywords": [],
@@ -18,6 +19,8 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.220",
+    "@railway/cli": "5.30.1",
     "@effect/platform-node": "4.0.0-beta.97",
     "@effect/sql-sqlite-node": "4.0.0-beta.97",
     "dfx": "1.0.14",

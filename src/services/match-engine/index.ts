@@ -52,7 +52,9 @@ const makeMatchEngine = Effect.gen(function* () {
           .pipe(
             Effect.catchTag("GameApiError", (error) =>
               Effect.logWarning("skipping account this poll", error).pipe(
-                Effect.annotateLogs({ discordUserId: account.discordUserId }),
+                Effect.annotateLogs({
+                  discordUser: `${account.discordName} (${account.discordUserId})`,
+                }),
                 Effect.as([]),
               ),
             ),

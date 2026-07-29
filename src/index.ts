@@ -1,5 +1,5 @@
 import { NodeHttpClient, NodeRuntime } from "@effect/platform-node";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Logger } from "effect";
 import { Polling, PollingLive } from "./services/polling/index.ts";
 import { PollingStateLive } from "./services/polling/state.ts";
 import { DatabaseLive } from "./services/database/index.ts";
@@ -32,6 +32,12 @@ const AppLive = PollingLive.pipe(
   Layer.provide(Layer.mergeAll(StateLive, GameLive)),
 );
 
-const runner = main.pipe(Effect.provide(AppLive), Effect.scoped);
+const LoggerLive = Logger.layer([Logger.consoleJson]);
+
+const runner = main.pipe(
+  Effect.provide(AppLive),
+  Effect.provide(LoggerLive),
+  Effect.scoped,
+);
 
 NodeRuntime.runMain(runner);

@@ -70,8 +70,10 @@ export const HenrikApiClientLive = Layer.effect(
         const json = yield* res.json;
         const { data } = yield* Schema.decodeUnknownEffect(ValMatchesResponse)(
           json,
-        );
-        return data;
+        ).pipe(Effect.annotateLogs({ puuid }));
+
+        // undefined entries are matches the schema skipped rather than failed on
+        return data.filter((match) => match !== undefined);
       },
     );
 
