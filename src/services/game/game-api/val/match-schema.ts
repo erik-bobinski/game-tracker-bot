@@ -106,7 +106,6 @@ export const ValRawMatch = Schema.Struct({
 });
 export interface ValRawMatch extends Schema.Schema.Type<typeof ValRawMatch> {}
 
-// a rejected match repeats every poll until it leaves the history window
 const MAX_LOGGED_PAYLOAD_CHARS = 2_000;
 
 const rejectedPayload = (issue: SchemaIssue.Issue): string => {

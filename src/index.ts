@@ -29,8 +29,6 @@ const AppLive = PollingLive.pipe(
   Layer.provide(Layer.mergeAll(DatabaseLive, GameLive)),
 );
 
-// one line per entry; the default pretty logger wraps multi-line, which the log
-// drain splits into separate entries
 const LoggerLive = Logger.layer([Logger.consoleJson]);
 
 const runner = main.pipe(
