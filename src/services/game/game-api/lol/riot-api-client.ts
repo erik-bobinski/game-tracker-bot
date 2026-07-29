@@ -56,9 +56,7 @@ export const RiotApiLive = Layer.effect(
       },
     );
 
-    const getMatch = Effect.fn("RiotApi.getMatch")(function* (
-      matchId: string,
-    ) {
+    const getMatch = Effect.fn("RiotApi.getMatch")(function* (matchId: string) {
       const res = yield* client.get(`/lol/match/v5/matches/${matchId}`);
       const json = yield* res.json;
       return yield* Schema.decodeUnknownEffect(LolMatch)(json);
@@ -74,7 +72,19 @@ export const RiotApiLive = Layer.effect(
       );
       const json = yield* res.json;
       const matchIds = yield* Schema.decodeUnknownEffect(LolMatchIds)(json);
-      return yield* Effect.forEach(matchIds, getMatch);
+
+      const matches = yield* Effect.forEach(matchIds, (matchId) =>
+        getMatch(matchId).pipe(
+          Effect.catchTag("SchemaError", (error) =>
+            Effect.logWarning("skipping undecodable lol match").pipe(
+              Effect.annotateLogs({ matchId, error }),
+              Effect.as(undefined),
+            ),
+          ),
+        ),
+      );
+
+      return matches.filter((match) => match !== undefined);
     });
 
     return RiotApiClient.of({ getAccountByRiotId, getRecentMatches });

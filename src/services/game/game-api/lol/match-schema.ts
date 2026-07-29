@@ -1,13 +1,20 @@
 // Raw decode schemas for LoL APIs
-import { Effect, Schema, SchemaGetter } from "effect";
+import { Option, Schema, SchemaGetter } from "effect";
 import { EpochMillis, MatchId, Puuid } from "../../index.ts";
 
-// A field that Riot may omit; decodes to `fallback` when the key is absent.
+// A field Riot may omit or send as null; decodes to `fallback` in both cases.
 const withDefault = <S extends Schema.Top>(schema: S, fallback: S["Type"]) =>
-  Schema.optionalKey(schema).pipe(
+  Schema.optionalKey(Schema.NullOr(schema)).pipe(
     Schema.decodeTo(schema, {
-      decode: SchemaGetter.withDefault(Effect.succeed(fallback)),
-      encode: SchemaGetter.passthrough(),
+      decode: SchemaGetter.transformOptional(
+        (encoded: Option.Option<S["Type"] | null>) =>
+          Option.some(
+            Option.isSome(encoded) && encoded.value !== null
+              ? encoded.value
+              : fallback,
+          ),
+      ),
+      encode: SchemaGetter.transform((value: S["Type"]) => value),
     }),
   );
 
