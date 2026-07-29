@@ -1,5 +1,5 @@
 import { NodeHttpClient, NodeRuntime } from "@effect/platform-node";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Logger } from "effect";
 import { Polling, PollingLive } from "./services/polling/index.ts";
 import { DatabaseLive } from "./services/database/index.ts";
 import { DiscordLive } from "./services/discord/index.ts";
@@ -29,6 +29,15 @@ const AppLive = PollingLive.pipe(
   Layer.provide(Layer.mergeAll(DatabaseLive, GameLive)),
 );
 
-const runner = main.pipe(Effect.provide(AppLive), Effect.scoped);
+// One JSON object per line. The default pretty logger wraps multi-line, and the
+// log drain treats each line as its own entry, which splits a single warning
+// across several of them and hides annotations from structured search.
+const LoggerLive = Logger.layer([Logger.consoleJson]);
+
+const runner = main.pipe(
+  Effect.provide(AppLive),
+  Effect.provide(LoggerLive),
+  Effect.scoped,
+);
 
 NodeRuntime.runMain(runner);
