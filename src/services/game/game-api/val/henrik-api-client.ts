@@ -3,7 +3,7 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
 import { Puuid } from "../../index.ts";
-import { ValMatchesEnvelope, ValRawMatch } from "./match-schema.ts";
+import { ValMatchesResponse, type ValRawMatch } from "./match-schema.ts";
 
 export class HenrikApiClient extends Context.Service<
   HenrikApiClient,
@@ -62,34 +62,18 @@ export const HenrikApiClientLive = Layer.effect(
       },
     );
 
-    const decodeMatch = Schema.decodeUnknownEffect(ValRawMatch);
-
     const getRecentMatches = Effect.fn("HenrikApiClient.getRecentMatches")(
       function* (puuid: Puuid, count: number) {
         const res = yield* client.get(
           `/valorant/v3/by-puuid/matches/${region}/${encodeURIComponent(puuid)}?size=${count}`,
         );
         const json = yield* res.json;
-        const { data } =
-          yield* Schema.decodeUnknownEffect(ValMatchesEnvelope)(json);
+        const { data } = yield* Schema.decodeUnknownEffect(ValMatchesResponse)(
+          json,
+        ).pipe(Effect.annotateLogs({ puuid }));
 
-        // Decode one match at a time. HenrikDev nulls fields for edge-case modes
-        // and players, and decoding the array as a unit means a single such match
-        // fails the whole fetch — which drops every other match this account
-        // played. Skip the bad entry and keep the rest.
-        const matches: Array<ValRawMatch> = [];
-        for (const raw of data) {
-          const match = yield* decodeMatch(raw).pipe(
-            Effect.catchTag("SchemaError", (error) =>
-              Effect.logWarning(
-                "skipping undecodable valorant match",
-                error,
-              ).pipe(Effect.annotateLogs({ puuid }), Effect.as(undefined)),
-            ),
-          );
-          if (match !== undefined) matches.push(match);
-        }
-        return matches;
+        // undefined entries are matches the schema skipped rather than failed on
+        return data.filter((match) => match !== undefined);
       },
     );
 
