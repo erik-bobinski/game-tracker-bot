@@ -106,9 +106,7 @@ export const ValRawMatch = Schema.Struct({
 });
 export interface ValRawMatch extends Schema.Schema.Type<typeof ValRawMatch> {}
 
-// A rejected match repeats every poll until it leaves the history window, so the
-// payload is capped rather than logged whole — enough to see the offending shape
-// without flooding the log drain.
+// a rejected match repeats every poll until it leaves the history window
 const MAX_LOGGED_PAYLOAD_CHARS = 2_000;
 
 const rejectedPayload = (issue: SchemaIssue.Issue): string => {

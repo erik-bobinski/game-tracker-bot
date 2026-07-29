@@ -29,9 +29,8 @@ const AppLive = PollingLive.pipe(
   Layer.provide(Layer.mergeAll(DatabaseLive, GameLive)),
 );
 
-// One JSON object per line. The default pretty logger wraps multi-line, and the
-// log drain treats each line as its own entry, which splits a single warning
-// across several of them and hides annotations from structured search.
+// one line per entry; the default pretty logger wraps multi-line, which the log
+// drain splits into separate entries
 const LoggerLive = Logger.layer([Logger.consoleJson]);
 
 const runner = main.pipe(
