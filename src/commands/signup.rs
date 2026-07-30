@@ -1,4 +1,4 @@
-use crate::db;
+use crate::operations::signup as signup_operation;
 use crate::types::{Context, Error};
 
 /// Get your riot account's match results reported
@@ -10,62 +10,24 @@ pub async fn signup(
 ) -> Result<(), Error> {
     ctx.defer().await?;
 
-    let valorant_account = ctx
-        .data()
-        .henrik_client
-        .get_account(&riot_name, &riot_tag)
-        .await
-        .ok();
+    let result = signup_operation::run(
+        ctx.data(),
+        ctx.author().id.get(),
+        ctx.author().name.clone(),
+        riot_name,
+        riot_tag,
+    )
+    .await;
 
-    let lol_account = ctx
-        .data()
-        .riot_client
-        .get_account(&riot_name, &riot_tag)
-        .await
-        .ok();
-
-    if valorant_account.is_none() && lol_account.is_none() {
+    if result
+        .as_ref()
+        .is_err_and(|error| error.code == "riot_account_not_found")
+    {
         ctx.say("Couldn't find recent account data for that Riot ID :(")
             .await?;
         return Ok(());
     }
-
-    // the reported-match rings start empty; the first poll baselines them to the
-    // current match window, so matches finished before signup are never reported
-    let (val_puuid, val_region) = if let Some(valorant_account) = valorant_account {
-        // unlike lol, henrik's account lookup already tells us the region, so no
-        // brute-force detection needed
-        (valorant_account.puuid, Some(valorant_account.region))
-    } else {
-        (String::new(), None)
-    };
-
-    let (lol_puuid, lol_region) = if let Some(lol_account) = lol_account {
-        let lol_region = ctx
-            .data()
-            .riot_client
-            .detect_region(&lol_account.puuid)
-            .await?;
-
-        (lol_account.puuid, lol_region)
-    } else {
-        (String::new(), None)
-    };
-
-    let mut db = ctx.data().db.lock().await;
-
-    db.add_account(db::DatabaseAccount {
-        discord_user_id: ctx.author().id.get(),
-        discord_name: ctx.author().name.clone(),
-        riot_name,
-        riot_tag,
-        val_puuid,
-        val_region,
-        lol_puuid,
-        lol_region,
-        added_at: chrono::Utc::now(),
-        ..Default::default()
-    })?;
+    result?;
 
     ctx.say(format!("**{}** just signed up!", ctx.author().name))
         .await?;
