@@ -1,19 +1,28 @@
 use crate::db::Database;
 use crate::types::Data;
+use clap::Parser;
 use serenity::prelude::*;
 use std::env;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
+mod admin;
 mod commands;
 mod db;
 mod discord;
+mod operations;
 mod polling;
 mod riot_api;
 mod types;
 
 #[tokio::main]
 async fn main() {
+    let cli = admin::Cli::parse();
+    if let Some(admin::RootCommand::Admin(args)) = cli.command {
+        let exit_code = admin::client::run(args, &admin::socket_path()).await;
+        std::process::exit(exit_code.into());
+    }
+
     let token = env::var("DISCORD_TOKEN").unwrap_or_else(|_| {
         dotenv::dotenv().ok();
         env::var("DISCORD_TOKEN").expect("Expected a discord bot env var in environment")
@@ -41,29 +50,39 @@ async fn main() {
                     .expect("Expected NOTIFICATION_CHANNEL_ID in environment")
                     .parse::<u64>()
                     .expect("NOTIFICATION_CHANNEL_ID must be a valid channel id");
-                let notification_channel_id = serenity::model::id::ChannelId::new(notification_channel_id);
+                let notification_channel_id =
+                    serenity::model::id::ChannelId::new(notification_channel_id);
 
                 let db = Database::load(&db_path)?;
                 let db = Arc::new(Mutex::new(db));
                 let henrik_client = Arc::new(riot_api::valorant::HenrikClient::new(henrik_api_key));
                 let riot_client = Arc::new(riot_api::lol::RiotClient::new(riot_api_key));
                 let polling_paused = Arc::new(AtomicBool::new(false));
-
-                tokio::spawn(polling::run(
-                    ctx.http.clone(),
-                    db.clone(),
-                    henrik_client.clone(),
-                    riot_client.clone(),
-                    notification_channel_id,
-                    polling_paused.clone(),
-                ));
-
-                Ok(Data {
+                let data = Data {
                     henrik_client,
                     riot_client,
                     db,
                     polling_paused,
-                })
+                };
+
+                tokio::spawn(polling::run(
+                    ctx.http.clone(),
+                    data.db.clone(),
+                    data.henrik_client.clone(),
+                    data.riot_client.clone(),
+                    notification_channel_id,
+                    data.polling_paused.clone(),
+                ));
+
+                let admin_socket_path = admin::socket_path();
+                let admin_listener = admin::server::bind(&admin_socket_path).await?;
+                tokio::spawn(admin::server::run(
+                    admin_listener,
+                    admin_socket_path,
+                    data.clone(),
+                ));
+
+                Ok(data)
             })
         })
         .build();

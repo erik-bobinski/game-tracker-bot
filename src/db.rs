@@ -121,7 +121,7 @@ impl std::error::Error for DbError {}
 // DatabaseAccount (rename/retype/restructure) and add a matching step in migrate().
 // purely additive changes don't need a bump, #[serde(default)] on the new field
 // covers those
-const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 1;
 
 // on-disk envelope; accounts stay raw json here so old schema versions can be
 // migrated before they ever have to fit the current DatabaseAccount shape
@@ -260,6 +260,10 @@ impl Database {
 
     pub fn get_accounts(&self) -> Vec<DatabaseAccount> {
         self.accounts.clone()
+    }
+
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
     }
 
     // overwrite an existing account's data, matched by discord_user_id
