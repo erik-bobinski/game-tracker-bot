@@ -1,5 +1,6 @@
 /target
 .env*
+!.env.example
 accounts.test.json
 *node_modules/
 *nvim.log
