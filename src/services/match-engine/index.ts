@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { Database } from "../database/index.ts";
-import { type MatchCandidate } from "../game/index.ts";
+import { type MatchDetails } from "../game/index.ts";
 import { Discord, type DiscordError } from "../discord/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import { GameId, MatchId } from "../game/index.ts";
@@ -17,9 +17,10 @@ export class MatchEngine extends Context.Service<
 >()("app/MatchEngine") {}
 
 interface PendingMatch {
-  readonly candidate: MatchCandidate;
+  readonly match: MatchDetails;
   readonly discordNames: Array<string>;
   readonly discordUserIds: Array<string>;
+  readonly trackedPuuids: Array<string>;
 }
 
 const makeMatchEngine = Effect.gen(function* () {
@@ -60,7 +61,8 @@ const makeMatchEngine = Effect.gen(function* () {
             ),
           );
         const unreportedMatches = recentMatches.filter(
-          (m) => !storedMatchIds.has(m.matchId) && m.date > latestStoredDate,
+          (match) =>
+            !storedMatchIds.has(match.matchId) && match.date > latestStoredDate,
         );
 
         // users who shared a match land on the same entry, so it reports once
@@ -69,11 +71,13 @@ const makeMatchEngine = Effect.gen(function* () {
           if (pending) {
             pending.discordNames.push(account.discordName);
             pending.discordUserIds.push(account.discordUserId);
+            pending.trackedPuuids.push(gameState.puuid);
           } else
             matchesPerGame.set(m.matchId, {
-              candidate: m,
+              match: m,
               discordNames: [account.discordName],
               discordUserIds: [account.discordUserId],
+              trackedPuuids: [gameState.puuid],
             });
         }
       }
@@ -82,14 +86,41 @@ const makeMatchEngine = Effect.gen(function* () {
 
     const pending = [...matchesToReport.values()]
       .flatMap((perGame) => [...perGame.values()])
-      .sort((a, b) => a.candidate.date - b.candidate.date);
+      .sort((a, b) => a.match.date - b.match.date);
 
-    for (const { candidate, discordNames, discordUserIds } of pending) {
-      yield* discord.notifyMatch({ discordNames, match: candidate });
+    for (const {
+      match,
+      discordNames,
+      discordUserIds,
+      trackedPuuids,
+    } of pending) {
+      const adapter = gameAdapters.all.find(
+        (candidate) => candidate.game === match.game,
+      );
+      const enrichedMatch = adapter
+        ? yield* adapter
+            .enrichMatch(match)
+            .pipe(
+              Effect.catchTag("GameApiError", (error) =>
+                Effect.logWarning(
+                  "sending match report without optional enrichment",
+                  error,
+                ).pipe(Effect.as(match)),
+              ),
+            )
+        : match;
+      yield* discord.notifyMatch({
+        discordNames,
+        trackedPuuids,
+        match: enrichedMatch,
+      });
       yield* database.markMatchAsReported({
         discordUserIds,
-        game: candidate.game,
-        match: { matchId: candidate.matchId, date: candidate.date },
+        game: enrichedMatch.game,
+        match: {
+          matchId: enrichedMatch.matchId,
+          date: enrichedMatch.date,
+        },
       });
     }
   });

@@ -25,6 +25,7 @@ import { GameAdapters } from "../game/game-adapters/index.ts";
 import { PollingState } from "../polling/state.ts";
 import { commands } from "./commands.ts";
 import { matchEmbed, type MatchReport } from "./embed.ts";
+import { provisionRankEmojis } from "./rank-emojis.ts";
 
 export class DiscordError extends Schema.TaggedErrorClass<DiscordError>()(
   "DiscordError",
@@ -63,6 +64,14 @@ const makeDiscord = Effect.gen(function* () {
   const gameAdapters = yield* GameAdapters;
   const pollingState = yield* PollingState;
   const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
+  const rankEmojis = yield* provisionRankEmojis(gameAdapters.all).pipe(
+    Effect.catch((error) =>
+      Effect.logWarning(
+        "application rank emojis unavailable; continuing without icons",
+        error,
+      ).pipe(Effect.as({})),
+    ),
+  );
 
   // registering forks the interaction loop and syncs the commands with discord.
   yield* registry.register(
@@ -98,7 +107,9 @@ const makeDiscord = Effect.gen(function* () {
 
   const notifyMatch = Effect.fn("Discord.notifyMatch")(
     function* (report: MatchReport) {
-      yield* rest.createMessage(channelId, { embeds: [matchEmbed(report)] });
+      yield* rest.createMessage(channelId, {
+        embeds: [matchEmbed(report, rankEmojis)],
+      });
     },
     Effect.mapError(
       (cause) => new DiscordError({ operation: "notifyMatch", cause }),
@@ -110,4 +121,5 @@ const makeDiscord = Effect.gen(function* () {
 
 export const DiscordLive = Layer.effect(Discord, makeDiscord).pipe(
   Layer.provide(DiscordApiLive),
+  Layer.provide(NodeHttpClient.layerUndici),
 );

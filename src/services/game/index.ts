@@ -8,10 +8,40 @@ export type GameId = typeof GameId.Type;
 export const EpochMillis = Schema.Number.pipe(Schema.brand("EpochMillis"));
 export type EpochMillis = typeof EpochMillis.Type;
 
-export interface MatchCandidate {
+export interface MatchPlayer {
+  readonly puuid: Puuid;
+  readonly team: string;
+  readonly riotName: string;
+  readonly riotTag: string;
+  readonly character: string;
+  readonly kills: number;
+  readonly deaths: number;
+  readonly assists: number;
+  readonly stat: string;
+  readonly sortKey: number;
+  readonly rank?: string;
+  readonly rankIconKey?: string;
+  readonly flair?: string;
+  readonly thumbnailUrl?: string;
+}
+
+export interface MatchTeam {
+  readonly id: string;
+  readonly won?: boolean;
+  readonly score?: readonly [number, number];
+}
+
+export interface MatchDetails {
   readonly matchId: MatchId;
   readonly game: GameId;
   readonly date: EpochMillis;
+  readonly mode: string;
+  readonly routingRegion?: string;
+  readonly map?: string;
+  readonly durationSeconds: number;
+  readonly surrendered: boolean;
+  readonly players: ReadonlyArray<MatchPlayer>;
+  readonly teams: ReadonlyArray<MatchTeam>;
 }
 
 // A Riot puuid, branded so it can't be mixed up with other id strings

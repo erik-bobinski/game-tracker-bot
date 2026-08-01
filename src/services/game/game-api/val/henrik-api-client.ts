@@ -37,6 +37,9 @@ export const HenrikApiClientLive = Layer.effect(
     const region = yield* Config.string("VAL_REGION").pipe(
       Config.withDefault("na"),
     );
+    const platform = yield* Config.string("VAL_PLATFORM").pipe(
+      Config.withDefault("pc"),
+    );
     const client = (yield* HttpClient.HttpClient).pipe(
       HttpClient.mapRequest(
         HttpClientRequest.prependUrl("https://api.henrikdev.xyz"),
@@ -65,7 +68,7 @@ export const HenrikApiClientLive = Layer.effect(
     const getRecentMatches = Effect.fn("HenrikApiClient.getRecentMatches")(
       function* (puuid: Puuid, count: number) {
         const res = yield* client.get(
-          `/valorant/v3/by-puuid/matches/${region}/${encodeURIComponent(puuid)}?size=${count}`,
+          `/valorant/v4/by-puuid/matches/${region}/${platform}/${encodeURIComponent(puuid)}?size=${count}`,
         );
         const json = yield* res.json;
         const { data } = yield* Schema.decodeUnknownEffect(ValMatchesResponse)(

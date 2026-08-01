@@ -1,19 +1,19 @@
 import type { Discord } from "dfx";
-import type { GameId, MatchCandidate } from "../game/index.ts";
+import type { GameId, MatchDetails, MatchPlayer } from "../game/index.ts";
 
 export interface MatchReport {
   readonly discordNames: ReadonlyArray<string>;
-  // TODO: grows into the full match result (teams, score, rank deltas) once
-  // GameAdapter can fetch match details.
-  readonly match: MatchCandidate;
+  readonly trackedPuuids: ReadonlyArray<string>;
+  readonly match: MatchDetails;
 }
+
+export type RankEmojis = Readonly<Record<string, string>>;
 
 const gameNames: Record<GameId, string> = {
   lol: "League of Legends",
   valorant: "Valorant",
 };
 
-// "**A**", "**A** and **B**", "**A**, **B** and **C**"
 const nameList = (names: ReadonlyArray<string>) => {
   const bolded = names.map((name) => `**${name}**`);
   const last = bolded.at(-1) ?? "";
@@ -22,13 +22,85 @@ const nameList = (names: ReadonlyArray<string>) => {
     : last;
 };
 
-export const matchEmbed = (report: MatchReport): Discord.RichEmbed => ({
-  title: `${gameNames[report.match.game]} match complete`,
-  // <t:..:t> renders in each viewer's local timezone
-  description: [
-    `${nameList(report.discordNames)} just finished a game`,
+const formatDuration = (seconds: number) =>
+  `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+
+const rankEmoji = (player: MatchPlayer, game: GameId, emojis: RankEmojis) => {
+  if (!player.rankIconKey) return "";
+  return (
+    emojis[`${game}.${player.rankIconKey}`] ?? emojis[player.rankIconKey] ?? ""
+  );
+};
+
+const leaderboard = (
+  players: ReadonlyArray<MatchPlayer>,
+  trackedPuuids: ReadonlySet<string>,
+  game: GameId,
+  emojis: RankEmojis,
+) =>
+  [...players]
+    .sort((a, b) => b.sortKey - a.sortKey)
+    .map((player) => {
+      const rawName = `${player.riotName}#${player.riotTag}`;
+      const name = trackedPuuids.has(player.puuid) ? `**${rawName}**` : rawName;
+      const icon = rankEmoji(player, game, emojis);
+      const prefix = icon ? `${icon} ` : "";
+      const extras = [player.stat, player.rank, player.flair]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => ` · ${value}`)
+        .join("");
+      return `${prefix}${name} (${player.character}) ${player.kills}/${player.deaths}/${player.assists}${extras}`;
+    })
+    .join("\n");
+
+export const matchEmbed = (
+  report: MatchReport,
+  rankEmojis: RankEmojis,
+): Discord.RichEmbed => {
+  const trackedPuuids = new Set(report.trackedPuuids);
+  const trackedPlayer = report.match.players.find((player) =>
+    trackedPuuids.has(player.puuid),
+  );
+  const trackedTeam = report.match.teams.find(
+    (team) => team.id === trackedPlayer?.team,
+  );
+  const verdict =
+    trackedTeam?.won === true
+      ? "Victory"
+      : trackedTeam?.won === false
+        ? "Defeat"
+        : "Match complete";
+  const color =
+    trackedTeam?.won === true
+      ? 0x57f287
+      : trackedTeam?.won === false
+        ? 0xed4245
+        : 0x95a5a6;
+  const teams = report.match.teams
+    .map((team) =>
+      report.match.players.filter((player) => player.team === team.id),
+    )
+    .filter((players) => players.length > 0);
+  const info = [
     `Started <t:${Math.floor(report.match.date / 1000)}:t>`,
-  ].join("\n"),
-  // TODO: green/red by outcome once the result carries a win flag.
-  color: 0x95a5a6,
-});
+    `${formatDuration(report.match.durationSeconds)}${report.match.surrendered ? " (surrender)" : ""}`,
+    trackedTeam?.score?.join("–"),
+  ].filter((value): value is string => Boolean(value));
+  const thumbnail = trackedPlayer?.thumbnailUrl;
+
+  return {
+    title: `${verdict} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
+    description: [
+      `${nameList(report.discordNames)} just finished a **${gameNames[report.match.game]}** game`,
+      info.join(" · "),
+      "",
+      teams
+        .map((players) =>
+          leaderboard(players, trackedPuuids, report.match.game, rankEmojis),
+        )
+        .join("\n\n"),
+    ].join("\n"),
+    color,
+    ...(thumbnail ? { thumbnail: { url: thumbnail } } : {}),
+  };
+};

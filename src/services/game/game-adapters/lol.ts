@@ -1,13 +1,55 @@
 import { Effect } from "effect";
 import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
 import { GameApiError, RECENT_MATCH_COUNT, type GameAdapter } from "./index.ts";
-import type { MatchCandidate, Puuid } from "../index.ts";
+import type { MatchDetails, MatchPlayer, MatchTeam, Puuid } from "../index.ts";
+import type { LolLeagueEntry } from "../game-api/lol/match-schema.ts";
+
+const queue = (queueId: number, gameMode: string) =>
+  new Map<number, string>([
+    [400, "Normal Draft"],
+    [420, "Ranked Solo/Duo"],
+    [430, "Normal Blind"],
+    [440, "Ranked Flex"],
+    [450, "ARAM"],
+    [480, "Swiftplay"],
+    [490, "Quickplay"],
+    [700, "Clash"],
+    [900, "URF"],
+    [1020, "One for All"],
+    [1300, "Nexus Blitz"],
+    [1700, "Arena"],
+    [1710, "Arena"],
+    [1900, "URF"],
+  ]).get(queueId) ?? gameMode;
+
+const titleCase = (value: string) =>
+  value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+
+const compact = (value: number) =>
+  value >= 1_000 ? `${(value / 1_000).toFixed(1)}k` : String(value);
+
+const rankIcons = [
+  "iron",
+  "bronze",
+  "silver",
+  "gold",
+  "platinum",
+  "emerald",
+  "diamond",
+  "master",
+  "grandmaster",
+  "challenger",
+].map((key) => ({
+  key,
+  url: `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/ranked-emblem/emblem-${key}.png`,
+}));
 
 export const makeLolGameAdapter = Effect.gen(function* () {
   const riotClient = yield* RiotApiClient;
 
   const adapter: GameAdapter = {
     game: "lol",
+    rankIcons,
     resolveAccount: Effect.fn("GameAdapter.lol.resolveAccount")(function* (
       name: string,
       tag: string,
@@ -20,11 +62,56 @@ export const makeLolGameAdapter = Effect.gen(function* () {
           puuid,
           RECENT_MATCH_COUNT,
         );
-        return matches.map(
-          (match): MatchCandidate => ({
-            matchId: match.metadata.matchId,
-            game: "lol",
-            date: match.info.gameStartTimestamp,
+        return yield* Effect.forEach(matches, (match) =>
+          Effect.gen(function* () {
+            const players: Array<MatchPlayer> = match.info.participants.map(
+              (participant) => {
+                const multiKill =
+                  participant.largestMultiKill >= 5
+                    ? "🔥 Penta Kill"
+                    : participant.largestMultiKill === 4
+                      ? "Quadra Kill"
+                      : undefined;
+                return {
+                  puuid: participant.puuid,
+                  team: String(participant.teamId),
+                  riotName: participant.riotIdGameName,
+                  riotTag: participant.riotIdTagline,
+                  character: participant.championName,
+                  kills: participant.kills,
+                  deaths: participant.deaths,
+                  assists: participant.assists,
+                  stat: `${participant.totalMinionsKilled + participant.neutralMinionsKilled} CS · ${compact(participant.totalDamageDealtToChampions)} dmg`,
+                  sortKey:
+                    (participant.kills + participant.assists) /
+                    Math.max(participant.deaths, 1),
+                  ...(multiKill ? { flair: multiKill } : {}),
+                  thumbnailUrl: `https://cdn.communitydragon.org/latest/champion/${encodeURIComponent(participant.championName)}/square`,
+                };
+              },
+            );
+
+            const teams: Array<MatchTeam> = [100, 200].map((teamId) => ({
+              id: String(teamId),
+              won:
+                match.info.participants.find(
+                  (participant) => participant.teamId === teamId,
+                )?.win ?? false,
+            }));
+
+            return {
+              matchId: match.metadata.matchId,
+              game: "lol",
+              date: match.info.gameStartTimestamp,
+              mode: queue(match.info.queueId, match.info.gameMode),
+              routingRegion: match.info.platformId.toLowerCase(),
+              durationSeconds: match.info.gameDuration,
+              surrendered: match.info.participants.some(
+                (participant) => participant.gameEndedInSurrender,
+              ),
+              players,
+              teams,
+            } satisfies MatchDetails;
           }),
         );
       },
@@ -33,6 +120,62 @@ export const makeLolGameAdapter = Effect.gen(function* () {
           new GameApiError({
             game: "lol",
             operation: "getRecentMatches",
+            cause,
+          }),
+      ),
+    ),
+    enrichMatch: Effect.fn("GameAdapter.lol.enrichMatch")(
+      function* (match: MatchDetails) {
+        const queueType =
+          match.mode === "Ranked Solo/Duo"
+            ? "RANKED_SOLO_5x5"
+            : match.mode === "Ranked Flex"
+              ? "RANKED_FLEX_SR"
+              : undefined;
+        if (!queueType) return match;
+
+        const platform = match.routingRegion;
+        if (!platform) return match;
+
+        const ranks = new Map<Puuid, LolLeagueEntry>();
+        yield* Effect.forEach(
+          match.players,
+          (player) =>
+            riotClient.getLeagueEntries(player.puuid, platform).pipe(
+              Effect.map((entries) => {
+                const entry = entries.find(
+                  (candidate) => candidate.queueType === queueType,
+                );
+                if (entry) ranks.set(player.puuid, entry);
+              }),
+              Effect.catch((error) =>
+                Effect.logWarning("rank unavailable for lol player").pipe(
+                  Effect.annotateLogs({ puuid: player.puuid, error }),
+                ),
+              ),
+            ),
+          { concurrency: 3 },
+        );
+
+        return {
+          ...match,
+          players: match.players.map((player) => {
+            const rank = ranks.get(player.puuid);
+            return rank
+              ? {
+                  ...player,
+                  rank: `${titleCase(rank.tier)} ${rank.rank}`,
+                  rankIconKey: rank.tier.toLowerCase(),
+                }
+              : player;
+          }),
+        };
+      },
+      Effect.mapError(
+        (cause) =>
+          new GameApiError({
+            game: "lol",
+            operation: "enrichMatch",
             cause,
           }),
       ),

@@ -1,7 +1,7 @@
 // Base game adapter service and contract to fulfill on game's impl
 import { Context, Effect, Layer, Schema } from "effect";
 import type * as HttpClientError from "effect/unstable/http/HttpClientError";
-import { GameId, type MatchCandidate, type Puuid } from "../index.ts";
+import { GameId, type MatchDetails, type Puuid } from "../index.ts";
 import { makeLolGameAdapter } from "./lol.ts";
 import { makeValorantGameAdapter } from "./valorant.ts";
 
@@ -15,6 +15,7 @@ export class GameApiError extends Schema.TaggedErrorClass<GameApiError>()(
 
 export interface GameAdapter {
   readonly game: GameId;
+  readonly rankIcons: ReadonlyArray<RankIcon>;
 
   readonly resolveAccount: (
     // discord id will come from the discord /signup command
@@ -27,7 +28,16 @@ export interface GameAdapter {
 
   readonly getRecentMatches: (
     puuid: Puuid,
-  ) => Effect.Effect<ReadonlyArray<MatchCandidate>, GameApiError>;
+  ) => Effect.Effect<ReadonlyArray<MatchDetails>, GameApiError>;
+
+  readonly enrichMatch: (
+    match: MatchDetails,
+  ) => Effect.Effect<MatchDetails, GameApiError>;
+}
+
+export interface RankIcon {
+  readonly key: string;
+  readonly url: string;
 }
 
 export class GameAdapters extends Context.Service<

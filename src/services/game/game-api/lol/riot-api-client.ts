@@ -3,7 +3,7 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
 import { Puuid } from "../../index.ts";
-import { LolMatch, LolMatchIds } from "./match-schema.ts";
+import { LolLeagueEntries, LolMatch, LolMatchIds } from "./match-schema.ts";
 
 export class RiotApiClient extends Context.Service<
   RiotApiClient,
@@ -20,6 +20,13 @@ export class RiotApiClient extends Context.Service<
       count: number,
     ) => Effect.Effect<
       ReadonlyArray<LolMatch>,
+      HttpClientError.HttpClientError | Schema.SchemaError
+    >;
+    getLeagueEntries: (
+      puuid: Puuid,
+      platform: string,
+    ) => Effect.Effect<
+      typeof LolLeagueEntries.Type,
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
   }
@@ -87,6 +94,27 @@ export const RiotApiLive = Layer.effect(
       return matches.filter((match) => match !== undefined);
     });
 
-    return RiotApiClient.of({ getAccountByRiotId, getRecentMatches });
+    const getLeagueEntries = Effect.fn("RiotApi.getLeagueEntries")(function* (
+      puuid: Puuid,
+      platform: string,
+    ) {
+      const platformClient = client.pipe(
+        HttpClient.mapRequest(
+          HttpClientRequest.setUrl(
+            `https://${platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(puuid)}`,
+          ),
+        ),
+      );
+      const res = yield* platformClient.get("");
+      return yield* Schema.decodeUnknownEffect(LolLeagueEntries)(
+        yield* res.json,
+      );
+    });
+
+    return RiotApiClient.of({
+      getAccountByRiotId,
+      getRecentMatches,
+      getLeagueEntries,
+    });
   }),
 );
