@@ -74,6 +74,10 @@ export interface LolMatch extends Schema.Schema.Type<typeof LolMatch> {}
 // The by-puuid ids endpoint returns a bare JSON array of match ids.
 export const LolMatchIds = Schema.Array(MatchId);
 
+export const LolSummoner = Schema.Struct({
+  puuid: Puuid,
+});
+
 // -----------------------------------------------------------------------------
 // /lol/league/v4/entries/by-puuid/{puuid} — one entry per ranked queue placed in
 // (used for LP-change reporting, fetched separately from the match itself)

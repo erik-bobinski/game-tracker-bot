@@ -1,52 +1,75 @@
-import { Config, Context, Effect, Layer, Redacted, Schema } from "effect";
+import { Context, Effect, Layer, Redacted, Schema } from "effect";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
+import { AppConfig } from "../../../config.ts";
 import { Puuid } from "../../index.ts";
-import { ValMatchesResponse, type ValRawMatch } from "./match-schema.ts";
+import { ProviderError, ProviderNotFound } from "../errors.ts";
+import {
+  ValAccountResponse,
+  ValMatchesResponse,
+  ValMmrResponse,
+  type ValRawMatch,
+} from "./match-schema.ts";
+
+type HenrikFailure = ProviderNotFound | ProviderError;
+
+export interface HenrikAccount {
+  readonly puuid: Puuid;
+  readonly region: string;
+  readonly platforms: ReadonlyArray<string>;
+}
+
+export interface HenrikMmr {
+  readonly tier: string;
+  readonly rr: number;
+}
 
 export class HenrikApiClient extends Context.Service<
   HenrikApiClient,
   {
-    getAccountByRiotId: (
+    readonly getAccountByRiotId: (
       name: string,
       tag: string,
-    ) => Effect.Effect<
-      Puuid,
-      HttpClientError.HttpClientError | Schema.SchemaError
-    >;
-    getRecentMatches: (
+    ) => Effect.Effect<HenrikAccount, HenrikFailure>;
+    readonly getRecentMatches: (
       puuid: Puuid,
       count: number,
-    ) => Effect.Effect<
-      ReadonlyArray<ValRawMatch>,
-      HttpClientError.HttpClientError | Schema.SchemaError
-    >;
+      region: string,
+      platform: string,
+    ) => Effect.Effect<ReadonlyArray<ValRawMatch>, HenrikFailure>;
+    readonly getMmr: (
+      puuid: Puuid,
+      region: string,
+      platform: string,
+    ) => Effect.Effect<HenrikMmr, HenrikFailure>;
   }
 >()("app/HenrikApiClient") {}
 
-// HenrikDev wraps every payload in {status, data}
-const HenrikResponse = <A extends Schema.Top>(data: A) =>
-  Schema.Struct({ status: Schema.Number, data });
+const classify = (operation: string) =>
+  Effect.mapError(
+    (cause: HttpClientError.HttpClientError | Schema.SchemaError) => {
+      if (
+        HttpClientError.isHttpClientError(cause) &&
+        cause.reason._tag === "StatusCodeError" &&
+        cause.reason.response.status === 404
+      ) {
+        return new ProviderNotFound({ provider: "henrik", operation });
+      }
+      return new ProviderError({ provider: "henrik", operation, cause });
+    },
+  );
 
 export const HenrikApiClientLive = Layer.effect(
   HenrikApiClient,
   Effect.gen(function* () {
-    const apiKey = yield* Config.redacted("HENRIK_API_KEY");
-    // TODO: replace with per-account region once Database stores it.
-    const region = yield* Config.string("VAL_REGION").pipe(
-      Config.withDefault("na"),
-    );
-    const platform = yield* Config.string("VAL_PLATFORM").pipe(
-      Config.withDefault("pc"),
-    );
+    const { henrikApiKey } = yield* AppConfig;
     const client = (yield* HttpClient.HttpClient).pipe(
       HttpClient.mapRequest(
-        HttpClientRequest.prependUrl("https://api.henrikdev.xyz"),
-      ),
-      HttpClient.mapRequest(
-        // HenrikDev takes the raw key in Authorization (no "Bearer" prefix).
-        HttpClientRequest.setHeader("Authorization", Redacted.value(apiKey)),
+        HttpClientRequest.setHeader(
+          "Authorization",
+          Redacted.value(henrikApiKey),
+        ),
       ),
       HttpClient.filterStatusOk,
       HttpClient.retryTransient({ times: 3 }),
@@ -54,32 +77,48 @@ export const HenrikApiClientLive = Layer.effect(
 
     const getAccountByRiotId = Effect.fn("HenrikApiClient.getAccountByRiotId")(
       function* (name: string, tag: string) {
-        const res = yield* client.get(
-          `/valorant/v1/account/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`,
+        const response = yield* client.get(
+          `https://api.henrikdev.xyz/valorant/v2/account/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`,
         );
-        const json = yield* res.json;
-        const { data } = yield* Schema.decodeUnknownEffect(
-          HenrikResponse(Schema.Struct({ puuid: Puuid })),
-        )(json);
-        return data.puuid;
+        const { data } = yield* Schema.decodeUnknownEffect(ValAccountResponse)(
+          yield* response.json,
+        );
+        return data;
       },
+      (effect) => effect.pipe(classify("getAccountByRiotId")),
     );
 
     const getRecentMatches = Effect.fn("HenrikApiClient.getRecentMatches")(
-      function* (puuid: Puuid, count: number) {
-        const res = yield* client.get(
-          `/valorant/v4/by-puuid/matches/${region}/${platform}/${encodeURIComponent(puuid)}?size=${count}`,
+      function* (
+        puuid: Puuid,
+        count: number,
+        region: string,
+        platform: string,
+      ) {
+        const response = yield* client.get(
+          `https://api.henrikdev.xyz/valorant/v4/by-puuid/matches/${encodeURIComponent(region)}/${encodeURIComponent(platform)}/${encodeURIComponent(puuid)}?size=${count}`,
         );
-        const json = yield* res.json;
         const { data } = yield* Schema.decodeUnknownEffect(ValMatchesResponse)(
-          json,
+          yield* response.json,
         ).pipe(Effect.annotateLogs({ puuid }));
-
-        // undefined entries are matches the schema skipped rather than failed on
         return data.filter((match) => match !== undefined);
       },
+      (effect) => effect.pipe(classify("getRecentMatches")),
     );
 
-    return HenrikApiClient.of({ getAccountByRiotId, getRecentMatches });
+    const getMmr = Effect.fn("HenrikApiClient.getMmr")(
+      function* (puuid: Puuid, region: string, platform: string) {
+        const response = yield* client.get(
+          `https://api.henrikdev.xyz/valorant/v3/by-puuid/mmr/${encodeURIComponent(region)}/${encodeURIComponent(platform)}/${encodeURIComponent(puuid)}`,
+        );
+        const { data } = yield* Schema.decodeUnknownEffect(ValMmrResponse)(
+          yield* response.json,
+        );
+        return { tier: data.current.tier.name, rr: data.current.rr };
+      },
+      (effect) => effect.pipe(classify("getMmr")),
+    );
+
+    return HenrikApiClient.of({ getAccountByRiotId, getRecentMatches, getMmr });
   }),
 );

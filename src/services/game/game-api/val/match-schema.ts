@@ -85,6 +85,23 @@ export const ValMatchesResponse = HenrikResponse(
   Schema.Array(LenientValRawMatch),
 );
 
+export const ValAccountResponse = HenrikResponse(
+  Schema.Struct({
+    puuid: Puuid,
+    region: Schema.String,
+    platforms: Schema.Array(Schema.String),
+  }),
+);
+
+export const ValMmrResponse = HenrikResponse(
+  Schema.Struct({
+    current: Schema.Struct({
+      tier: Schema.Struct({ id: Schema.Number, name: Schema.String }),
+      rr: Schema.Number,
+    }),
+  }),
+);
+
 export const ValMmrHistoryEntry = Schema.Struct({
   match_id: MatchId,
   mmr_change_to_last_game: Schema.Number,

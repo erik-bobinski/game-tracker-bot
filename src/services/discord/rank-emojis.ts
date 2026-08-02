@@ -7,7 +7,7 @@ import type { RankEmojis } from "./embed.ts";
 const MAX_EMOJI_BYTES = 256 * 1024;
 
 const emojiName = (game: GameAdapter["game"], key: string) =>
-  `rank_${game}_${key}`;
+  game === "lol" ? `rank_lol_v2_${key}` : `rank_${game}_${key}`;
 
 export const provisionRankEmojis = Effect.fn("Discord.provisionRankEmojis")(
   function* (adapters: ReadonlyArray<GameAdapter>) {

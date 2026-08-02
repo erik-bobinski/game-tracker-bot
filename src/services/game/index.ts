@@ -50,3 +50,19 @@ export type Puuid = typeof Puuid.Type;
 
 export const MatchId = Schema.String.pipe(Schema.brand("MatchId"));
 export type MatchId = typeof MatchId.Type;
+
+export interface ResolvedGameAccount {
+  readonly puuid: Puuid;
+  readonly route: string;
+}
+
+export interface TrackedGameAccount extends ResolvedGameAccount {
+  readonly trackingStartedAt: EpochMillis;
+}
+
+export interface RankSummary {
+  readonly label: string;
+  readonly queueLabel?: string;
+  readonly rankIconKey?: string;
+  readonly pointsLabel?: string;
+}

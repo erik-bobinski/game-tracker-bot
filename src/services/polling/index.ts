@@ -1,35 +1,69 @@
-import { Context, Effect, Layer, Schedule, SubscriptionRef } from "effect";
-import { MatchEngine } from "../match-engine/index.ts";
+import {
+  Context,
+  Effect,
+  Layer,
+  Schedule,
+  Semaphore,
+  SubscriptionRef,
+} from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { Schema } from "effect";
+import { AppConfig } from "../config.ts";
+import { MatchEngine, type PollSummary } from "../match-engine/index.ts";
 import { PollingState } from "./state.ts";
+
+export type PollResult =
+  | { readonly _tag: "Paused" }
+  | { readonly _tag: "Completed"; readonly summary: PollSummary };
+
+type PollFailure = SqlError | Schema.SchemaError;
 
 export class Polling extends Context.Service<
   Polling,
   {
-    /** Runs the polling loop until its parent scope is interrupted. */
-    readonly run: Effect.Effect<void, unknown>;
+    readonly runOnce: () => Effect.Effect<PollResult, PollFailure>;
+    readonly run: Effect.Effect<void, never>;
   }
 >()("app/Polling") {}
 
-const makePolling = Effect.gen(function* () {
-  const matchEngine = yield* MatchEngine;
-  const { paused } = yield* PollingState;
+export const PollingLive = Layer.effect(
+  Polling,
+  Effect.gen(function* () {
+    const matchEngine = yield* MatchEngine;
+    const { paused } = yield* PollingState;
+    const { pollInterval } = yield* AppConfig;
+    const passLock = yield* Semaphore.make(1);
 
-  const pollTick = Effect.gen(function* () {
-    if (yield* SubscriptionRef.get(paused)) return;
-    yield* matchEngine.pollOnce();
-  });
+    const runOnce = Effect.fn("Polling.runOnce")(() =>
+      passLock.withPermits(1)(
+        Effect.gen(function* () {
+          if (yield* SubscriptionRef.get(paused)) {
+            return { _tag: "Paused" } as const;
+          }
+          return {
+            _tag: "Completed",
+            summary: yield* matchEngine.pollOnce(),
+          } as const;
+        }),
+      ),
+    );
 
-  const pollLoop = pollTick.pipe(
-    // TODO: Decide whether errors should be logged, retried, or reported.
-    Effect.catchIf(
-      () => true,
-      (error) => Effect.logError("Polling cycle failed", error),
-    ),
-    Effect.repeat(Schedule.spaced("1 minute")),
-    Effect.asVoid,
-  );
+    const pass = runOnce().pipe(
+      Effect.tap((result) =>
+        result._tag === "Completed"
+          ? Effect.logInfo("polling pass completed").pipe(
+              Effect.annotateLogs({ ...result.summary }),
+            )
+          : Effect.logInfo("polling pass skipped while paused"),
+      ),
+      Effect.tapError((error) => Effect.logError("polling pass failed", error)),
+      Effect.ignore,
+    );
+    const run = pass.pipe(
+      Effect.repeat(Schedule.spaced(pollInterval)),
+      Effect.asVoid,
+    );
 
-  return Polling.of({ run: pollLoop });
-});
-
-export const PollingLive = Layer.effect(Polling, makePolling);
+    return Polling.of({ runOnce, run });
+  }),
+);

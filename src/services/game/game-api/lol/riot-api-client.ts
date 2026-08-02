@@ -1,118 +1,148 @@
-import { Config, Context, Effect, Layer, Redacted, Schema } from "effect";
+import { Context, Effect, Layer, Redacted, Schema } from "effect";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
+import { AppConfig } from "../../../config.ts";
 import { Puuid } from "../../index.ts";
-import { LolLeagueEntries, LolMatch, LolMatchIds } from "./match-schema.ts";
+import { ProviderError, ProviderNotFound } from "../errors.ts";
+import {
+  LolLeagueEntries,
+  LolMatch,
+  LolMatchIds,
+  LolSummoner,
+  type LolLeagueEntry,
+} from "./match-schema.ts";
+
+type RiotFailure = ProviderNotFound | ProviderError;
 
 export class RiotApiClient extends Context.Service<
   RiotApiClient,
   {
-    getAccountByRiotId: (
+    readonly getAccountByRiotId: (
       name: string,
       tag: string,
-    ) => Effect.Effect<
-      Puuid,
-      HttpClientError.HttpClientError | Schema.SchemaError
-    >;
-    getRecentMatches: (
+      regionalRoute: string,
+    ) => Effect.Effect<Puuid, RiotFailure>;
+    readonly getSummonerByPuuid: (
+      puuid: Puuid,
+      platformRoute: string,
+    ) => Effect.Effect<void, RiotFailure>;
+    readonly getRecentMatches: (
       puuid: Puuid,
       count: number,
-    ) => Effect.Effect<
-      ReadonlyArray<LolMatch>,
-      HttpClientError.HttpClientError | Schema.SchemaError
-    >;
-    getLeagueEntries: (
+      regionalRoute: string,
+    ) => Effect.Effect<ReadonlyArray<LolMatch>, RiotFailure>;
+    readonly getLeagueEntries: (
       puuid: Puuid,
-      platform: string,
-    ) => Effect.Effect<
-      typeof LolLeagueEntries.Type,
-      HttpClientError.HttpClientError | Schema.SchemaError
-    >;
+      platformRoute: string,
+    ) => Effect.Effect<ReadonlyArray<LolLeagueEntry>, RiotFailure>;
   }
 >()("app/RiotApiClient") {}
+
+const classify = (operation: string) =>
+  Effect.mapError(
+    (cause: HttpClientError.HttpClientError | Schema.SchemaError) => {
+      if (
+        HttpClientError.isHttpClientError(cause) &&
+        cause.reason._tag === "StatusCodeError" &&
+        cause.reason.response.status === 404
+      ) {
+        return new ProviderNotFound({ provider: "riot", operation });
+      }
+      return new ProviderError({ provider: "riot", operation, cause });
+    },
+  );
 
 export const RiotApiLive = Layer.effect(
   RiotApiClient,
   Effect.gen(function* () {
-    const apiKey = yield* Config.redacted("RIOT_API_KEY");
-    const region = yield* Config.string("RIOT_REGION").pipe(
-      Config.withDefault("americas"),
-    );
+    const { riotApiKey } = yield* AppConfig;
     const client = (yield* HttpClient.HttpClient).pipe(
       HttpClient.mapRequest(
-        HttpClientRequest.prependUrl(`https://${region}.api.riotgames.com`),
-      ),
-      HttpClient.mapRequest(
-        HttpClientRequest.setHeader("X-Riot-Token", Redacted.value(apiKey)),
+        HttpClientRequest.setHeader("X-Riot-Token", Redacted.value(riotApiKey)),
       ),
       HttpClient.filterStatusOk,
       HttpClient.retryTransient({ times: 3 }),
     );
 
     const getAccountByRiotId = Effect.fn("RiotApi.getAccountByRiotId")(
-      function* (name: string, tag: string) {
-        const res = yield* client.get(
-          `/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`,
+      function* (name: string, tag: string, regionalRoute: string) {
+        const response = yield* client.get(
+          `https://${regionalRoute}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`,
         );
-        const json = yield* res.json;
         const { puuid } = yield* Schema.decodeUnknownEffect(
           Schema.Struct({ puuid: Puuid }),
-        )(json);
+        )(yield* response.json);
         return puuid;
       },
+      (effect) => effect.pipe(classify("getAccountByRiotId")),
     );
 
-    const getMatch = Effect.fn("RiotApi.getMatch")(function* (matchId: string) {
-      const res = yield* client.get(`/lol/match/v5/matches/${matchId}`);
-      const json = yield* res.json;
-      return yield* Schema.decodeUnknownEffect(LolMatch)(json);
-    });
+    const getSummonerByPuuid = Effect.fn("RiotApi.getSummonerByPuuid")(
+      function* (puuid: Puuid, platformRoute: string) {
+        const response = yield* client.get(
+          `https://${platformRoute}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${encodeURIComponent(puuid)}`,
+        );
+        yield* Schema.decodeUnknownEffect(LolSummoner)(yield* response.json);
+      },
+      (effect) => effect.pipe(classify("getSummonerByPuuid")),
+    );
 
-    // Match-V5 has no bulk endpoint: fetch ids, then one call per match.
+    const getMatch = Effect.fn("RiotApi.getMatch")(
+      function* (matchId: string, regionalRoute: string) {
+        const response = yield* client.get(
+          `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchId)}`,
+        );
+        return yield* Schema.decodeUnknownEffect(LolMatch)(
+          yield* response.json,
+        );
+      },
+      (effect) => effect.pipe(classify("getMatch")),
+    );
+
     const getRecentMatches = Effect.fn("RiotApi.getRecentMatches")(function* (
       puuid: Puuid,
       count: number,
+      regionalRoute: string,
     ) {
-      const res = yield* client.get(
-        `/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids?count=${count}`,
-      );
-      const json = yield* res.json;
-      const matchIds = yield* Schema.decodeUnknownEffect(LolMatchIds)(json);
-
+      const matchIds = yield* Effect.gen(function* () {
+        const response = yield* client.get(
+          `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids?count=${count}`,
+        );
+        return yield* Schema.decodeUnknownEffect(LolMatchIds)(
+          yield* response.json,
+        );
+      }).pipe(classify("getRecentMatchIds"));
       const matches = yield* Effect.forEach(matchIds, (matchId) =>
-        getMatch(matchId).pipe(
-          Effect.catchTag("SchemaError", (error) =>
-            Effect.logWarning("skipping undecodable lol match").pipe(
-              Effect.annotateLogs({ matchId, error }),
-              Effect.as(undefined),
-            ),
+        getMatch(matchId, regionalRoute).pipe(
+          Effect.catchTag("ProviderError", (error) =>
+            error.cause instanceof Schema.SchemaError
+              ? Effect.logWarning("skipping undecodable lol match").pipe(
+                  Effect.annotateLogs({ matchId, error }),
+                  Effect.as(undefined),
+                )
+              : Effect.fail(error),
           ),
         ),
       );
-
       return matches.filter((match) => match !== undefined);
     });
 
-    const getLeagueEntries = Effect.fn("RiotApi.getLeagueEntries")(function* (
-      puuid: Puuid,
-      platform: string,
-    ) {
-      const platformClient = client.pipe(
-        HttpClient.mapRequest(
-          HttpClientRequest.setUrl(
-            `https://${platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(puuid)}`,
-          ),
-        ),
-      );
-      const res = yield* platformClient.get("");
-      return yield* Schema.decodeUnknownEffect(LolLeagueEntries)(
-        yield* res.json,
-      );
-    });
+    const getLeagueEntries = Effect.fn("RiotApi.getLeagueEntries")(
+      function* (puuid: Puuid, platformRoute: string) {
+        const response = yield* client.get(
+          `https://${platformRoute}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(puuid)}`,
+        );
+        return yield* Schema.decodeUnknownEffect(LolLeagueEntries)(
+          yield* response.json,
+        );
+      },
+      (effect) => effect.pipe(classify("getLeagueEntries")),
+    );
 
     return RiotApiClient.of({
       getAccountByRiotId,
+      getSummonerByPuuid,
       getRecentMatches,
       getLeagueEntries,
     });

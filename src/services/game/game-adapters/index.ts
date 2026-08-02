@@ -1,12 +1,20 @@
-// Base game adapter service and contract to fulfill on game's impl
 import { Context, Effect, Layer, Schema } from "effect";
-import type * as HttpClientError from "effect/unstable/http/HttpClientError";
-import { GameId, type MatchDetails, type Puuid } from "../index.ts";
+import {
+  GameId,
+  type MatchDetails,
+  type RankSummary,
+  type ResolvedGameAccount,
+  type TrackedGameAccount,
+} from "../index.ts";
 import { makeLolGameAdapter } from "./lol.ts";
 import { makeValorantGameAdapter } from "./valorant.ts";
 
-// Cap per-poll fetches; we poll every minute so 3 is plenty.
 export const RECENT_MATCH_COUNT = 3;
+
+export class AccountNotFound extends Schema.TaggedErrorClass<AccountNotFound>()(
+  "AccountNotFound",
+  { game: GameId },
+) {}
 
 export class GameApiError extends Schema.TaggedErrorClass<GameApiError>()(
   "GameApiError",
@@ -16,20 +24,16 @@ export class GameApiError extends Schema.TaggedErrorClass<GameApiError>()(
 export interface GameAdapter {
   readonly game: GameId;
   readonly rankIcons: ReadonlyArray<RankIcon>;
-
   readonly resolveAccount: (
-    // discord id will come from the discord /signup command
     name: string,
     tag: string,
-  ) => Effect.Effect<
-    Puuid,
-    HttpClientError.HttpClientError | Schema.SchemaError
-  >;
-
+  ) => Effect.Effect<ResolvedGameAccount, AccountNotFound | GameApiError>;
   readonly getRecentMatches: (
-    puuid: Puuid,
+    account: TrackedGameAccount,
   ) => Effect.Effect<ReadonlyArray<MatchDetails>, GameApiError>;
-
+  readonly getRanks: (
+    account: TrackedGameAccount,
+  ) => Effect.Effect<ReadonlyArray<RankSummary>, GameApiError>;
   readonly enrichMatch: (
     match: MatchDetails,
   ) => Effect.Effect<MatchDetails, GameApiError>;
@@ -42,19 +46,14 @@ export interface RankIcon {
 
 export class GameAdapters extends Context.Service<
   GameAdapters,
-  {
-    readonly all: ReadonlyArray<GameAdapter>;
-  }
+  { readonly all: ReadonlyArray<GameAdapter> }
 >()("app/GameAdapters") {}
 
 export const GameAdaptersLive = Layer.effect(
   GameAdapters,
   Effect.gen(function* () {
-    const all: ReadonlyArray<GameAdapter> = [
-      yield* makeLolGameAdapter,
-      yield* makeValorantGameAdapter,
-    ];
-
-    return GameAdapters.of({ all });
+    return GameAdapters.of({
+      all: [yield* makeLolGameAdapter, yield* makeValorantGameAdapter],
+    });
   }),
 );

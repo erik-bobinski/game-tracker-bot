@@ -1,5 +1,6 @@
 import type { Discord } from "dfx";
 import type { GameId, MatchDetails, MatchPlayer } from "../game/index.ts";
+import type { RankCheckResult } from "./workflows.ts";
 
 export interface MatchReport {
   readonly discordNames: ReadonlyArray<string>;
@@ -8,6 +9,11 @@ export interface MatchReport {
 }
 
 export type RankEmojis = Readonly<Record<string, string>>;
+
+const rankColors: Record<GameId, number> = {
+  lol: 0x0ac8b9,
+  valorant: 0xff4655,
+};
 
 const gameNames: Record<GameId, string> = {
   lol: "League of Legends",
@@ -32,6 +38,9 @@ const rankEmoji = (player: MatchPlayer, game: GameId, emojis: RankEmojis) => {
   );
 };
 
+const lolDivision = (rank: string | undefined) =>
+  rank?.match(/\b(IV|III|II|I)$/)?.[1];
+
 const leaderboard = (
   players: ReadonlyArray<MatchPlayer>,
   trackedPuuids: ReadonlySet<string>,
@@ -39,17 +48,21 @@ const leaderboard = (
   emojis: RankEmojis,
 ) =>
   [...players]
-    .sort((a, b) => b.sortKey - a.sortKey)
+    .sort((left, right) => right.sortKey - left.sortKey)
     .map((player) => {
       const rawName = `${player.riotName}#${player.riotTag}`;
       const name = trackedPuuids.has(player.puuid) ? `**${rawName}**` : rawName;
       const icon = rankEmoji(player, game, emojis);
-      const prefix = icon ? `${icon} ` : "";
-      const extras = [player.stat, player.rank, player.flair]
+      const division = game === "lol" && icon ? lolDivision(player.rank) : "";
+      return [
+        icon ? `${icon}${division ? ` ${division}` : ""}` : undefined,
+        `${name} (${player.character})`,
+        `${player.kills}/${player.deaths}/${player.assists}`,
+        player.stat,
+        player.flair,
+      ]
         .filter((value): value is string => Boolean(value))
-        .map((value) => ` · ${value}`)
-        .join("");
-      return `${prefix}${name} (${player.character}) ${player.kills}/${player.deaths}/${player.assists}${extras}`;
+        .join(" · ");
     })
     .join("\n");
 
@@ -104,3 +117,24 @@ export const matchEmbed = (
     ...(thumbnail ? { thumbnail: { url: thumbnail } } : {}),
   };
 };
+
+export const rankEmbed = (
+  result: Extract<RankCheckResult, { readonly _tag: "Ranks" }>,
+): Discord.RichEmbed => ({
+  title: `${result.discordName}'s ${result.game === "lol" ? "League" : "Valorant"} Rank`,
+  description: result.ranks
+    .map((rank) => {
+      const points = rank.pointsLabel ? ` \u00b7 ${rank.pointsLabel}` : "";
+      const queue = rank.queueLabel
+        ? ` (${rank.queueLabel.replace(/^Ranked /, "")})`
+        : "";
+      return `**${rank.label}**${points}${queue}`;
+    })
+    .join("\n"),
+  color: rankColors[result.game],
+  ...(result.iconUrl
+    ? result.game === "lol"
+      ? { image: { url: result.iconUrl } }
+      : { thumbnail: { url: result.iconUrl } }
+    : {}),
+});
