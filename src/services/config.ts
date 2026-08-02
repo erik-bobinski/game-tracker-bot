@@ -4,6 +4,7 @@ export type AppMode = "development" | "production";
 
 export interface AppConfigService {
   readonly appMode: AppMode;
+  readonly adminSocketPath: string;
   readonly dbPath: string;
   readonly notificationChannelId: string;
   readonly pollInterval: Duration.Duration;
@@ -24,6 +25,9 @@ export const AppConfigLive = Layer.effect(
         ["development", "production"],
         "APP_MODE",
       ).pipe(Config.withDefault("production")),
+      adminSocketPath: yield* Config.nonEmptyString("ADMIN_SOCKET_PATH").pipe(
+        Config.withDefault("/tmp/riot-tracker-bot-admin.sock"),
+      ),
       dbPath: yield* Config.nonEmptyString("DB_PATH").pipe(
         Config.withDefault("riot-tracker.sqlite"),
       ),

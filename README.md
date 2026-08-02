@@ -29,15 +29,16 @@ commands out of the production command set.
 
 Copy `.env.example` and set:
 
-| Variable                  | Purpose                                 | Default               |
-| ------------------------- | --------------------------------------- | --------------------- |
-| `APP_MODE`                | `development` or `production`           | `production`          |
-| `DISCORD_BOT_TOKEN`       | Token for the environment's Discord bot | required              |
-| `NOTIFICATION_CHANNEL_ID` | Channel receiving match reports         | required              |
-| `RIOT_API_KEY`            | Riot API key                            | required              |
-| `HENRIK_API_KEY`          | HenrikDev API key                       | required              |
-| `DB_PATH`                 | SQLite database file                    | `riot-tracker.sqlite` |
-| `POLL_INTERVAL`           | Effect duration such as `1 minute`      | `1 minute`            |
+| Variable                  | Purpose                                 | Default                            |
+| ------------------------- | --------------------------------------- | ---------------------------------- |
+| `APP_MODE`                | `development` or `production`           | `production`                       |
+| `ADMIN_SOCKET_PATH`       | Private Unix admin socket               | `/tmp/riot-tracker-bot-admin.sock` |
+| `DISCORD_BOT_TOKEN`       | Token for the environment's Discord bot | required                           |
+| `NOTIFICATION_CHANNEL_ID` | Channel receiving match reports         | required                           |
+| `RIOT_API_KEY`            | Riot API key                            | required                           |
+| `HENRIK_API_KEY`          | HenrikDev API key                       | required                           |
+| `DB_PATH`                 | SQLite database file                    | `riot-tracker.sqlite`              |
+| `POLL_INTERVAL`           | Effect duration such as `1 minute`      | `1 minute`                         |
 
 Riot development keys expire after 24 hours. A persistent production worker
 needs an appropriate non-expiring key.
@@ -114,6 +115,32 @@ pnpm start
 
 `pnpm check` runs typechecking, the Vitest suite, and the production build.
 
+## Production admin CLI
+
+The running worker exposes a private Unix socket for `signup`, `signout`,
+`pause`, `resume`, `rank-check`, and `status`. Commands use the same database,
+game adapters, workflows, and polling state as Discord without posting messages.
+
+Run commands inside the production container:
+
+```sh
+pnpm admin -- status
+pnpm admin -- pause
+pnpm admin -- resume
+pnpm admin -- signout --discord-user-id 502202450183454721
+pnpm admin -- rank-check --discord-user-id 502202450183454721 --game val
+pnpm admin -- signup \
+  --discord-user-id 502202450183454721 \
+  --discord-name syanx_ \
+  --riot-name syan \
+  --riot-tag 7571
+```
+
+Add `--json` anywhere after `admin` for automation. Exit codes are `0` for
+success, `2` for invalid arguments, `3` for an unavailable socket, `4` for a
+rejected command, and `5` for database, provider, or protocol failures. The
+socket is mode `0600`; Railway SSH remains the authorization boundary.
+
 ## Persistence and delivery behavior
 
 SQLite is stored at `DB_PATH`. Match IDs are retained in a bounded per-user,
@@ -134,6 +161,7 @@ Production variables:
 
 ```dotenv
 APP_MODE=production
+ADMIN_SOCKET_PATH=/tmp/riot-tracker-bot-admin.sock
 DB_PATH=/data/riot-tracker.sqlite
 POLL_INTERVAL=1 minute
 RAILPACK_NODE_VERSION=24

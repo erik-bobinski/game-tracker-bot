@@ -8,6 +8,8 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 import { AppConfig } from "../config.ts";
 import { EpochMillis, GameId, MatchId, Puuid } from "../game/index.ts";
 
+export const SCHEMA_VERSION = 3;
+
 export const ReportedMatch = Schema.Struct({
   matchId: MatchId,
   date: EpochMillis,

@@ -18,10 +18,15 @@ import { HenrikApiClientLive } from "./services/game/game-api/val/henrik-api-cli
 import { MatchEngineLive } from "./services/match-engine/index.ts";
 import { Polling, PollingLive } from "./services/polling/index.ts";
 import { PollingStateLive } from "./services/polling/state.ts";
+import { isAdminCli, runAdminCli } from "./admin-cli.ts";
+import { AdminLive } from "./services/admin/index.ts";
+import { makeAdminServer } from "./services/admin/socket.ts";
 
 const main = Effect.gen(function* () {
   yield* CommandRegistration;
   const polling = yield* Polling;
+  const adminServer = yield* makeAdminServer();
+  yield* Effect.forkScoped(adminServer);
   yield* polling.run;
 });
 
@@ -50,11 +55,16 @@ const ApplicationLive = CommandRegistrationLive.pipe(
   Layer.provideMerge(PollingServiceLive),
   Layer.provide(Layer.mergeAll(AppConfigLive, DevSimulatorLive)),
 );
+const RuntimeLive = AdminLive.pipe(
+  Layer.provideMerge(ApplicationLive),
+  Layer.provide(AppConfigLive),
+);
 
 const runner = main.pipe(
-  Effect.provide(ApplicationLive),
+  Effect.provide(RuntimeLive),
   Effect.provide(Logger.layer([Logger.consoleJson])),
   Effect.scoped,
 );
 
-NodeRuntime.runMain(runner);
+if (isAdminCli) runAdminCli();
+else NodeRuntime.runMain(runner);

@@ -11,6 +11,7 @@ import { HenrikApiClientLive } from "../src/services/game/game-api/val/henrik-ap
 
 export const config = (dbPath: string): AppConfigService => ({
   appMode: "development",
+  adminSocketPath: "/tmp/riot-tracker-bot-test-admin.sock",
   dbPath,
   notificationChannelId: "test-channel",
   pollInterval: Duration.minutes(1),
