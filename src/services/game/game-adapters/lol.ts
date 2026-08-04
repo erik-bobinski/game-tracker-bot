@@ -183,7 +183,10 @@ export const makeLolGameAdapter = Effect.gen(function* () {
             };
           },
         );
-        const teams: Array<MatchTeam> = [100, 200].map((teamId) => ({
+        const teamIds = new Set(
+          match.info.participants.map((participant) => participant.teamId),
+        );
+        const teams: Array<MatchTeam> = [...teamIds].map((teamId) => ({
           id: String(teamId),
           won:
             match.info.participants.find(
