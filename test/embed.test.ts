@@ -36,14 +36,99 @@ describe("match embeds", () => {
       },
       {},
     );
-    const rendered = `${embed.title}\n${embed.description}`;
+    const rendered = `${embed.title}\n${embed.description}\n${JSON.stringify(embed.fields)}`;
     expect(rendered).toContain("Victory — Ranked Solo/Duo · Summoner's Rift");
     expect(rendered).toContain("13–8");
-    expect(rendered).toContain(
-      "**Mock#NA1** (Ahri) · 20/1/9 · 200 CS · 30k dmg · Penta Kill",
-    );
-    expect(rendered).toContain("· Penta Kill");
+    expect(embed.description).toContain("**Penta Kill** — Mock#NA1");
+    expect(embed.fields).toEqual([
+      {
+        name: "Your team — 13",
+        value: "**Mock#NA1** · Ahri · 20/1/9 · 200 CS · 30k dmg",
+        inline: false,
+      },
+    ]);
     expect(rendered).not.toMatch(/Â|â€|ðŸ/);
+  });
+  it("keeps each player's identity and stats together in mobile-first team fields", () => {
+    const player = (overrides: {
+      puuid: string;
+      team: string;
+      riotName: string;
+      character: string;
+      kills: number;
+      sortKey: number;
+    }) => ({
+      puuid: Puuid.make(overrides.puuid),
+      team: overrides.team,
+      riotName: overrides.riotName,
+      riotTag: "NA1",
+      character: overrides.character,
+      kills: overrides.kills,
+      deaths: 2,
+      assists: 3,
+      stat: "100 CS · 10k dmg",
+      sortKey: overrides.sortKey,
+    });
+    const embed = matchEmbed(
+      {
+        discordNames: ["One"],
+        trackedPuuids: ["tracked"],
+        match: {
+          matchId: MatchId.make("two-teams"),
+          game: "lol",
+          date: EpochMillis.make(1_000),
+          mode: "Ranked Solo/Duo",
+          durationSeconds: 1_234,
+          surrendered: false,
+          players: [
+            player({
+              puuid: "ally",
+              team: "100",
+              riotName: "AllyLow",
+              character: "Lux",
+              kills: 1,
+              sortKey: 1,
+            }),
+            player({
+              puuid: "tracked",
+              team: "100",
+              riotName: "AVeryLongRiotNameIndeed",
+              character: "Ahri",
+              kills: 20,
+              sortKey: 29,
+            }),
+            player({
+              puuid: "enemy",
+              team: "200",
+              riotName: "Enemy",
+              character: "Garen",
+              kills: 5,
+              sortKey: 5,
+            }),
+          ],
+          teams: [
+            { id: "100", won: true },
+            { id: "200", won: false },
+          ],
+        },
+      },
+      {},
+    );
+
+    expect(embed.fields).toEqual([
+      {
+        name: "Your team — Victory",
+        value:
+          "**AVeryLongRiotName…** · Ahri · 20/2/3 · 100 CS · 10k dmg\n" +
+          "AllyLow#NA1 · Lux · 1/2/3 · 100 CS · 10k dmg",
+        inline: false,
+      },
+      {
+        name: "Opponent — Defeat",
+        value: "Enemy#NA1 · Garen · 5/2/3 · 100 CS · 10k dmg",
+        inline: false,
+      },
+    ]);
   });
   it("uses rank emojis without redundant rank labels in leaderboards", () => {
     const league = matchEmbed(
@@ -78,8 +163,10 @@ describe("match embeds", () => {
       },
       { "lol.diamond": "<:diamond:1>" },
     );
-    expect(league.description).toContain("<:diamond:1> II · **Mock#NA1**");
-    expect(league.description).not.toContain("Diamond II");
+    expect(league.fields?.[0]?.value).toContain(
+      "<:diamond:1> II **Mock#NA1** · Ahri · 20/1/9 · 200 CS",
+    );
+    expect(JSON.stringify(league)).not.toContain("Diamond II");
 
     const valorant = matchEmbed(
       {
@@ -113,8 +200,10 @@ describe("match embeds", () => {
       },
       { "valorant.diamond_1": "<:diamond_1:2>" },
     );
-    expect(valorant.description).toContain("<:diamond_1:2> · **Mock#NA1**");
-    expect(valorant.description).not.toContain("Diamond 1");
+    expect(valorant.fields?.[0]?.value).toContain(
+      "<:diamond_1:2> **Mock#NA1** · Jett · 20/1/9 · 285 ACS",
+    );
+    expect(JSON.stringify(valorant)).not.toContain("Diamond 1");
   });
   it("renders compact game-specific rank embeds", () => {
     const valorant = rankEmbed({
