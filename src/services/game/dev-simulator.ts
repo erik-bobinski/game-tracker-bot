@@ -1,11 +1,22 @@
 import { Context, Effect, Layer, Ref } from "effect";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
-import type { LolLeagueEntry, LolMatch } from "./game-api/lol/match-schema.ts";
-import type { ValRawMatch } from "./game-api/val/match-schema.ts";
-import { EpochMillis, MatchId, Puuid, type GameId } from "./index.ts";
-import { lolRegionalRoute } from "./game-adapters/lol.ts";
-import { RECENT_MATCH_COUNT } from "./game-adapters/index.ts";
+import {
+  AccountNotFound,
+  GameAdapters,
+  RECENT_MATCH_COUNT,
+  type GameAdapter,
+  type RankIcon,
+} from "./game-adapters/index.ts";
+import { lolRankIcons } from "./game-adapters/lol.ts";
+import { valorantRankIcons } from "./game-adapters/valorant.ts";
+import {
+  EpochMillis,
+  MatchId,
+  Puuid,
+  type GameId,
+  type MatchDetails,
+  type MatchPlayer,
+  type RankSummary,
+} from "./index.ts";
 
 export interface MockAccount {
   readonly riotName: string;
@@ -52,10 +63,8 @@ export interface StageMatchInput {
 }
 
 interface SimulatorState {
-  readonly lolHistories: ReadonlyMap<string, ReadonlyArray<LolMatch>>;
-  readonly valHistories: ReadonlyMap<string, ReadonlyArray<ValRawMatch>>;
+  readonly matches: ReadonlyArray<MatchDetails>;
   readonly lastMatchIds: ReadonlyMap<GameId, string>;
-  readonly requests: ReadonlyArray<string>;
   readonly sequence: number;
   readonly lastTimestamp: number;
 }
@@ -63,162 +72,169 @@ interface SimulatorState {
 export class DevSimulator extends Context.Service<
   DevSimulator,
   {
-    readonly listAccounts: () => Effect.Effect<ReadonlyArray<MockAccount>>;
     readonly stageMatch: (input: StageMatchInput) => Effect.Effect<string>;
-    readonly requestedUrls: () => Effect.Effect<ReadonlyArray<string>>;
-    readonly httpClient: HttpClient.HttpClient;
+    readonly adapters: ReadonlyArray<GameAdapter>;
   }
 >()("app/DevSimulator") {}
 
 const initialState: SimulatorState = {
-  lolHistories: new Map(),
-  valHistories: new Map(),
+  matches: [],
   lastMatchIds: new Map(),
-  requests: [],
   sequence: 0,
   lastTimestamp: 0,
 };
 
-const bounded = <A>(items: ReadonlyArray<A>): ReadonlyArray<A> =>
-  items.slice(0, RECENT_MATCH_COUNT);
+const lolChampion = (index: number) => (index === 0 ? "Ahri" : "Lux");
 
 const makeLolMatch = (
   input: StageMatchInput,
   matchId: string,
   timestamp: number,
-): LolMatch => {
-  const tracked = input.players.map((player, index) => ({
+): MatchDetails => {
+  const won = input.result === "victory";
+  const tracked = input.players.map((player, index): MatchPlayer => ({
     puuid: Puuid.make(player.puuid),
-    riotIdGameName: player.riotName,
-    riotIdTagline: player.riotTag,
-    teamId: 100 as const,
-    championName: index === 0 ? "Ahri" : "Lux",
-    kills: input.result === "victory" ? 12 - index : 3 + index,
-    deaths: input.result === "victory" ? 3 + index : 10 - index,
+    team: "100",
+    riotName: player.riotName,
+    riotTag: player.riotTag,
+    character: lolChampion(index),
+    kills: won ? 12 - index : 3 + index,
+    deaths: won ? 3 + index : 10 - index,
     assists: 8 + index,
-    win: input.result === "victory",
-    totalMinionsKilled: 180 - index * 20,
-    neutralMinionsKilled: index * 4,
-    totalDamageDealtToChampions: 24_000 - index * 2_000,
-    largestMultiKill: index === 0 ? 5 : 2,
-    gameEndedInSurrender: input.surrendered,
+    stat: `${180 - index * 20} CS · ${24 - index * 2}.0k dmg`,
+    sortKey: 10 - index,
+    ...(input.mode === "ranked"
+      ? { rank: "Diamond II", rankIconKey: "diamond" }
+      : {}),
+    ...(index === 0 && won ? { flair: "Penta Kill" } : {}),
+    thumbnailUrl: `https://cdn.communitydragon.org/latest/champion/${lolChampion(index)}/square`,
   }));
-  const opponent = {
+  const opponent: MatchPlayer = {
     puuid: Puuid.make(`mock-opponent-${matchId}`),
-    riotIdGameName: "MockOpponent",
-    riotIdTagline: "BOT",
-    teamId: 200 as const,
-    championName: "Garen",
-    kills: input.result === "victory" ? 2 : 14,
-    deaths: input.result === "victory" ? 12 : 2,
+    team: "200",
+    riotName: "MockOpponent",
+    riotTag: "BOT",
+    character: "Garen",
+    kills: won ? 2 : 14,
+    deaths: won ? 12 : 2,
     assists: 4,
-    win: input.result !== "victory",
-    totalMinionsKilled: 190,
-    neutralMinionsKilled: 0,
-    totalDamageDealtToChampions: 18_000,
-    largestMultiKill: 2,
-    gameEndedInSurrender: input.surrendered,
+    stat: "190 CS · 18.0k dmg",
+    sortKey: 3,
+    ...(input.mode === "ranked"
+      ? { rank: "Diamond III", rankIconKey: "diamond" }
+      : {}),
+    thumbnailUrl:
+      "https://cdn.communitydragon.org/latest/champion/Garen/square",
   };
-  const participants = [...tracked, opponent];
   return {
-    metadata: {
-      matchId: MatchId.make(matchId),
-      participants: participants.map((player) => player.puuid),
-    },
-    info: {
-      gameMode: input.mode === "ranked" ? "CLASSIC" : "CLASSIC",
-      gameDuration: 1_857,
-      gameStartTimestamp: EpochMillis.make(timestamp),
-      queueId: input.mode === "ranked" ? 420 : 400,
-      platformId: input.players[0]?.route.toUpperCase() ?? "NA1",
-      participants,
-    },
+    matchId: MatchId.make(matchId),
+    game: "lol",
+    date: EpochMillis.make(timestamp),
+    mode: input.mode === "ranked" ? "Ranked Solo/Duo" : "Normal Draft",
+    durationSeconds: 1_857,
+    surrendered: input.surrendered,
+    players: [...tracked, opponent],
+    teams: [
+      { id: "100", won },
+      { id: "200", won: !won },
+    ],
   };
 };
+
+const valAgents = [
+  { name: "Jett", id: "add6443a-41bd-e414-f6ad-e58d267f4e95" },
+  { name: "Reyna", id: "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc" },
+] as const;
+const valOpponentAgent = {
+  name: "Raze",
+  id: "f94c3b30-42be-e959-889c-5aa313dba261",
+} as const;
 
 const makeValMatch = (
   input: StageMatchInput,
   matchId: string,
   timestamp: number,
-): ValRawMatch => {
-  const tracked = input.players.map((player, index) => ({
-    puuid: Puuid.make(player.puuid),
-    name: player.riotName,
-    tag: player.riotTag,
-    team_id: "Red",
-    agent: {
-      id:
-        index === 0
-          ? "add6443a-41bd-e414-f6ad-e58d267f4e95"
-          : "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc",
-      name: index === 0 ? "Jett" : "Reyna",
-    },
-    tier: {
-      id: input.mode === "ranked" ? 18 : 0,
-      name: input.mode === "ranked" ? "Diamond 1" : "Unrated",
-    },
-    stats: {
-      kills: input.result === "victory" ? 24 - index : 11 + index,
-      deaths: input.result === "victory" ? 12 + index : 20 - index,
-      assists: 7 + index,
-      score: 6_000 - index * 300,
-      headshots: 20,
-      bodyshots: 45,
-      legshots: 3,
-    },
-  }));
-  const opponent = {
-    puuid: Puuid.make(`mock-val-opponent-${matchId}`),
-    name: "MockOpponent",
-    tag: "BOT",
-    team_id: "Blue",
-    agent: {
-      id: "f94c3b30-42be-e959-889c-5aa313dba261",
-      name: "Raze",
-    },
-    tier: { id: 15, name: "Platinum 1" },
-    stats: {
-      kills: input.result === "victory" ? 10 : 25,
-      deaths: input.result === "victory" ? 22 : 10,
-      assists: 4,
-      score: 5_200,
-      headshots: 18,
-      bodyshots: 50,
-      legshots: 2,
-    },
-  };
+): MatchDetails => {
   const won = input.result === "victory";
+  const tracked = input.players.map((player, index): MatchPlayer => {
+    const agent = valAgents[index % valAgents.length]!;
+    return {
+      puuid: Puuid.make(player.puuid),
+      team: "red",
+      riotName: player.riotName,
+      riotTag: player.riotTag,
+      character: agent.name,
+      kills: won ? 24 - index : 11 + index,
+      deaths: won ? 12 + index : 20 - index,
+      assists: 7 + index,
+      stat: `${280 - index * 15} ACS · 29% HS`,
+      sortKey: 280 - index * 15,
+      ...(input.mode === "ranked"
+        ? { rank: "Diamond 1", rankIconKey: "diamond_1" }
+        : {}),
+      thumbnailUrl: `https://media.valorant-api.com/agents/${agent.id}/displayicon.png`,
+    };
+  });
+  const opponent: MatchPlayer = {
+    puuid: Puuid.make(`mock-val-opponent-${matchId}`),
+    team: "blue",
+    riotName: "MockOpponent",
+    riotTag: "BOT",
+    character: valOpponentAgent.name,
+    kills: won ? 10 : 25,
+    deaths: won ? 22 : 10,
+    assists: 4,
+    stat: "247 ACS · 25% HS",
+    sortKey: 247,
+    ...(input.mode === "ranked"
+      ? { rank: "Platinum 1", rankIconKey: "platinum_1" }
+      : {}),
+    thumbnailUrl: `https://media.valorant-api.com/agents/${valOpponentAgent.id}/displayicon.png`,
+  };
   return {
-    metadata: {
-      match_id: MatchId.make(matchId),
-      map: { id: "ascent", name: "Ascent" },
-      game_length_in_ms: 2_145_000,
-      started_at: new Date(timestamp).toISOString(),
-      is_completed: true,
-      queue: {
-        id: input.mode === "ranked" ? "competitive" : "unrated",
-        name: input.mode === "ranked" ? "Competitive" : "Unrated",
-        mode_type: "Standard",
-      },
-    },
+    matchId: MatchId.make(matchId),
+    game: "valorant",
+    date: EpochMillis.make(timestamp),
+    mode: input.mode === "ranked" ? "Competitive" : "Unrated",
+    map: "Ascent",
+    durationSeconds: 2_145,
+    surrendered: input.surrendered,
     players: [...tracked, opponent],
     teams: [
-      {
-        team_id: "Red",
-        won,
-        rounds: { won: won ? 13 : 8, lost: won ? 8 : 13 },
-      },
-      {
-        team_id: "Blue",
-        won: !won,
-        rounds: { won: won ? 8 : 13, lost: won ? 13 : 8 },
-      },
+      { id: "red", won, score: won ? [13, 8] : [8, 13] },
+      { id: "blue", won: !won, score: won ? [8, 13] : [13, 8] },
     ],
-    rounds: input.surrendered
-      ? [{ result: "Surrendered" }]
-      : Array.from({ length: 21 }, () => ({ result: "Eliminated" })),
   };
 };
+
+const lolRanks = (puuid: string): ReadonlyArray<RankSummary> =>
+  puuid.includes("bravo")
+    ? []
+    : [
+        {
+          label: `${puuid.includes("eu") ? "Emerald" : "Diamond"} II`,
+          queueLabel: "Ranked Solo/Duo",
+          rankIconKey: puuid.includes("eu") ? "emerald" : "diamond",
+          pointsLabel: "64 LP",
+        },
+        {
+          label: "Platinum I",
+          queueLabel: "Ranked Flex",
+          rankIconKey: "platinum",
+          pointsLabel: "21 LP",
+        },
+      ];
+
+const valRanks = (puuid: string): ReadonlyArray<RankSummary> =>
+  puuid.includes("bravo")
+    ? []
+    : [
+        {
+          label: "Diamond 1",
+          rankIconKey: "diamond_1",
+          pointsLabel: `${puuid.includes("eu") ? 72 : 38} RR`,
+        },
+      ];
 
 const accountByRiotId = (name: string, tag: string) =>
   MOCK_ACCOUNTS.find(
@@ -227,168 +243,42 @@ const accountByRiotId = (name: string, tag: string) =>
       account.riotTag.toLowerCase() === tag.toLowerCase(),
   );
 
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-
-const lolRanks = (puuid: string): ReadonlyArray<LolLeagueEntry> =>
-  puuid.includes("bravo")
-    ? []
-    : [
-        {
-          queueType: "RANKED_SOLO_5x5",
-          tier: puuid.includes("eu") ? "EMERALD" : "DIAMOND",
-          rank: "II",
-          leaguePoints: 64,
-        },
-        {
-          queueType: "RANKED_FLEX_SR",
-          tier: "PLATINUM",
-          rank: "I",
-          leaguePoints: 21,
-        },
-      ];
-
-const responseFor = (url: URL, state: SimulatorState): Response => {
-  const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
-  const hostRoute = url.hostname.split(".")[0] ?? "";
-
-  if (url.hostname.endsWith("api.riotgames.com")) {
-    if (parts.slice(0, 5).join("/") === "riot/account/v1/accounts/by-riot-id") {
-      const name = parts[5] ?? "";
-      const tag = parts[6] ?? "";
-      const account = accountByRiotId(name, tag);
-      const game = account?.lol;
-      return game && lolRegionalRoute(game.route) === hostRoute
-        ? json({ puuid: game.puuid, gameName: name, tagLine: tag })
-        : json({ status: { message: "Data not found" } }, 404);
-    }
-    if (parts.slice(0, 5).join("/") === "lol/summoner/v4/summoners/by-puuid") {
-      const puuid = parts[5] ?? "";
-      const account = MOCK_ACCOUNTS.find(
-        (candidate) =>
-          candidate.lol?.puuid === puuid && candidate.lol.route === hostRoute,
-      );
-      return account
-        ? json({ puuid, id: `summoner-${puuid}` })
-        : json({ status: { message: "Data not found" } }, 404);
-    }
-    if (parts.slice(0, 5).join("/") === "lol/match/v5/matches/by-puuid") {
-      const puuid = parts[5] ?? "";
-      const account = MOCK_ACCOUNTS.find(
-        (candidate) => candidate.lol?.puuid === puuid,
-      );
-      const game = account?.lol;
-      if (!game || lolRegionalRoute(game.route) !== hostRoute) {
-        return json({ status: { message: "Data not found" } }, 404);
-      }
-      const count = Number(url.searchParams.get("count") ?? RECENT_MATCH_COUNT);
-      return json(
-        (state.lolHistories.get(puuid) ?? [])
-          .slice(0, count)
-          .map((match) => match.metadata.matchId),
-      );
-    }
-    if (parts.slice(0, 4).join("/") === "lol/match/v5/matches") {
-      const matchId = parts[4] ?? "";
-      for (const matches of state.lolHistories.values()) {
-        const match = matches.find(
-          (candidate) => candidate.metadata.matchId === matchId,
-        );
-        if (match) return json(match);
-      }
-      return json({ status: { message: "Data not found" } }, 404);
-    }
-    if (parts.slice(0, 5).join("/") === "lol/league/v4/entries/by-puuid") {
-      const puuid = parts[5] ?? "";
-      const account = MOCK_ACCOUNTS.find(
-        (candidate) =>
-          candidate.lol?.puuid === puuid && candidate.lol.route === hostRoute,
-      );
-      return account
-        ? json(lolRanks(puuid))
-        : json({ status: { message: "Data not found" } }, 404);
-    }
-  }
-
-  if (url.hostname === "api.henrikdev.xyz") {
-    if (parts.slice(0, 3).join("/") === "valorant/v2/account") {
-      const account = accountByRiotId(parts[3] ?? "", parts[4] ?? "");
-      const game = account?.valorant;
-      if (!account || !game) return json({ status: 404, errors: [] }, 404);
-      const [region, platform] = game.route.split("/");
-      return json({
-        status: 200,
-        data: {
-          puuid: game.puuid,
-          region,
-          platforms: [platform?.toUpperCase() ?? "PC"],
-        },
-      });
-    }
-    if (parts.slice(0, 4).join("/") === "valorant/v4/by-puuid/matches") {
-      const region = parts[4] ?? "";
-      const platform = parts[5] ?? "";
-      const puuid = parts[6] ?? "";
-      const account = MOCK_ACCOUNTS.find(
-        (candidate) => candidate.valorant?.puuid === puuid,
-      );
-      const game = account?.valorant;
-      if (!game || game.route !== `${region}/${platform}`) {
-        return json({ status: 404, errors: [] }, 404);
-      }
-      const count = Number(url.searchParams.get("size") ?? RECENT_MATCH_COUNT);
-      return json({
-        status: 200,
-        data: (state.valHistories.get(puuid) ?? []).slice(0, count),
-      });
-    }
-    if (parts.slice(0, 4).join("/") === "valorant/v3/by-puuid/mmr") {
-      const region = parts[4] ?? "";
-      const platform = parts[5] ?? "";
-      const puuid = parts[6] ?? "";
-      const account = MOCK_ACCOUNTS.find(
-        (candidate) => candidate.valorant?.puuid === puuid,
-      );
-      const game = account?.valorant;
-      if (!game || game.route !== `${region}/${platform}`) {
-        return json({ status: 404, errors: [] }, 404);
-      }
-      return json({
-        status: 200,
-        data: {
-          current: {
-            tier: {
-              id: puuid.includes("bravo") ? 0 : 18,
-              name: puuid.includes("bravo") ? "Unrated" : "Diamond 1",
-            },
-            rr: puuid.includes("eu") ? 72 : 38,
-          },
-        },
-      });
-    }
-  }
-
-  return json(
-    { error: `Development simulator route is not implemented: ${url}` },
-    501,
-  );
-};
+const devAdapter = (
+  game: GameId,
+  rankIcons: ReadonlyArray<RankIcon>,
+  ranks: (puuid: string) => ReadonlyArray<RankSummary>,
+  state: Ref.Ref<SimulatorState>,
+): GameAdapter => ({
+  game,
+  rankIcons,
+  resolveAccount: Effect.fn(`DevSimulator.${game}.resolveAccount`)(function* (
+    name: string,
+    tag: string,
+  ) {
+    const mock = accountByRiotId(name, tag)?.[game];
+    if (!mock) return yield* new AccountNotFound({ game });
+    return { puuid: Puuid.make(mock.puuid), route: mock.route };
+  }),
+  getRecentMatches: (account) =>
+    Ref.get(state).pipe(
+      Effect.map((current) =>
+        current.matches
+          .filter(
+            (match) =>
+              match.game === game &&
+              match.players.some((player) => player.puuid === account.puuid),
+          )
+          .slice(0, RECENT_MATCH_COUNT),
+      ),
+    ),
+  getRanks: (account) => Effect.succeed(ranks(account.puuid)),
+  enrichMatch: Effect.succeed,
+});
 
 export const DevSimulatorLive = Layer.effect(
   DevSimulator,
   Effect.gen(function* () {
     const state = yield* Ref.make(initialState);
-
-    const listAccounts = Effect.fn("DevSimulator.listAccounts")(() =>
-      Effect.succeed(MOCK_ACCOUNTS),
-    );
-
-    const requestedUrls = Effect.fn("DevSimulator.requestedUrls")(() =>
-      Ref.get(state).pipe(Effect.map((value) => value.requests)),
-    );
 
     const stageMatch = Effect.fn("DevSimulator.stageMatch")(
       (input: StageMatchInput) =>
@@ -400,53 +290,21 @@ export const DevSimulatorLive = Layer.effect(
             input.duplicate && previousId
               ? previousId
               : `mock-${input.game}-${timestamp}-${sequence}`;
+          const match =
+            input.game === "lol"
+              ? makeLolMatch(input, matchId, timestamp)
+              : makeValMatch(input, matchId, timestamp);
           const lastMatchIds = new Map(current.lastMatchIds);
           lastMatchIds.set(input.game, matchId);
-
-          if (input.game === "lol") {
-            const match = makeLolMatch(input, matchId, timestamp);
-            const histories = new Map(current.lolHistories);
-            for (const player of input.players) {
-              histories.set(
-                player.puuid,
-                bounded([
-                  match,
-                  ...(histories.get(player.puuid) ?? []).filter(
-                    (candidate) => candidate.metadata.matchId !== matchId,
-                  ),
-                ]),
-              );
-            }
-            return [
-              matchId,
-              {
-                ...current,
-                lolHistories: histories,
-                lastMatchIds,
-                sequence,
-                lastTimestamp: timestamp,
-              },
-            ];
-          }
-
-          const match = makeValMatch(input, matchId, timestamp);
-          const histories = new Map(current.valHistories);
-          for (const player of input.players) {
-            histories.set(
-              player.puuid,
-              bounded([
-                match,
-                ...(histories.get(player.puuid) ?? []).filter(
-                  (candidate) => candidate.metadata.match_id !== matchId,
-                ),
-              ]),
-            );
-          }
           return [
             matchId,
             {
-              ...current,
-              valHistories: histories,
+              matches: [
+                match,
+                ...current.matches.filter(
+                  (existing) => existing.matchId !== matchId,
+                ),
+              ],
               lastMatchIds,
               sequence,
               lastTimestamp: timestamp,
@@ -455,28 +313,19 @@ export const DevSimulatorLive = Layer.effect(
         }),
     );
 
-    const client = HttpClient.make((request, url) =>
-      Ref.update(state, (current) => ({
-        ...current,
-        requests: [...current.requests, url.toString()],
-      })).pipe(
-        Effect.andThen(Ref.get(state)),
-        Effect.map((current) =>
-          HttpClientResponse.fromWeb(request, responseFor(url, current)),
-        ),
-      ),
-    );
-
     return DevSimulator.of({
-      listAccounts,
       stageMatch,
-      requestedUrls,
-      httpClient: client,
+      adapters: [
+        devAdapter("lol", lolRankIcons, lolRanks, state),
+        devAdapter("valorant", valorantRankIcons, valRanks, state),
+      ],
     });
   }),
 );
 
-export const DevHttpClientLive = Layer.effect(
-  HttpClient.HttpClient,
-  DevSimulator.pipe(Effect.map((simulator) => simulator.httpClient)),
+export const DevGameAdaptersLive = Layer.effect(
+  GameAdapters,
+  DevSimulator.pipe(
+    Effect.map(({ adapters }) => GameAdapters.of({ all: adapters })),
+  ),
 );

@@ -1,5 +1,5 @@
-// Renders match-report embeds through the real pipeline (dev simulator ->
-// game adapters -> matchEmbed) and writes the payloads to scripts/out/.
+// Renders match-report embeds through the dev pipeline (staged matches ->
+// dev game adapters -> matchEmbed) and writes the payloads to scripts/out/.
 // Optionally posts them to the configured notification channel.
 //
 // Usage: tsx --env-file=.env.dev scripts/render-embeds.ts <label> [--post]
@@ -8,17 +8,12 @@ import { Effect, Layer, Redacted } from "effect";
 import { AppConfig, AppConfigLive } from "../src/services/config.ts";
 import { matchEmbed, type RankEmojis } from "../src/services/discord/embed.ts";
 import {
-  DevHttpClientLive,
+  DevGameAdaptersLive,
   DevSimulator,
   DevSimulatorLive,
   MOCK_ACCOUNTS,
 } from "../src/services/game/dev-simulator.ts";
-import {
-  GameAdapters,
-  GameAdaptersLive,
-} from "../src/services/game/game-adapters/index.ts";
-import { RiotApiLive } from "../src/services/game/game-api/lol/riot-api-client.ts";
-import { HenrikApiClientLive } from "../src/services/game/game-api/val/henrik-api-client.ts";
+import { GameAdapters } from "../src/services/game/game-adapters/index.ts";
 import { EpochMillis, type GameId } from "../src/services/game/index.ts";
 
 const label = process.argv[2] ?? "preview";
@@ -126,24 +121,23 @@ const program = Effect.gen(function* () {
 
   if (post) {
     for (const [game, embed] of Object.entries(embeds)) {
-      yield* discordApi(token, `/channels/${config.notificationChannelId}/messages`, {
-        method: "POST",
-        body: {
-          content: `\`${label}\` — ${game === "lol" ? "League of Legends" : "Valorant"}`,
-          embeds: [embed],
+      yield* discordApi(
+        token,
+        `/channels/${config.notificationChannelId}/messages`,
+        {
+          method: "POST",
+          body: {
+            content: `\`${label}\` — ${game === "lol" ? "League of Legends" : "Valorant"}`,
+            embeds: [embed],
+          },
         },
-      });
+      );
       yield* Effect.log(`posted ${label} ${game} embed`);
     }
   }
 });
 
-const ApiClientsLive = Layer.mergeAll(RiotApiLive, HenrikApiClientLive).pipe(
-  Layer.provide(DevHttpClientLive),
-);
-
-const MainLive = GameAdaptersLive.pipe(
-  Layer.provide(ApiClientsLive),
+const MainLive = DevGameAdaptersLive.pipe(
   Layer.provideMerge(DevSimulatorLive),
   Layer.provideMerge(AppConfigLive),
 );

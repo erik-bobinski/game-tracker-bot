@@ -1,6 +1,17 @@
 import type { Discord } from "dfx";
-import type { GameId, MatchDetails, MatchPlayer } from "../game/index.ts";
-import type { RankCheckResult } from "./workflows.ts";
+import type {
+  GameId,
+  MatchDetails,
+  MatchPlayer,
+  RankSummary,
+} from "../game/index.ts";
+
+export interface RankCheckRanks {
+  readonly discordName: string;
+  readonly game: GameId;
+  readonly ranks: ReadonlyArray<RankSummary>;
+  readonly iconUrl?: string;
+}
 
 export interface MatchReport {
   readonly discordNames: ReadonlyArray<string>;
@@ -118,9 +129,7 @@ export const matchEmbed = (
   };
 };
 
-export const rankEmbed = (
-  result: Extract<RankCheckResult, { readonly _tag: "Ranks" }>,
-): Discord.RichEmbed => ({
+export const rankEmbed = (result: RankCheckRanks): Discord.RichEmbed => ({
   title: `${result.discordName}'s ${result.game === "lol" ? "League" : "Valorant"} Rank`,
   description: result.ranks
     .map((rank) => {

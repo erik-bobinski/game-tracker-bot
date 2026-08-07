@@ -75,7 +75,7 @@ const titleCase = (value: string) =>
 const compact = (value: number) =>
   value >= 1_000 ? `${(value / 1_000).toFixed(1)}k` : String(value);
 
-const rankIcons = [
+export const lolRankIcons = [
   "iron",
   "bronze",
   "silver",
@@ -279,7 +279,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
 
   return {
     game: "lol",
-    rankIcons,
+    rankIcons: lolRankIcons,
     resolveAccount,
     getRecentMatches,
     getRanks,

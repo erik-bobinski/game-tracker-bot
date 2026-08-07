@@ -1,20 +1,22 @@
 import { Discord, DiscordREST, Ix } from "dfx";
-import { Effect, Option, Schema, SubscriptionRef } from "effect";
+import { Clock, Effect, Option, Schema, SubscriptionRef } from "effect";
 import type { AppMode } from "../config.ts";
-import type { Database } from "../database/index.ts";
-import type { DevSimulator } from "../game/dev-simulator.ts";
-import type { GameAdapters } from "../game/game-adapters/index.ts";
-import { GameId as GameIdSchema } from "../game/index.ts";
-import type { Polling } from "../polling/index.ts";
-import type { PollingState } from "../polling/state.ts";
+import type { Account, Database } from "../database/index.ts";
 import {
-  devStageMatchWorkflow,
-  pollResultText,
-  rankCheckWorkflow,
-  signoutWorkflow,
-  signupWorkflow,
-} from "./workflows.ts";
-import { rankEmbed } from "./embed.ts";
+  MOCK_ACCOUNTS,
+  type DevSimulator,
+  type StageMatchInput,
+} from "../game/dev-simulator.ts";
+import type { GameAdapter, GameAdapters } from "../game/game-adapters/index.ts";
+import {
+  EpochMillis,
+  GameId as GameIdSchema,
+  type GameId,
+  type ResolvedGameAccount,
+} from "../game/index.ts";
+import type { PollResult, Polling } from "../polling/index.ts";
+import type { PollingState } from "../polling/state.ts";
+import { rankEmbed, type RankCheckRanks } from "./embed.ts";
 
 export interface CommandDeps {
   readonly appMode: AppMode;
@@ -25,6 +27,8 @@ export interface CommandDeps {
   readonly pollingState: PollingState["Service"];
   readonly simulator: DevSimulator["Service"];
 }
+
+const gameLabel = (game: GameId) => (game === "lol" ? "LoL" : "Valorant");
 
 const reply = (content: string): Discord.CreateInteractionResponseRequest => ({
   type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -39,62 +43,34 @@ const userFor = (interaction: {
   readonly interaction: Discord.APIInteraction;
 }) => interaction.interaction.member?.user ?? interaction.interaction.user;
 
-const followUp = (
-  rest: CommandDeps["rest"],
-  interaction: Discord.APIInteraction,
-  content: string,
-) =>
-  rest.updateOriginalWebhookMessage(
-    interaction.application_id,
-    interaction.token,
-    { payload: { content } },
-  );
-
 const detachFollowUp = <E>(
   rest: CommandDeps["rest"],
   interaction: Discord.APIInteraction,
-  operation: Effect.Effect<string, E>,
+  operation: Effect.Effect<
+    string | Discord.IncomingWebhookUpdateRequestPartial,
+    E
+  >,
   failureMessage: string,
-) =>
-  operation.pipe(
-    Effect.flatMap((content) => followUp(rest, interaction, content)),
+) => {
+  const update = (payload: Discord.IncomingWebhookUpdateRequestPartial) =>
+    rest.updateOriginalWebhookMessage(
+      interaction.application_id,
+      interaction.token,
+      { payload },
+    );
+  return operation.pipe(
+    Effect.flatMap((result) =>
+      update(typeof result === "string" ? { content: result } : result),
+    ),
     Effect.catch((error) =>
       Effect.logError("deferred command failed", error).pipe(
-        Effect.andThen(followUp(rest, interaction, failureMessage)),
+        Effect.andThen(update({ content: failureMessage })),
         Effect.ignore({ log: "Error", message: "command follow-up failed" }),
       ),
     ),
     Effect.forkDetach,
   );
-
-const detachPayloadFollowUp = <E>(
-  rest: CommandDeps["rest"],
-  interaction: Discord.APIInteraction,
-  operation: Effect.Effect<Discord.IncomingWebhookUpdateRequestPartial, E>,
-  failureMessage: string,
-) =>
-  operation.pipe(
-    Effect.flatMap((payload) =>
-      rest.updateOriginalWebhookMessage(
-        interaction.application_id,
-        interaction.token,
-        { payload },
-      ),
-    ),
-    Effect.catch((error) =>
-      Effect.logError("deferred command failed", error).pipe(
-        Effect.andThen(
-          rest.updateOriginalWebhookMessage(
-            interaction.application_id,
-            interaction.token,
-            { payload: { content: failureMessage } },
-          ),
-        ),
-        Effect.ignore({ log: "Error", message: "command follow-up failed" }),
-      ),
-    ),
-    Effect.forkDetach,
-  );
+};
 
 const gameChoices = [
   { name: "League of Legends", value: "lol" },
@@ -114,6 +90,95 @@ export const commandNamesForMode = (appMode: AppMode) => [
 
 const MatchResult = Schema.Literals(["victory", "defeat"]);
 const MatchMode = Schema.Literals(["ranked", "unranked"]);
+
+type DiscoveryResult =
+  | { readonly _tag: "AlreadyTracked"; readonly adapter: GameAdapter }
+  | {
+      readonly _tag: "Found";
+      readonly adapter: GameAdapter;
+      readonly account: ResolvedGameAccount;
+    }
+  | { readonly _tag: "NotFound"; readonly adapter: GameAdapter }
+  | { readonly _tag: "Failed"; readonly adapter: GameAdapter };
+
+export const signupWorkflow = Effect.fn("Commands.signup")(function* (
+  database: Database["Service"],
+  gameAdapters: GameAdapters["Service"],
+  input: {
+    readonly discordUserId: string;
+    readonly discordName: string;
+    readonly riotName: string;
+    readonly riotTag: string;
+  },
+) {
+  const existing = yield* database.getAccount(input.discordUserId);
+  const discover = (adapter: GameAdapter): Effect.Effect<DiscoveryResult> => {
+    if (existing?.games[adapter.game]) {
+      return Effect.succeed({ _tag: "AlreadyTracked" as const, adapter });
+    }
+    return adapter.resolveAccount(input.riotName, input.riotTag).pipe(
+      Effect.map((account) => ({
+        _tag: "Found" as const,
+        adapter,
+        account,
+      })),
+      Effect.catchTags({
+        AccountNotFound: () =>
+          Effect.succeed({ _tag: "NotFound" as const, adapter }),
+        GameApiError: (error) =>
+          Effect.logWarning("signup game discovery failed", error).pipe(
+            Effect.annotateLogs({ game: adapter.game }),
+            Effect.as({ _tag: "Failed" as const, adapter }),
+          ),
+      }),
+    );
+  };
+  const checked = yield* Effect.forEach(gameAdapters.all, discover, {
+    concurrency: 2,
+  });
+  const startedAt = EpochMillis.make(yield* Clock.currentTimeMillis);
+  const games: Account["games"] = {};
+  for (const result of checked) {
+    if (result._tag !== "Found") continue;
+    games[result.adapter.game] = {
+      ...result.account,
+      trackingStartedAt: startedAt,
+      reportedMatches: [],
+    };
+  }
+  const added = checked
+    .filter((result) => result._tag === "Found")
+    .map((result) => gameLabel(result.adapter.game));
+  const failed = checked
+    .filter((result) => result._tag === "Failed")
+    .map((result) => gameLabel(result.adapter.game));
+  const already = checked
+    .filter((result) => result._tag === "AlreadyTracked")
+    .map((result) => gameLabel(result.adapter.game));
+
+  if (added.length > 0) {
+    yield* database.addAccount({
+      discordUserId: input.discordUserId,
+      discordName: input.discordName,
+      riotName: input.riotName,
+      riotTag: input.riotTag,
+      games,
+    });
+  }
+
+  const parts: Array<string> = [];
+  if (added.length > 0) parts.push(`Now tracking ${added.join(" and ")}.`);
+  if (already.length > 0) {
+    parts.push(`Already tracking ${already.join(" and ")}.`);
+  }
+  if (failed.length > 0) {
+    parts.push(`Could not check ${failed.join(" and ")}; please try again.`);
+  }
+  if (parts.length === 0) {
+    return "That Riot ID was not found in LoL or Valorant.";
+  }
+  return parts.join(" ");
+});
 
 const signup = (deps: CommandDeps) =>
   Ix.global(
@@ -142,7 +207,7 @@ const signup = (deps: CommandDeps) =>
         yield* detachFollowUp(
           deps.rest,
           i.interaction,
-          signupWorkflow(deps, {
+          signupWorkflow(deps.database, deps.gameAdapters, {
             discordUserId: user.id,
             discordName: user.username,
             riotName: i.optionValue("riot_name"),
@@ -153,6 +218,24 @@ const signup = (deps: CommandDeps) =>
         return deferredReply;
       }),
   );
+
+export const signoutWorkflow = Effect.fn("Commands.signout")(function* (
+  database: Database["Service"],
+  discordUserId: string,
+  game?: GameId,
+) {
+  const deleted = game
+    ? yield* database.deleteGame(discordUserId, game)
+    : yield* database.deleteAccount(discordUserId);
+  if (!deleted) {
+    return game
+      ? `You were not tracking ${gameLabel(game)}.`
+      : "You did not have a tracked account.";
+  }
+  return game
+    ? `Stopped tracking ${gameLabel(game)}.`
+    : "Stopped tracking all of your games.";
+});
 
 const signout = (deps: CommandDeps) =>
   Ix.global(
@@ -199,6 +282,17 @@ const pause = (deps: CommandDeps) =>
       ),
   );
 
+export const pollResultText = (result: PollResult) =>
+  result._tag === "Paused"
+    ? "Polling is paused; no pass ran."
+    : [
+        `Checked: ${result.summary.accountsChecked}`,
+        `API failures: ${result.summary.apiFailures}`,
+        `Matches: ${result.summary.discoveredMatches}`,
+        `Sent: ${result.summary.reportsSent}`,
+        `Send failures: ${result.summary.reportFailures}`,
+      ].join(" · ");
+
 const resume = (deps: CommandDeps) =>
   Ix.global(
     {
@@ -223,6 +317,46 @@ const resume = (deps: CommandDeps) =>
         return deferredReply;
       }),
   );
+
+export type RankCheckResult =
+  | { readonly _tag: "Message"; readonly content: string }
+  | ({ readonly _tag: "Ranks" } & RankCheckRanks);
+
+export const rankCheckWorkflow = Effect.fn("Commands.rankCheck")(function* (
+  database: Database["Service"],
+  gameAdapters: GameAdapters["Service"],
+  discordUserId: string,
+  game: GameId,
+) {
+  const account = yield* database.getAccount(discordUserId);
+  const gameState = account?.games[game];
+  if (!gameState) {
+    return {
+      _tag: "Message",
+      content: `That user is not tracking ${gameLabel(game)}.`,
+    } as const;
+  }
+  const adapter = gameAdapters.all.find((candidate) => candidate.game === game);
+  if (!adapter) {
+    return {
+      _tag: "Message",
+      content: `${gameLabel(game)} is not currently supported.`,
+    } as const;
+  }
+  const ranks = yield* adapter.getRanks(gameState);
+  if (ranks.length === 0) {
+    return { _tag: "Message", content: "Unranked." } as const;
+  }
+  const iconKey = ranks.find((rank) => rank.rankIconKey)?.rankIconKey;
+  const iconUrl = adapter.rankIcons.find((icon) => icon.key === iconKey)?.url;
+  return {
+    _tag: "Ranks",
+    discordName: account.discordName,
+    game,
+    ranks,
+    ...(iconUrl ? { iconUrl } : {}),
+  } as const;
+});
 
 const rankCheck = (deps: CommandDeps) =>
   Ix.global(
@@ -250,10 +384,15 @@ const rankCheck = (deps: CommandDeps) =>
         const game = yield* Schema.decodeUnknownEffect(GameIdSchema)(
           i.optionValue("game"),
         );
-        yield* detachPayloadFollowUp(
+        yield* detachFollowUp(
           deps.rest,
           i.interaction,
-          rankCheckWorkflow(deps, i.optionValue("user"), game).pipe(
+          rankCheckWorkflow(
+            deps.database,
+            deps.gameAdapters,
+            i.optionValue("user"),
+            game,
+          ).pipe(
             Effect.map((result) =>
               result._tag === "Message"
                 ? { content: result.content }
@@ -266,28 +405,74 @@ const rankCheck = (deps: CommandDeps) =>
       }),
   );
 
-const devAccounts = (deps: CommandDeps) =>
+const devAccounts = () =>
   Ix.global(
     { name: "dev_accounts", description: "List simulated Riot accounts" },
     () =>
-      deps.simulator.listAccounts().pipe(
-        Effect.map((accounts) =>
-          reply(
-            accounts
-              .map((account) => {
-                const games = [
-                  account.lol ? `LoL ${account.lol.route}` : undefined,
-                  account.valorant
-                    ? `Valorant ${account.valorant.route}`
-                    : undefined,
-                ].filter((value): value is string => Boolean(value));
-                return `**${account.riotName}#${account.riotTag}** — ${games.join(", ")}`;
-              })
-              .join("\n"),
-          ),
+      Effect.succeed(
+        reply(
+          MOCK_ACCOUNTS.map((account) => {
+            const games = [
+              account.lol ? `LoL ${account.lol.route}` : undefined,
+              account.valorant
+                ? `Valorant ${account.valorant.route}`
+                : undefined,
+            ].filter((value): value is string => Boolean(value));
+            return `**${account.riotName}#${account.riotTag}** — ${games.join(", ")}`;
+          }).join("\n"),
         ),
       ),
   );
+
+export const devStageMatchWorkflow = Effect.fn("Commands.devStageMatch")(
+  function* (
+    database: Database["Service"],
+    simulator: DevSimulator["Service"],
+    input: Omit<StageMatchInput, "players"> & {
+      readonly discordUserId: string;
+      readonly teammateDiscordUserId?: string;
+    },
+  ) {
+    const account = yield* database.getAccount(input.discordUserId);
+    const state = account?.games[input.game];
+    if (!account || !state) {
+      return `Sign up for ${gameLabel(input.game)} before staging a match.`;
+    }
+    const players = [
+      {
+        riotName: account.riotName,
+        riotTag: account.riotTag,
+        puuid: state.puuid,
+        route: state.route,
+      },
+    ];
+    if (input.teammateDiscordUserId) {
+      const teammate = yield* database.getAccount(input.teammateDiscordUserId);
+      const teammateState = teammate?.games[input.game];
+      if (!teammate || !teammateState) {
+        return `The teammate is not tracking ${gameLabel(input.game)}.`;
+      }
+      if (teammateState.route !== state.route) {
+        return "The teammate must use the same game route.";
+      }
+      players.push({
+        riotName: teammate.riotName,
+        riotTag: teammate.riotTag,
+        puuid: teammateState.puuid,
+        route: teammateState.route,
+      });
+    }
+    const matchId = yield* simulator.stageMatch({
+      game: input.game,
+      result: input.result,
+      mode: input.mode,
+      surrendered: input.surrendered,
+      duplicate: input.duplicate,
+      players,
+    });
+    return `Staged ${gameLabel(input.game)} match ${matchId}.`;
+  },
+);
 
 const devMatch = (deps: CommandDeps) =>
   Ix.global(
@@ -359,7 +544,7 @@ const devMatch = (deps: CommandDeps) =>
           i.optionValueOrElse("mode", () => "ranked"),
         );
         return reply(
-          yield* devStageMatchWorkflow(deps, {
+          yield* devStageMatchWorkflow(deps.database, deps.simulator, {
             discordUserId: user.id,
             game,
             result,
@@ -405,7 +590,7 @@ export const commands = (deps: CommandDeps) => {
     .add(rankCheck(deps));
   return (
     deps.appMode === "development"
-      ? common.add(devAccounts(deps)).add(devMatch(deps)).add(devPoll(deps))
+      ? common.add(devAccounts()).add(devMatch(deps)).add(devPoll(deps))
       : common
   ).catchAllCause(Effect.logError);
 };

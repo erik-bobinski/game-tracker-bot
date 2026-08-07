@@ -6,7 +6,7 @@ import type { MatchReport } from "../src/services/discord/embed.ts";
 import {
   devStageMatchWorkflow,
   signupWorkflow,
-} from "../src/services/discord/workflows.ts";
+} from "../src/services/discord/commands.ts";
 import { DevSimulator } from "../src/services/game/dev-simulator.ts";
 import {
   GameApiError,
@@ -311,7 +311,7 @@ describe("MatchEngine", () => {
       }).pipe(Effect.provide(layer)),
     );
   });
-  it("polls a staged LoL fixture through the production provider adapter", async () => {
+  it("polls a staged LoL fixture through the dev adapters", async () => {
     const layer = MatchEngineLive.pipe(
       Layer.provideMerge(
         Layer.mergeAll(
@@ -328,24 +328,20 @@ describe("MatchEngine", () => {
         const simulator = yield* DevSimulator;
         const engine = yield* MatchEngine;
         const control = yield* NotifierControl;
-        const deps = { database, gameAdapters };
-        yield* signupWorkflow(deps, {
+        yield* signupWorkflow(database, gameAdapters, {
           discordUserId: "live-lol",
           discordName: "Live LoL",
           riotName: "MockAlpha",
           riotTag: "NA1",
         });
-        yield* devStageMatchWorkflow(
-          { ...deps, simulator },
-          {
-            discordUserId: "live-lol",
-            game: "lol",
-            result: "victory",
-            mode: "ranked",
-            surrendered: false,
-            duplicate: false,
-          },
-        );
+        yield* devStageMatchWorkflow(database, simulator, {
+          discordUserId: "live-lol",
+          game: "lol",
+          result: "victory",
+          mode: "ranked",
+          surrendered: false,
+          duplicate: false,
+        });
         const summary = yield* engine.pollOnce();
         expect(summary).toMatchObject({
           accountsChecked: 2,

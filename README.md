@@ -51,10 +51,10 @@ APP_MODE=development
 DB_PATH=riot-tracker.dev.sqlite
 ```
 
-Run `pnpm dev`. Discord and SQLite remain real. Only the low-level Riot and
-Henrik HTTP transport is replaced; requests cannot fall through to provider
-networks. The production provider clients, auth preprocessing, status handling,
-schemas, adapters, Match Engine, and Polling services remain in the path.
+Run `pnpm dev`. Discord and SQLite remain real. Only the game adapters are
+replaced with in-memory dev adapters backed by mock accounts and staged
+matches, so nothing reaches the Riot or Henrik networks. The Match Engine,
+Polling, database, and embed services remain in the path.
 
 Available mock Riot IDs:
 
@@ -67,7 +67,7 @@ Available mock Riot IDs:
 The development commands are:
 
 - `/dev_accounts` lists the catalog.
-- `/dev_match` stages raw provider-shaped match data.
+- `/dev_match` stages a mock match report.
 - `/dev_poll` runs one real polling pass.
 
 Suggested manual walkthrough:

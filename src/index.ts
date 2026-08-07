@@ -9,10 +9,14 @@ import {
   DiscordLive,
 } from "./services/discord/index.ts";
 import {
-  DevHttpClientLive,
+  DevGameAdaptersLive,
+  DevSimulator,
   DevSimulatorLive,
 } from "./services/game/dev-simulator.ts";
-import { GameAdaptersLive } from "./services/game/game-adapters/index.ts";
+import {
+  GameAdapters,
+  GameAdaptersLive,
+} from "./services/game/game-adapters/index.ts";
 import { RiotApiLive } from "./services/game/game-api/lol/riot-api-client.ts";
 import { HenrikApiClientLive } from "./services/game/game-api/val/henrik-api-client.ts";
 import { MatchEngineLive } from "./services/match-engine/index.ts";
@@ -25,20 +29,20 @@ const main = Effect.gen(function* () {
   yield* polling.run;
 });
 
-const ApiHttpLive = Layer.unwrap(
+const ProdGameLive = GameAdaptersLive.pipe(
+  Layer.provide(Layer.mergeAll(RiotApiLive, HenrikApiClientLive)),
+  Layer.provide(NodeHttpClient.layerUndici),
+);
+const GameLive = Layer.unwrap(
   AppConfig.pipe(
-    Effect.map(({ appMode }) =>
-      appMode === "development"
-        ? DevHttpClientLive
-        : NodeHttpClient.layerUndici,
+    Effect.map(
+      ({
+        appMode,
+      }): Layer.Layer<GameAdapters, never, AppConfig | DevSimulator> =>
+        appMode === "development" ? DevGameAdaptersLive : ProdGameLive,
     ),
   ),
 );
-
-const ApiClientsLive = Layer.mergeAll(RiotApiLive, HenrikApiClientLive).pipe(
-  Layer.provide(ApiHttpLive),
-);
-const GameLive = GameAdaptersLive.pipe(Layer.provide(ApiClientsLive));
 const StateLive = PollingStateLive.pipe(Layer.provideMerge(DatabaseLive));
 const InfrastructureLive = Layer.mergeAll(StateLive, GameLive, DiscordApiLive);
 const DiscordServiceLive = DiscordLive.pipe(

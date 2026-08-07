@@ -118,7 +118,6 @@ describe("match embeds", () => {
   });
   it("renders compact game-specific rank embeds", () => {
     const valorant = rankEmbed({
-      _tag: "Ranks",
       discordName: "syanx_",
       game: "valorant",
       ranks: [
@@ -138,7 +137,6 @@ describe("match embeds", () => {
     });
 
     const league = rankEmbed({
-      _tag: "Ranks",
       discordName: "syanx_",
       game: "lol",
       ranks: [

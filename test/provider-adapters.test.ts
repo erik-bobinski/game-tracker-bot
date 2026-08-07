@@ -6,13 +6,16 @@ import {
   RiotApiClient,
   RiotApiLive,
 } from "../src/services/game/game-api/lol/riot-api-client.ts";
-import { DevSimulator } from "../src/services/game/dev-simulator.ts";
+import {
+  DevSimulator,
+  MOCK_ACCOUNTS,
+} from "../src/services/game/dev-simulator.ts";
 import { GameAdapters } from "../src/services/game/game-adapters/index.ts";
 import { EpochMillis, Puuid } from "../src/services/game/index.ts";
 import { configLayer, run, simulatedGameLayer } from "./helpers.ts";
 
-describe("development provider transport and adapters", () => {
-  it("discovers NA and EU routes through the production clients", async () => {
+describe("dev adapters and provider client boundaries", () => {
+  it("resolves NA and EU mock accounts with their routes", async () => {
     const result = await run(
       Effect.gen(function* () {
         const adapters = yield* GameAdapters;
@@ -46,17 +49,6 @@ describe("development provider transport and adapters", () => {
     expect(error._tag).toBe("AccountNotFound");
   });
 
-  it("never falls through unknown simulator routes to the network", async () => {
-    const status = await run(
-      Effect.gen(function* () {
-        const simulator = yield* DevSimulator;
-        return (yield* simulator.httpClient.get("https://example.invalid/nope"))
-          .status;
-      }).pipe(Effect.provide(simulatedGameLayer())),
-    );
-    expect(status).toBe(501);
-  });
-
   it("fails malformed provider data at the schema boundary", async () => {
     const malformedClient = HttpClient.make((request) =>
       Effect.succeed(
@@ -87,13 +79,12 @@ describe("development provider transport and adapters", () => {
     }
   });
 
-  it("decodes staged raw matches and rank responses", async () => {
+  it("serves staged matches and ranks through the dev adapters", async () => {
     const result = await run(
       Effect.gen(function* () {
         const adapters = yield* GameAdapters;
         const simulator = yield* DevSimulator;
-        const accounts = yield* simulator.listAccounts();
-        const source = accounts[0];
+        const source = MOCK_ACCOUNTS[0];
         if (!source?.lol || !source.valorant) {
           return yield* Effect.die("mock account missing games");
         }
@@ -144,7 +135,6 @@ describe("development provider transport and adapters", () => {
           valMatches: yield* val.getRecentMatches(valAccount),
           lolRanks: yield* lol.getRanks(lolAccount),
           valRanks: yield* val.getRanks(valAccount),
-          urls: yield* simulator.requestedUrls(),
         };
       }).pipe(Effect.provide(simulatedGameLayer())),
     );
@@ -157,18 +147,13 @@ describe("development provider transport and adapters", () => {
       "Ranked Flex",
     ]);
     expect(result.valRanks[0]?.pointsLabel).toBe("38 RR");
-    expect(
-      result.urls.some((url) => url.includes("na1.api.riotgames.com")),
-    ).toBe(true);
-    expect(result.urls.some((url) => url.includes("/matches/na/pc/"))).toBe(
-      true,
-    );
   });
+
   it("generates restart-safe match IDs and reuses explicit duplicates", async () => {
     const [first, second, duplicate] = await run(
       Effect.gen(function* () {
         const simulator = yield* DevSimulator;
-        const source = (yield* simulator.listAccounts())[0];
+        const source = MOCK_ACCOUNTS[0];
         if (!source?.lol) return yield* Effect.die("mock LoL account missing");
         const input = {
           game: "lol" as const,
