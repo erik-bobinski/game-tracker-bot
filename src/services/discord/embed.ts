@@ -49,8 +49,11 @@ const leaderboard = (
       const rawName = `${player.riotName}#${player.riotTag}`;
       const name = trackedPuuids.has(player.puuid) ? `**${rawName}**` : rawName;
       const icon = rankEmoji(player, game, emojis);
-      const prefix = icon ? `${icon} ` : "";
-      const extras = [player.stat, player.rank, player.flair]
+      const prefix = icon
+        ? `${icon}${player.rankDivision ? ` ${player.rankDivision}` : ""} `
+        : "";
+      // the icon says the rank already; the text is only a fallback without one
+      const extras = [player.stat, icon ? undefined : player.rank, player.flair]
         .filter((value): value is string => Boolean(value))
         .map((value) => ` · ${value}`)
         .join("");

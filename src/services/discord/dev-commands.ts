@@ -81,9 +81,9 @@ export const lolMockResponse = () => {
 // lol ranks come from a league-v4 call keyed by puuid, which mock players can't
 // satisfy, so stand in for what enrichMatch would have attached
 const lolMockRanks: ReadonlyArray<readonly [tier: string, division: string]> = [
-  ["Challenger", "I"],
-  ["Grandmaster", "I"],
-  ["Master", "I"],
+  ["Challenger", ""],
+  ["Grandmaster", ""],
+  ["Master", ""],
   ["Diamond", "II"],
   ["Emerald", "IV"],
   ["Platinum", "I"],
@@ -101,8 +101,9 @@ export const withMockLolRanks = (match: MatchDetails): MatchDetails => ({
     const [tier, division] = entry;
     return {
       ...player,
-      rank: `${tier} ${division}`,
+      rank: division ? `${tier} ${division}` : tier,
       rankIconKey: tier.toLowerCase(),
+      ...(division ? { rankDivision: division } : {}),
     };
   }),
 });

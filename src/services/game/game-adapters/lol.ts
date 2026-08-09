@@ -35,8 +35,24 @@ const queue = (queueId: number, gameMode: string) =>
 const titleCase = (value: string) =>
   value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
 
+// the apex tiers only ever sit in division I, which riot's own client omits
+const APEX_TIERS = new Set(["master", "grandmaster", "challenger"]);
+
+const lolRank = (entry: LolLeagueEntry) => {
+  const iconKey = entry.tier.toLowerCase();
+  const division = APEX_TIERS.has(iconKey) ? undefined : entry.rank;
+  return {
+    iconKey,
+    division,
+    label: division ? `${titleCase(entry.tier)} ${division}` : titleCase(entry.tier),
+  };
+};
+
 const compact = (value: number) =>
   value >= 1_000 ? `${(value / 1_000).toFixed(1)}k` : String(value);
+
+const STATIC_ASSETS =
+  "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default";
 
 const rankIcons = [
   "iron",
@@ -51,7 +67,12 @@ const rankIcons = [
   "challenger",
 ].map((key) => ({
   key,
-  url: `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/ranked-emblem/emblem-${key}.png`,
+  // the winged emblems shrink to an unreadable smudge at emoji size, so use
+  // the mini crests; emerald ships svg-only there and keeps its emblem
+  url:
+    key === "emerald"
+      ? `${STATIC_ASSETS}/ranked-emblem/emblem-emerald.png`
+      : `${STATIC_ASSETS}/images/ranked-mini-crests/${key}.png`,
 }));
 
 export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
@@ -182,14 +203,15 @@ export const makeLolGameAdapter = Effect.gen(function* () {
         return {
           ...match,
           players: match.players.map((player) => {
-            const rank = ranks.get(player.puuid);
-            return rank
-              ? {
-                  ...player,
-                  rank: `${titleCase(rank.tier)} ${rank.rank}`,
-                  rankIconKey: rank.tier.toLowerCase(),
-                }
-              : player;
+            const entry = ranks.get(player.puuid);
+            if (!entry) return player;
+            const { iconKey, division, label } = lolRank(entry);
+            return {
+              ...player,
+              rank: label,
+              rankIconKey: iconKey,
+              ...(division ? { rankDivision: division } : {}),
+            };
           }),
         };
       },
@@ -218,10 +240,11 @@ export const makeLolGameAdapter = Effect.gen(function* () {
 
         const queue =
           entry.queueType === "RANKED_SOLO_5x5" ? "Solo/Duo" : "Flex";
+        const { iconKey, label } = lolRank(entry);
         return {
-          tier: `${titleCase(entry.tier)} ${entry.rank}`,
+          tier: label,
           detail: `${entry.leaguePoints} LP · ${entry.wins}W ${entry.losses}L (${queue})`,
-          iconKey: entry.tier.toLowerCase(),
+          iconKey,
         } satisfies RankInfo;
       },
       Effect.mapError(
