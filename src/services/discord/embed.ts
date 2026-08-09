@@ -50,7 +50,7 @@ const leaderboard = (
       const name = trackedPuuids.has(player.puuid) ? `**${rawName}**` : rawName;
       const icon = rankEmoji(player, game, emojis);
       const prefix = icon
-        ? `${icon}${player.rankDivision ? ` ${player.rankDivision}` : ""} `
+        ? `${icon}${player.rankDivision ? ` *${player.rankDivision}*` : ""} `
         : "";
       const extras = [player.stat, icon ? undefined : player.rank, player.flair]
         .filter((value): value is string => Boolean(value))
