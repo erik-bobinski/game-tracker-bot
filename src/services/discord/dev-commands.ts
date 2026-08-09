@@ -78,8 +78,6 @@ export const lolMockResponse = () => {
   };
 };
 
-// lol ranks come from a league-v4 call keyed by puuid, which mock players can't
-// satisfy, so stand in for what enrichMatch would have attached
 const lolMockRanks: ReadonlyArray<readonly [tier: string, division: string]> = [
   ["Challenger", ""],
   ["Grandmaster", ""],

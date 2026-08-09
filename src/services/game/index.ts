@@ -19,7 +19,6 @@ export interface MatchPlayer {
   readonly sortKey: number;
   readonly rank?: string;
   readonly rankIconKey?: string;
-  // set when the icon shows the tier but not the division, as lol's does
   readonly rankDivision?: string;
   readonly flair?: string;
   readonly thumbnailUrl?: string;
