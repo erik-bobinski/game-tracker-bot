@@ -4,7 +4,7 @@ import { Effect, Schema } from "effect";
 
 const execFileAsync = promisify(execFile);
 
-export class ShellError extends Schema.TaggedErrorClass<ShellError>()(
+export class ShellError extends Schema.TaggedError<ShellError>()(
   "LogWatcher.ShellError",
   {
     command: Schema.String,

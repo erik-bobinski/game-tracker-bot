@@ -28,11 +28,12 @@ function pushReportedMatch(
     .slice(-REPORTED_MATCH_CAPACITY);
 }
 
-const GameState = Schema.Struct({
-  puuid: Puuid,
-  reportedMatches: Schema.Array(ReportedMatch),
-});
-interface GameState extends Schema.Schema.Type<typeof GameState> {}
+export interface GameState {
+  readonly puuid: Puuid;
+  readonly reportedMatches: ReadonlyArray<ReportedMatch>;
+  // riot platformId for lol ("na1"), henrik region for val ("na")
+  readonly region: string | undefined;
+}
 
 export interface Account {
   readonly discordUserId: string;
@@ -52,9 +53,19 @@ export class Database extends Context.Service<
       ReadonlyArray<Account>,
       SqlError | Schema.SchemaError
     >;
+    readonly getAccount: (
+      discordUserId: string,
+    ) => Effect.Effect<Account | undefined, SqlError | Schema.SchemaError>;
     readonly hasAccount: (
       discordUserId: string,
     ) => Effect.Effect<boolean, SqlError | Schema.SchemaError>;
+    readonly deleteAccount: (
+      discordUserId: string,
+    ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    readonly clearReportedMatches: () => Effect.Effect<
+      void,
+      SqlError | Schema.SchemaError
+    >;
     readonly markMatchAsReported: (input: {
       readonly discordUserIds: ReadonlyArray<string>;
       readonly game: GameId;
@@ -88,6 +99,8 @@ const GameRow = Schema.Struct({
   game: GameId,
   puuid: Puuid,
   reportedMatches: ReportedMatches,
+  // null for accounts signed up before the region column existed
+  region: Schema.NullOr(Schema.String),
 });
 
 // -----------------------------------------------------------------------------
@@ -136,6 +149,11 @@ const migrations = SqliteMigrator.fromRecord({
 
     yield* sql`INSERT INTO settings (id, polling_paused) VALUES (1, 0)`;
   }),
+
+  "3_add_account_region": Effect.gen(function* () {
+    const sql = yield* SqlClient;
+    yield* sql`ALTER TABLE account_games ADD COLUMN region TEXT`;
+  }),
 });
 
 const makeDatabase = Effect.gen(function* () {
@@ -167,12 +185,14 @@ const makeDatabase = Effect.gen(function* () {
         discord_user_id,
         game,
         puuid,
-        reported_matches
+        reported_matches,
+        region
       ) VALUES (
         ${row.discordUserId},
         ${row.game},
         ${row.puuid},
-        ${row.reportedMatches}
+        ${row.reportedMatches},
+        ${row.region}
       )
     `,
   });
@@ -188,6 +208,7 @@ const makeDatabase = Effect.gen(function* () {
         game: game as GameId,
         puuid: state.puuid,
         reportedMatches: state.reportedMatches,
+        region: state.region ?? null,
       });
     }
   }, sql.withTransaction);
@@ -216,7 +237,8 @@ const makeDatabase = Effect.gen(function* () {
         discord_user_id AS "discordUserId",
         game,
         puuid,
-        reported_matches AS "reportedMatches"
+        reported_matches AS "reportedMatches",
+        region
       FROM account_games
     `,
   });
@@ -227,7 +249,7 @@ const makeDatabase = Effect.gen(function* () {
       gameRowsQuery({}),
     ]);
 
-    // {discordUserId: {gameId: {puuid, reportedMatches}}}
+    // {discordUserId: {gameId: {puuid, reportedMatches, region}}}
     const gamesByUser = new Map<string, Partial<Record<GameId, GameState>>>();
 
     for (const row of gameRows) {
@@ -235,6 +257,7 @@ const makeDatabase = Effect.gen(function* () {
       games[row.game] = {
         puuid: row.puuid,
         reportedMatches: row.reportedMatches,
+        region: row.region ?? undefined,
       };
       gamesByUser.set(row.discordUserId, games);
     }
@@ -243,6 +266,15 @@ const makeDatabase = Effect.gen(function* () {
       ...row,
       games: gamesByUser.get(row.discordUserId) ?? {},
     }));
+  });
+
+  const getAccount = Effect.fn("Database.getAccount")(function* (
+    discordUserId: string,
+  ) {
+    const accounts = yield* getAccounts();
+    return accounts.find(
+      (account) => account.discordUserId === discordUserId,
+    );
   });
 
   // hasAccount
@@ -263,6 +295,42 @@ const makeDatabase = Effect.gen(function* () {
     const rows = yield* accountExistsQuery({ discordUserId });
     return rows.length > 0;
   });
+
+  // deleteAccount
+  // -----------------------------------------------------------------------------
+  const deleteGameRows = SqlSchema.void({
+    Request: Schema.Struct({ discordUserId: Schema.String }),
+    execute: ({ discordUserId }) => sql`
+      DELETE FROM account_games WHERE discord_user_id = ${discordUserId}
+    `,
+  });
+
+  const deleteAccountRow = SqlSchema.void({
+    Request: Schema.Struct({ discordUserId: Schema.String }),
+    execute: ({ discordUserId }) => sql`
+      DELETE FROM accounts WHERE discord_user_id = ${discordUserId}
+    `,
+  });
+
+  const deleteAccount = Effect.fn("Database.deleteAccount")(function* (
+    discordUserId: string,
+  ) {
+    yield* deleteGameRows({ discordUserId });
+    yield* deleteAccountRow({ discordUserId });
+  }, sql.withTransaction);
+
+  // clearReportedMatches (dev-only: makes the next poll re-report recent matches)
+  // -----------------------------------------------------------------------------
+  const clearReportedMatchesQuery = SqlSchema.void({
+    Request: Schema.Struct({}),
+    execute: () => sql`UPDATE account_games SET reported_matches = '[]'`,
+  });
+
+  const clearReportedMatches = Effect.fn("Database.clearReportedMatches")(
+    function* () {
+      yield* clearReportedMatchesQuery({});
+    },
+  );
 
   // markMatchAsReported
   // -----------------------------------------------------------------------------
@@ -346,7 +414,10 @@ const makeDatabase = Effect.gen(function* () {
   return Database.of({
     addAccount,
     getAccounts,
+    getAccount,
     hasAccount,
+    deleteAccount,
+    clearReportedMatches,
     markMatchAsReported,
     getPollingPaused,
     setPollingPaused,

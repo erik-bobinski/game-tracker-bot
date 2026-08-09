@@ -27,7 +27,7 @@ import { commands } from "./commands.ts";
 import { matchEmbed, type MatchReport } from "./embed.ts";
 import { provisionRankEmojis } from "./rank-emojis.ts";
 
-export class DiscordError extends Schema.TaggedErrorClass<DiscordError>()(
+export class DiscordError extends Schema.TaggedError<DiscordError>()(
   "DiscordError",
   { operation: Schema.String, cause: Schema.Defect() },
 ) {}
@@ -64,6 +64,9 @@ const makeDiscord = Effect.gen(function* () {
   const gameAdapters = yield* GameAdapters;
   const pollingState = yield* PollingState;
   const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
+  const devMode = yield* Config.boolean("DEV_MODE").pipe(
+    Config.withDefault(false),
+  );
   const rankEmojis = yield* provisionRankEmojis(gameAdapters.all).pipe(
     Effect.catch((error) =>
       Effect.logWarning(
@@ -73,9 +76,23 @@ const makeDiscord = Effect.gen(function* () {
     ),
   );
 
+  const notifyMatch = Effect.fn("Discord.notifyMatch")(
+    function* (report: MatchReport) {
+      yield* rest.createMessage(channelId, {
+        embeds: [matchEmbed(report, rankEmojis)],
+      });
+    },
+    Effect.mapError(
+      (cause) => new DiscordError({ operation: "notifyMatch", cause }),
+    ),
+  );
+
   // registering forks the interaction loop and syncs the commands with discord.
   yield* registry.register(
-    commands({ database, gameAdapters, rest, pollingState }),
+    commands(
+      { database, gameAdapters, rest, pollingState, notifyMatch },
+      devMode,
+    ),
   );
 
   const setPresence = (paused: boolean) =>
@@ -104,17 +121,6 @@ const makeDiscord = Effect.gen(function* () {
       ),
     )
     .pipe(Effect.forkScoped);
-
-  const notifyMatch = Effect.fn("Discord.notifyMatch")(
-    function* (report: MatchReport) {
-      yield* rest.createMessage(channelId, {
-        embeds: [matchEmbed(report, rankEmojis)],
-      });
-    },
-    Effect.mapError(
-      (cause) => new DiscordError({ operation: "notifyMatch", cause }),
-    ),
-  );
 
   return Discord.of({ notifyMatch });
 });

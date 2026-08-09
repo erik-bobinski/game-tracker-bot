@@ -20,7 +20,7 @@ const makePolling = Effect.gen(function* () {
   });
 
   const pollLoop = pollTick.pipe(
-    // TODO: Decide whether errors should be logged, retried, or reported.
+    // a failed cycle is logged and dropped; the next tick retries naturally
     Effect.catchIf(
       () => true,
       (error) => Effect.logError("Polling cycle failed", error),

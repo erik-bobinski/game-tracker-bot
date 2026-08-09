@@ -44,6 +44,22 @@ export interface MatchDetails {
   readonly teams: ReadonlyArray<MatchTeam>;
 }
 
+// Where an account plays, in whatever form that game's api wants: a riot
+// platformId for lol ("na1", "euw1"), a henrik region for val ("na", "eu")
+export type Region = string;
+
+export interface ResolvedAccount {
+  readonly puuid: Puuid;
+  readonly region: Region | undefined;
+}
+
+export interface RankInfo {
+  readonly tier: string;
+  readonly detail?: string;
+  // matches a GameAdapter.rankIcons key, so it renders with the same emojis
+  readonly iconKey?: string;
+}
+
 // A Riot puuid, branded so it can't be mixed up with other id strings
 export const Puuid = Schema.String.pipe(Schema.brand("Puuid"));
 export type Puuid = typeof Puuid.Type;

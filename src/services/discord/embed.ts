@@ -1,5 +1,10 @@
 import type { Discord } from "dfx";
-import type { GameId, MatchDetails, MatchPlayer } from "../game/index.ts";
+import type {
+  GameId,
+  MatchDetails,
+  MatchPlayer,
+  RankInfo,
+} from "../game/index.ts";
 
 export interface MatchReport {
   readonly discordNames: ReadonlyArray<string>;
@@ -9,7 +14,7 @@ export interface MatchReport {
 
 export type RankEmojis = Readonly<Record<string, string>>;
 
-const gameNames: Record<GameId, string> = {
+export const gameNames: Record<GameId, string> = {
   lol: "League of Legends",
   valorant: "Valorant",
 };
@@ -52,6 +57,21 @@ const leaderboard = (
       return `${prefix}${name} (${player.character}) ${player.kills}/${player.deaths}/${player.assists}${extras}`;
     })
     .join("\n");
+
+export interface RankReport {
+  readonly riotName: string;
+  readonly game: GameId;
+  readonly rank: RankInfo;
+  // the tier emblem, from the adapter's rankIcons
+  readonly iconUrl: string | undefined;
+}
+
+export const rankEmbed = (report: RankReport): Discord.RichEmbed => ({
+  title: `${report.riotName}'s ${gameNames[report.game]} Rank`,
+  description: `**${report.rank.tier}**${report.rank.detail ? ` · ${report.rank.detail}` : ""}`,
+  color: 0x1abc9c,
+  ...(report.iconUrl ? { image: { url: report.iconUrl } } : {}),
+});
 
 export const matchEmbed = (
   report: MatchReport,

@@ -49,7 +49,7 @@ const makeMatchEngine = Effect.gen(function* () {
         );
 
         const recentMatches = yield* adapter
-          .getRecentMatches(gameState.puuid)
+          .getRecentMatches(gameState.puuid, gameState.region)
           .pipe(
             Effect.catchTag("GameApiError", (error) =>
               Effect.logWarning("skipping account this poll", error).pipe(

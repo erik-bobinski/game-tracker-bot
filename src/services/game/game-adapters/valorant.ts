@@ -7,8 +7,13 @@ import {
   type MatchPlayer,
   type MatchTeam,
   type Puuid,
+  type RankInfo,
+  type Region,
 } from "../index.ts";
-import { valMatchMode } from "../game-api/val/match-schema.ts";
+import {
+  valMatchMode,
+  type ValRawMatch,
+} from "../game-api/val/match-schema.ts";
 
 const rankIconKey = (rank: string) => {
   const key = rank.toLowerCase().replaceAll(" ", "_");
@@ -37,6 +42,56 @@ const rankIcons = [
     url: `https://media.valorant-api.com/competitivetiers/${valorantTierSet}/27/smallicon.png`,
   });
 
+export const valMatchToDetails = (match: ValRawMatch): MatchDetails => {
+  const rounds = Math.max(match.rounds.length, 1);
+  const players: Array<MatchPlayer> = match.players.map((player) => {
+    const shots =
+      player.stats.headshots + player.stats.bodyshots + player.stats.legshots;
+    const acs = Math.floor(player.stats.score / rounds);
+    const iconKey = rankIconKey(player.tier.name);
+    return {
+      puuid: player.puuid,
+      team: player.team_id.toLowerCase(),
+      riotName: player.name,
+      riotTag: player.tag,
+      character: player.agent.name,
+      kills: player.stats.kills,
+      deaths: player.stats.deaths,
+      assists: player.stats.assists,
+      stat:
+        shots > 0
+          ? `${acs} ACS · ${Math.floor((player.stats.headshots * 100) / shots)}% HS`
+          : `${acs} ACS`,
+      sortKey: acs,
+      ...(player.tier.name && player.tier.name !== "Unrated"
+        ? { rank: player.tier.name }
+        : {}),
+      ...(iconKey ? { rankIconKey: iconKey } : {}),
+      thumbnailUrl: `https://media.valorant-api.com/agents/${encodeURIComponent(player.agent.id)}/displayicon.png`,
+    };
+  });
+
+  const teams: Array<MatchTeam> = match.teams.map((team) => ({
+    id: team.team_id.toLowerCase(),
+    won: team.won,
+    score: [team.rounds.won, team.rounds.lost],
+  }));
+
+  return {
+    matchId: match.metadata.match_id,
+    game: "valorant",
+    date: EpochMillis.make(Date.parse(match.metadata.started_at)),
+    mode: valMatchMode(match.metadata),
+    map: match.metadata.map.name,
+    durationSeconds: Math.floor(match.metadata.game_length_in_ms / 1_000),
+    surrendered: match.rounds.some(
+      (round) => round.result.toLowerCase() === "surrendered",
+    ),
+    players,
+    teams,
+  };
+};
+
 export const makeValorantGameAdapter = Effect.gen(function* () {
   const henrikClient = yield* HenrikApiClient;
 
@@ -50,68 +105,15 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
       return yield* henrikClient.getAccountByRiotId(name, tag);
     }),
     getRecentMatches: Effect.fn("GameAdapter.valorant.getRecentMatches")(
-      function* (puuid: Puuid) {
+      function* (puuid: Puuid, region: Region | undefined) {
         const matches = yield* henrikClient.getRecentMatches(
           puuid,
+          region,
           RECENT_MATCH_COUNT,
         );
-        const candidates: Array<MatchDetails> = [];
-        for (const match of matches) {
-          if (!match.metadata.is_completed) continue;
-
-          const rounds = Math.max(match.rounds.length, 1);
-          const players: Array<MatchPlayer> = match.players.map((player) => {
-            const shots =
-              player.stats.headshots +
-              player.stats.bodyshots +
-              player.stats.legshots;
-            const acs = Math.floor(player.stats.score / rounds);
-            const iconKey = rankIconKey(player.tier.name);
-            return {
-              puuid: player.puuid,
-              team: player.team_id.toLowerCase(),
-              riotName: player.name,
-              riotTag: player.tag,
-              character: player.agent.name,
-              kills: player.stats.kills,
-              deaths: player.stats.deaths,
-              assists: player.stats.assists,
-              stat:
-                shots > 0
-                  ? `${acs} ACS · ${Math.floor((player.stats.headshots * 100) / shots)}% HS`
-                  : `${acs} ACS`,
-              sortKey: acs,
-              ...(player.tier.name && player.tier.name !== "Unrated"
-                ? { rank: player.tier.name }
-                : {}),
-              ...(iconKey ? { rankIconKey: iconKey } : {}),
-              thumbnailUrl: `https://media.valorant-api.com/agents/${encodeURIComponent(player.agent.id)}/displayicon.png`,
-            };
-          });
-
-          const teams: Array<MatchTeam> = match.teams.map((team) => ({
-            id: team.team_id.toLowerCase(),
-            won: team.won,
-            score: [team.rounds.won, team.rounds.lost],
-          }));
-
-          candidates.push({
-            matchId: match.metadata.match_id,
-            game: "valorant",
-            date: EpochMillis.make(Date.parse(match.metadata.started_at)),
-            mode: valMatchMode(match.metadata),
-            map: match.metadata.map.name,
-            durationSeconds: Math.floor(
-              match.metadata.game_length_in_ms / 1_000,
-            ),
-            surrendered: match.rounds.some(
-              (round) => round.result.toLowerCase() === "surrendered",
-            ),
-            players,
-            teams,
-          });
-        }
-        return candidates;
+        return matches
+          .filter((match) => match.metadata.is_completed)
+          .map(valMatchToDetails);
       },
       Effect.mapError(
         (cause) =>
@@ -124,6 +126,23 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
     ),
     enrichMatch: Effect.fn("GameAdapter.valorant.enrichMatch")(
       (match: MatchDetails) => Effect.succeed(match),
+    ),
+    getRank: Effect.fn("GameAdapter.valorant.getRank")(
+      function* (puuid: Puuid, region: Region | undefined) {
+        const rank = yield* henrikClient.getRank(puuid, region);
+        if (!rank || rank.tier === "Unrated") return undefined;
+
+        const iconKey = rankIconKey(rank.tier);
+        return {
+          tier: rank.tier,
+          detail: `${rank.rr} RR`,
+          ...(iconKey ? { iconKey } : {}),
+        } satisfies RankInfo;
+      },
+      Effect.mapError(
+        (cause) =>
+          new GameApiError({ game: "valorant", operation: "getRank", cause }),
+      ),
     ),
   };
 

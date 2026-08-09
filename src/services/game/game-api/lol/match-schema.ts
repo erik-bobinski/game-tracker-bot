@@ -50,7 +50,7 @@ export const LolMatchInfo = Schema.Struct({
   gameStartTimestamp: EpochMillis,
   // distinguishes ranked solo (420) vs flex (440) vs normals, which gameMode can't
   queueId: Schema.Number,
-  // platform host the match ran on (na1, euw1, ...); league-v4 is routed by this
+  // shard the match ran on (na1, euw1, ...); league-v4 is routed by this
   platformId: Schema.String,
   participants: Schema.Array(LolParticipant),
 });
@@ -86,6 +86,8 @@ export const LolLeagueEntry = Schema.Struct({
   // division within the tier: "I".."IV"
   rank: Schema.String,
   leaguePoints: Schema.Number,
+  wins: withDefault(Schema.Number, 0),
+  losses: withDefault(Schema.Number, 0),
 });
 export interface LolLeagueEntry extends Schema.Schema.Type<
   typeof LolLeagueEntry

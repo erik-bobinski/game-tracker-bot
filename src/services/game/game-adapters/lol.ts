@@ -1,8 +1,18 @@
 import { Effect } from "effect";
 import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
 import { GameApiError, RECENT_MATCH_COUNT, type GameAdapter } from "./index.ts";
-import type { MatchDetails, MatchPlayer, MatchTeam, Puuid } from "../index.ts";
-import type { LolLeagueEntry } from "../game-api/lol/match-schema.ts";
+import type {
+  MatchDetails,
+  MatchPlayer,
+  MatchTeam,
+  Puuid,
+  RankInfo,
+  Region,
+} from "../index.ts";
+import type {
+  LolLeagueEntry,
+  LolMatch,
+} from "../game-api/lol/match-schema.ts";
 
 const queue = (queueId: number, gameMode: string) =>
   new Map<number, string>([
@@ -44,6 +54,57 @@ const rankIcons = [
   url: `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/ranked-emblem/emblem-${key}.png`,
 }));
 
+export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
+  const players: Array<MatchPlayer> = match.info.participants.map(
+    (participant) => {
+      const multiKill =
+        participant.largestMultiKill >= 5
+          ? "🔥 Penta Kill"
+          : participant.largestMultiKill === 4
+            ? "Quadra Kill"
+            : undefined;
+      return {
+        puuid: participant.puuid,
+        team: String(participant.teamId),
+        riotName: participant.riotIdGameName,
+        riotTag: participant.riotIdTagline,
+        character: participant.championName,
+        kills: participant.kills,
+        deaths: participant.deaths,
+        assists: participant.assists,
+        stat: `${participant.totalMinionsKilled + participant.neutralMinionsKilled} CS · ${compact(participant.totalDamageDealtToChampions)} dmg`,
+        sortKey:
+          (participant.kills + participant.assists) /
+          Math.max(participant.deaths, 1),
+        ...(multiKill ? { flair: multiKill } : {}),
+        thumbnailUrl: `https://cdn.communitydragon.org/latest/champion/${encodeURIComponent(participant.championName)}/square`,
+      };
+    },
+  );
+
+  const teams: Array<MatchTeam> = [100, 200].map((teamId) => ({
+    id: String(teamId),
+    won:
+      match.info.participants.find(
+        (participant) => participant.teamId === teamId,
+      )?.win ?? false,
+  }));
+
+  return {
+    matchId: match.metadata.matchId,
+    game: "lol",
+    date: match.info.gameStartTimestamp,
+    mode: queue(match.info.queueId, match.info.gameMode),
+    routingRegion: match.info.platformId.toLowerCase(),
+    durationSeconds: match.info.gameDuration,
+    surrendered: match.info.participants.some(
+      (participant) => participant.gameEndedInSurrender,
+    ),
+    players,
+    teams,
+  };
+};
+
 export const makeLolGameAdapter = Effect.gen(function* () {
   const riotClient = yield* RiotApiClient;
 
@@ -54,66 +115,27 @@ export const makeLolGameAdapter = Effect.gen(function* () {
       name: string,
       tag: string,
     ) {
-      return yield* riotClient.getAccountByRiotId(name, tag);
+      const puuid = yield* riotClient.getAccountByRiotId(name, tag);
+      // the account resolves fine without a shard; only rank lookups need it
+      const region = yield* riotClient
+        .getPlatformId(puuid)
+        .pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("lol platformId lookup failed", error).pipe(
+              Effect.as(undefined),
+            ),
+          ),
+        );
+      return { puuid, region };
     }),
     getRecentMatches: Effect.fn("GameAdapter.lol.getRecentMatches")(
-      function* (puuid: Puuid) {
+      function* (puuid: Puuid, region: Region | undefined) {
         const matches = yield* riotClient.getRecentMatches(
           puuid,
+          region,
           RECENT_MATCH_COUNT,
         );
-        return yield* Effect.forEach(matches, (match) =>
-          Effect.gen(function* () {
-            const players: Array<MatchPlayer> = match.info.participants.map(
-              (participant) => {
-                const multiKill =
-                  participant.largestMultiKill >= 5
-                    ? "🔥 Penta Kill"
-                    : participant.largestMultiKill === 4
-                      ? "Quadra Kill"
-                      : undefined;
-                return {
-                  puuid: participant.puuid,
-                  team: String(participant.teamId),
-                  riotName: participant.riotIdGameName,
-                  riotTag: participant.riotIdTagline,
-                  character: participant.championName,
-                  kills: participant.kills,
-                  deaths: participant.deaths,
-                  assists: participant.assists,
-                  stat: `${participant.totalMinionsKilled + participant.neutralMinionsKilled} CS · ${compact(participant.totalDamageDealtToChampions)} dmg`,
-                  sortKey:
-                    (participant.kills + participant.assists) /
-                    Math.max(participant.deaths, 1),
-                  ...(multiKill ? { flair: multiKill } : {}),
-                  thumbnailUrl: `https://cdn.communitydragon.org/latest/champion/${encodeURIComponent(participant.championName)}/square`,
-                };
-              },
-            );
-
-            const teams: Array<MatchTeam> = [100, 200].map((teamId) => ({
-              id: String(teamId),
-              won:
-                match.info.participants.find(
-                  (participant) => participant.teamId === teamId,
-                )?.win ?? false,
-            }));
-
-            return {
-              matchId: match.metadata.matchId,
-              game: "lol",
-              date: match.info.gameStartTimestamp,
-              mode: queue(match.info.queueId, match.info.gameMode),
-              routingRegion: match.info.platformId.toLowerCase(),
-              durationSeconds: match.info.gameDuration,
-              surrendered: match.info.participants.some(
-                (participant) => participant.gameEndedInSurrender,
-              ),
-              players,
-              teams,
-            } satisfies MatchDetails;
-          }),
-        );
+        return matches.map(lolMatchToDetails);
       },
       Effect.mapError(
         (cause) =>
@@ -134,14 +156,14 @@ export const makeLolGameAdapter = Effect.gen(function* () {
               : undefined;
         if (!queueType) return match;
 
-        const platform = match.routingRegion;
-        if (!platform) return match;
+        const platformId = match.routingRegion;
+        if (!platformId) return match;
 
         const ranks = new Map<Puuid, LolLeagueEntry>();
         yield* Effect.forEach(
           match.players,
           (player) =>
-            riotClient.getLeagueEntries(player.puuid, platform).pipe(
+            riotClient.getLeagueEntries(player.puuid, platformId).pipe(
               Effect.map((entries) => {
                 const entry = entries.find(
                   (candidate) => candidate.queueType === queueType,
@@ -178,6 +200,33 @@ export const makeLolGameAdapter = Effect.gen(function* () {
             operation: "enrichMatch",
             cause,
           }),
+      ),
+    ),
+    getRank: Effect.fn("GameAdapter.lol.getRank")(
+      function* (puuid: Puuid, region: Region | undefined) {
+        // league-v4 is shard-routed, so an unknown shard means no rank
+        if (!region) {
+          yield* Effect.logWarning("no stored platformId for lol rank lookup");
+          return undefined;
+        }
+
+        const entries = yield* riotClient.getLeagueEntries(puuid, region);
+        const entry =
+          entries.find((e) => e.queueType === "RANKED_SOLO_5x5") ??
+          entries.find((e) => e.queueType === "RANKED_FLEX_SR");
+        if (!entry) return undefined;
+
+        const queue =
+          entry.queueType === "RANKED_SOLO_5x5" ? "Solo/Duo" : "Flex";
+        return {
+          tier: `${titleCase(entry.tier)} ${entry.rank}`,
+          detail: `${entry.leaguePoints} LP · ${entry.wins}W ${entry.losses}L (${queue})`,
+          iconKey: entry.tier.toLowerCase(),
+        } satisfies RankInfo;
+      },
+      Effect.mapError(
+        (cause) =>
+          new GameApiError({ game: "lol", operation: "getRank", cause }),
       ),
     ),
   };

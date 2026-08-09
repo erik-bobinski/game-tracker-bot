@@ -4,6 +4,8 @@
   "description": "",
   "main": "index.ts",
   "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx --env-file=.env src/index.ts",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "log-watcher": "tsx src/log-watcher/index.ts"
@@ -20,10 +22,10 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.220",
+    "@effect/platform-node": "4.0.0-beta.105",
+    "@effect/sql-sqlite-node": "4.0.0-beta.105",
     "@railway/cli": "5.30.1",
-    "@effect/platform-node": "4.0.0-beta.97",
-    "@effect/sql-sqlite-node": "4.0.0-beta.97",
-    "dfx": "1.0.14",
-    "effect": "4.0.0-beta.97"
+    "dfx": "1.0.15",
+    "effect": "4.0.0-beta.105"
   }
 }

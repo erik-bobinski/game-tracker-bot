@@ -12,20 +12,20 @@ importers:
         specifier: 2.1.220
         version: 2.1.220
       '@effect/platform-node':
-        specifier: 4.0.0-beta.97
-        version: 4.0.0-beta.97(effect@4.0.0-beta.97)(ioredis@5.11.1)
+        specifier: 4.0.0-beta.105
+        version: 4.0.0-beta.105(effect@4.0.0-beta.105)(ioredis@5.11.1)
       '@effect/sql-sqlite-node':
-        specifier: 4.0.0-beta.97
-        version: 4.0.0-beta.97(effect@4.0.0-beta.97)
+        specifier: 4.0.0-beta.105
+        version: 4.0.0-beta.105(effect@4.0.0-beta.105)
       '@railway/cli':
         specifier: 5.30.1
         version: 5.30.1
       dfx:
-        specifier: 1.0.14
-        version: 1.0.14(effect@4.0.0-beta.97)
+        specifier: 1.0.15
+        version: 1.0.15(effect@4.0.0-beta.105)
       effect:
-        specifier: 4.0.0-beta.97
-        version: 4.0.0-beta.97
+        specifier: 4.0.0-beta.105
+        version: 4.0.0-beta.105
     devDependencies:
       prettier:
         specifier: ^3.9.6
@@ -88,23 +88,23 @@ packages:
     engines: {node: '>=22.0.0'}
     hasBin: true
 
-  '@effect/platform-node-shared@4.0.0-beta.98':
-    resolution: {integrity: sha512-iySXaffnCJX1sNAIp79ghhIeui9E5qwUQyqd1VLPkB9UNO4vdpd9B5fTEXwe7S/GusL4jsk9vSvX38XJgRFG1w==}
+  '@effect/platform-node-shared@4.0.0-beta.105':
+    resolution: {integrity: sha512-UfeC8cFm4sP+XW14OO66CcOGJ8PcD102hH0kLwj8xUVL6nYIDGE/SJvlfVmFx+9OWF6rnjfXjMV6vyl6mCdhCQ==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      effect: ^4.0.0-beta.98
+      effect: ^4.0.0-beta.105
 
-  '@effect/platform-node@4.0.0-beta.97':
-    resolution: {integrity: sha512-Vd40VLh+Y08Bs37KWtbe9AgO2+t3RKZKGX9YC6ZKAcswu4tXR3CwSI7V2MN+GgS+ez/GLmqH1WrzDDlaIAxKPA==}
+  '@effect/platform-node@4.0.0-beta.105':
+    resolution: {integrity: sha512-gOHtgE9PqCT8aiiM0W7ZSbu4M2/jPGfJOKWuyBCxofNV5Np36fFY55FSa1MtyG+vjOjlD5btNY2i6i/SPtRqTA==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      effect: ^4.0.0-beta.97
-      ioredis: ^5.7.0
+      effect: ^4.0.0-beta.105
+      ioredis: '>=5.7.0 <6.0.0'
 
-  '@effect/sql-sqlite-node@4.0.0-beta.97':
-    resolution: {integrity: sha512-mzP67KmXK2vGU3GrlOdM0TWST7mWI8kMNqPu7Gl2I30eSv+DmBes1qYVIQWUnE3b5ka2LCP7iFzjxNjtIfqn8g==}
+  '@effect/sql-sqlite-node@4.0.0-beta.105':
+    resolution: {integrity: sha512-M4b2H/S53pe247GNvDRpBLHlpqehF3AWoDyHwtqjbZC8eS1H4ZtA4ID3s9aNNNETfzEeaIJXaZu6uk2UT0KN+A==}
     peerDependencies:
-      effect: ^4.0.0-beta.97
+      effect: ^4.0.0-beta.105
 
   '@esbuild/aix-ppc64@0.28.1':
     resolution: {integrity: sha512-Svl7tq8k/08+p6CXPpRjQ1fKX+1odH/BQbb48fV6fj3CWHhsoIOoY87w1oHXm0qEpkIK3ZfVgp0hed3XBXzXMQ==}
@@ -494,10 +494,10 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  dfx@1.0.14:
-    resolution: {integrity: sha512-7dhY8yN8pCk3Id3L4YKAIbiOJrcFEiHe9ttgNpD989iu7zwp+i4ttfmEgBhSNWNpql6fthicM/m/aGE1vuE1iw==}
+  dfx@1.0.15:
+    resolution: {integrity: sha512-LqHeOZLcOJB5D0+BUiy6XkthunolbJoSAAIOjXEiux5P6CzXPbJl0EkaWSDXTbkj/F/pdW9lk1zCC4XAl8yG+w==}
     peerDependencies:
-      effect: '>=4.0.0-beta.52 <5.0.0'
+      effect: '>=4.0.0-beta.101 <5.0.0'
 
   discord-api-types@0.38.49:
     resolution: {integrity: sha512-XnqcWmnFZFAE8ZM8SHAw9DIV8D3Or00rMQ8iQLotrEA2PmXhl+ykaf6L6q4l474hrSUH1JaYcv+iOMRWp2p6Tg==}
@@ -506,8 +506,8 @@ packages:
     resolution: {integrity: sha512-8qlrMROW8DhpzWWzgNq9kpeLDxKanWa4EDVoj/ASVv2nr+dSr4JPmu2tFSydf3hAGI/OIJTnZyD0JulMYIxx4w==}
     engines: {node: '>=16'}
 
-  effect@4.0.0-beta.97:
-    resolution: {integrity: sha512-pK03HpQVxGZOWdwDAy/iwvV8u3KYcUf2mOWyWqaut2zau8V2u6ejWP7b4BELjyUIiZWW1fl/s/VJpgZUcTjThg==}
+  effect@4.0.0-beta.105:
+    resolution: {integrity: sha512-7U5OzWVNlpnZFvXiZfOeu8V+dCQUa3Om569HnYG2Dx8C8V6uoKS920kFJkIDEYVhlSGhzkRqaGKmYY9bPkBMMQ==}
 
   esbuild@0.28.1:
     resolution: {integrity: sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==}
@@ -522,9 +522,6 @@ packages:
     resolution: {integrity: sha512-7yAQpD2UMJzLi1Dqv7qFYnPbaPx7ZfFK6PiIxQ4PfkGPyNyl2Ugx+a/umUonmKqjhM4DnfbMvdX6otXq83soQQ==}
     engines: {node: ^12.20 || >= 14.13}
 
-  find-my-way-ts@0.1.6:
-    resolution: {integrity: sha512-a85L9ZoXtNAey3Y6Z+eBWW658kO/MwR7zIafkIUPUMf3isZG0NCs2pjW2wtjxAKuJPxMAsHUIP4ZPGv0o5gyTA==}
-
   formdata-polyfill@4.0.10:
     resolution: {integrity: sha512-buewHzMvYL29jdeQTVILecSaZKnt/RJWjoZCF5OW60Z67/GmSLBkOFM7qh1PI3zFNtJbaZL5eQu1vLfazOwj4g==}
     engines: {node: '>=12.20.0'}
@@ -537,10 +534,6 @@ packages:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
-
-  ini@7.0.0:
-    resolution: {integrity: sha512-ifK0CgjALofS5bkrcTy4RaQ9Vx2Knf/eLeIO+NaswQEpH1UblrtTSCIvN71qQDMq0PeQ/SSPojvEJp9vvvfr+w==}
-    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
 
   ioredis@5.11.1:
     resolution: {integrity: sha512-ehuGcf94bQXhfagULNXrJdfnWO38v070jxSx/qE87Kjzmu2fU7ro5EFAb+OPituLqgfyuQaym5DlrNydW2sJ9A==}
@@ -581,9 +574,6 @@ packages:
   msgpackr@2.0.4:
     resolution: {integrity: sha512-o1C5KRmuRt+apqMr1HuGSqWStZoRBUpEsCsl15uM9VdAF1qHLtvMOU2En747EnTyEl6c4pzPewRMFF31s1CNbA==}
 
-  multipasta@0.2.8:
-    resolution: {integrity: sha512-ZPWuMKyv0cSO29f7hozp+k6+crZbQijV8ipMvxNxRf2SwtYGTX1ZX89Kd20VV4H9Znonx+EQn+iy1wGQsJ+b+Q==}
-
   node-domexception@1.0.0:
     resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
     engines: {node: '>=10.5.0'}
@@ -620,10 +610,6 @@ packages:
     resolution: {integrity: sha512-DZ4yORTwrbTj/7MZYq2w+/ZFdI6OZ/f9SFHR+71gIVUZhOQPHzVCLpvRnPgyaMpfWxxk/4ONva3GQSyNIKRv6A==}
     engines: {node: '>=10'}
     deprecated: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-
-  toml@4.1.2:
-    resolution: {integrity: sha512-m0vXfHODcw3gk+KONAOlVQ5yNHc3yS3B1ybM3HS1vqDoS0RWTDDVBVVTYi8hH0k+2OM1vmo9fb1WX9EVqjqfHA==}
-    engines: {node: '>=20'}
 
   tsx@4.23.1:
     resolution: {integrity: sha512-GQHnkIfxyx1wYCOS/wonik5MVRZU9hi1TEZmzGZSCJB1y9YgoZ8H6itNE/u4suE+yLmOzuE4E5S4TZ/ZX2wcWQ==}
@@ -665,11 +651,6 @@ packages:
   yallist@4.0.0:
     resolution: {integrity: sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A==}
 
-  yaml@2.9.0:
-    resolution: {integrity: sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==}
-    engines: {node: '>= 14.6'}
-    hasBin: true
-
 snapshots:
 
   '@anthropic-ai/claude-code-darwin-arm64@2.1.220':
@@ -707,19 +688,19 @@ snapshots:
       '@anthropic-ai/claude-code-win32-arm64': 2.1.220
       '@anthropic-ai/claude-code-win32-x64': 2.1.220
 
-  '@effect/platform-node-shared@4.0.0-beta.98(effect@4.0.0-beta.97)':
+  '@effect/platform-node-shared@4.0.0-beta.105(effect@4.0.0-beta.105)':
     dependencies:
       '@types/ws': 8.18.1
-      effect: 4.0.0-beta.97
+      effect: 4.0.0-beta.105
       ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/platform-node@4.0.0-beta.97(effect@4.0.0-beta.97)(ioredis@5.11.1)':
+  '@effect/platform-node@4.0.0-beta.105(effect@4.0.0-beta.105)(ioredis@5.11.1)':
     dependencies:
-      '@effect/platform-node-shared': 4.0.0-beta.98(effect@4.0.0-beta.97)
-      effect: 4.0.0-beta.97
+      '@effect/platform-node-shared': 4.0.0-beta.105(effect@4.0.0-beta.105)
+      effect: 4.0.0-beta.105
       ioredis: 5.11.1
       mime: 4.1.0
       undici: 8.7.0
@@ -727,9 +708,9 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@effect/sql-sqlite-node@4.0.0-beta.97(effect@4.0.0-beta.97)':
+  '@effect/sql-sqlite-node@4.0.0-beta.105(effect@4.0.0-beta.105)':
     dependencies:
-      effect: 4.0.0-beta.97
+      effect: 4.0.0-beta.105
 
   '@esbuild/aix-ppc64@0.28.1':
     optional: true
@@ -979,10 +960,10 @@ snapshots:
   detect-libc@2.1.2:
     optional: true
 
-  dfx@1.0.14(effect@4.0.0-beta.97):
+  dfx@1.0.15(effect@4.0.0-beta.105):
     dependencies:
       discord-api-types: 0.38.49
-      effect: 4.0.0-beta.97
+      effect: 4.0.0-beta.105
     optionalDependencies:
       discord-verify: 1.2.0
 
@@ -993,18 +974,13 @@ snapshots:
       '@types/express': 4.17.25
     optional: true
 
-  effect@4.0.0-beta.97:
+  effect@4.0.0-beta.105:
     dependencies:
       '@standard-schema/spec': 1.1.0
       fast-check: 4.9.0
-      find-my-way-ts: 0.1.6
-      ini: 7.0.0
       kubernetes-types: 1.30.0
       msgpackr: 2.0.4
-      multipasta: 0.2.8
-      toml: 4.1.2
       uuid: 14.0.1
-      yaml: 2.9.0
 
   esbuild@0.28.1:
     optionalDependencies:
@@ -1044,8 +1020,6 @@ snapshots:
       node-domexception: 1.0.0
       web-streams-polyfill: 3.3.3
 
-  find-my-way-ts@0.1.6: {}
-
   formdata-polyfill@4.0.10:
     dependencies:
       fetch-blob: 3.2.0
@@ -1056,8 +1030,6 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
-
-  ini@7.0.0: {}
 
   ioredis@5.11.1:
     dependencies:
@@ -1106,8 +1078,6 @@ snapshots:
     optionalDependencies:
       msgpackr-extract: 3.0.4
 
-  multipasta@0.2.8: {}
-
   node-domexception@1.0.0: {}
 
   node-fetch@3.3.2:
@@ -1141,8 +1111,6 @@ snapshots:
       minizlib: 2.1.2
       mkdirp: 1.0.4
       yallist: 4.0.0
-
-  toml@4.1.2: {}
 
   tsx@4.23.1:
     dependencies:
@@ -1184,5 +1152,3 @@ snapshots:
   ws@8.21.0: {}
 
   yallist@4.0.0: {}
-
-  yaml@2.9.0: {}

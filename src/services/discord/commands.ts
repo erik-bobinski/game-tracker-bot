@@ -1,31 +1,95 @@
 import { Discord, DiscordREST, Ix } from "dfx";
-import { Effect, SubscriptionRef } from "effect";
+import { Effect, Option, SubscriptionRef } from "effect";
 import type { Account, Database } from "../database/index.ts";
 import type { GameAdapters } from "../game/game-adapters/index.ts";
-import type { GameId, Puuid } from "../game/index.ts";
+import type { GameId } from "../game/index.ts";
 import type { PollingState } from "../polling/state.ts";
+import type { DiscordError } from "./index.ts";
+import { gameNames, rankEmbed, type MatchReport } from "./embed.ts";
+import { devCommands } from "./dev-commands.ts";
 
 export interface CommandDeps {
   readonly database: Database["Service"];
   readonly gameAdapters: GameAdapters["Service"];
   readonly rest: Effect.Success<typeof DiscordREST>;
   readonly pollingState: PollingState["Service"];
+  readonly notifyMatch: (
+    report: MatchReport,
+  ) => Effect.Effect<void, DiscordError>;
 }
 
-const reply = (content: string): Discord.CreateInteractionResponseRequest => ({
+export const reply = (
+  content: string,
+): Discord.CreateInteractionResponseRequest => ({
   type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
   data: { content },
 });
 
 // discord needs <= 3s to respond, the follow-up edits this placeholder
-const deferredReply: Discord.CreateInteractionResponseRequest = {
+export const deferredReply: Discord.CreateInteractionResponseRequest = {
   type: Discord.InteractionCallbackTypes.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
 };
 
-const todo = (name: string) =>
-  Effect.succeed(reply(`\`/${name}\` isn't implemented yet.`));
+// Resolves the riot id against every game and stores the account with its
+// current matches pre-reported, so the first poll doesn't repost old games.
+export const registerAccount = (
+  { database, gameAdapters }: CommandDeps,
+  input: Omit<Account, "games">,
+) =>
+  Effect.gen(function* () {
+    // a riot id may exist in only one game, so each lookup fails on its own
+    const resolved = yield* Effect.forEach(
+      gameAdapters.all,
+      (adapter) =>
+        adapter.resolveAccount(input.riotName, input.riotTag).pipe(
+          Effect.flatMap(({ puuid, region }) =>
+            adapter.getRecentMatches(puuid, region).pipe(
+              // an empty baseline only means old matches get reported once
+              Effect.catchTag("GameApiError", (error) =>
+                Effect.logWarning("baseline match fetch failed", error).pipe(
+                  Effect.as([]),
+                ),
+              ),
+              Effect.map((matches) => ({
+                game: adapter.game,
+                state: {
+                  puuid,
+                  reportedMatches: matches.map((match) => ({
+                    matchId: match.matchId,
+                    date: match.date,
+                  })),
+                  // matches carry the platformId they were played on, which
+                  // covers accounts the region lookup couldn't resolve
+                  region: region ?? matches[0]?.routingRegion,
+                },
+              })),
+            ),
+          ),
+          // a failed lookup is not the same as "no such account", but
+          // both leave this game untracked
+          Effect.catch((error) =>
+            Effect.logWarning("resolveAccount failed", error).pipe(
+              Effect.annotateLogs({ game: adapter.game }),
+              Effect.as(undefined),
+            ),
+          ),
+        ),
+      { concurrency: "unbounded" },
+    );
 
-const signup = ({ database, gameAdapters, rest }: CommandDeps) =>
+    const games: Account["games"] = {};
+    for (const entry of resolved) {
+      if (entry) games[entry.game] = entry.state;
+    }
+
+    // riot id has no puuid in any game
+    if (Object.keys(games).length === 0) return "not-found" as const;
+
+    yield* database.addAccount({ ...input, games });
+    return "ok" as const;
+  });
+
+const signup = (deps: CommandDeps) =>
   Ix.global(
     {
       name: "signup",
@@ -53,7 +117,7 @@ const signup = ({ database, gameAdapters, rest }: CommandDeps) =>
 
         if (!user) return reply("Couldn't tell who ran that command :(");
 
-        const existing = yield* database
+        const existing = yield* deps.database
           .hasAccount(user.id)
           .pipe(
             Effect.catch((error) =>
@@ -68,59 +132,25 @@ const signup = ({ database, gameAdapters, rest }: CommandDeps) =>
         if (existing) return reply("You're already signed up, dummy");
 
         const followUp = (content: string) =>
-          rest.updateOriginalWebhookMessage(
+          deps.rest.updateOriginalWebhookMessage(
             i.interaction.application_id,
             i.interaction.token,
             { payload: { content } },
           );
 
         const register = Effect.gen(function* () {
-          // a riot id may exist in only one game, so each lookup fails on its own
-          const resolved = yield* Effect.forEach(
-            gameAdapters.all,
-            (adapter) =>
-              adapter.resolveAccount(riotName, riotTag).pipe(
-                Effect.map(
-                  (puuid): { game: GameId; puuid: Puuid } | undefined => ({
-                    game: adapter.game,
-                    puuid,
-                  }),
-                ),
-                // a failed lookup is not the same as "no such account", but
-                // both leave this game untracked
-                Effect.catch((error) =>
-                  Effect.logWarning("resolveAccount failed", error).pipe(
-                    Effect.annotateLogs({ game: adapter.game }),
-                    Effect.as(undefined),
-                  ),
-                ),
-              ),
-            { concurrency: "unbounded" },
-          );
-
-          // tracked matches start empty
-          const games: Account["games"] = {};
-          for (const entry of resolved) {
-            if (entry)
-              games[entry.game] = { puuid: entry.puuid, reportedMatches: [] };
-          }
-
-          // discord user has no puuid for any game
-          if (Object.keys(games).length === 0) {
-            return yield* followUp(
-              "Couldn't find recent account data for that Riot ID :(",
-            );
-          }
-
-          yield* database.addAccount({
+          const result = yield* registerAccount(deps, {
             discordUserId: user.id,
             discordName: user.username,
             riotName,
             riotTag,
-            games,
           });
 
-          return yield* followUp(`**${user.username}** just signed up!`);
+          return yield* followUp(
+            result === "ok"
+              ? `**${user.username}** just signed up!`
+              : "Couldn't find recent account data for that Riot ID :(",
+          );
         }).pipe(
           Effect.catch((error) =>
             Effect.logError("signup failed", error).pipe(
@@ -138,14 +168,30 @@ const signup = ({ database, gameAdapters, rest }: CommandDeps) =>
       }),
   );
 
-// TODO: needs Database.deleteAccount.
-const signout = Ix.global(
-  {
-    name: "signout",
-    description: "Stop tracking all your data",
-  },
-  () => todo("signout"),
-);
+const signout = ({ database }: CommandDeps) =>
+  Ix.global(
+    {
+      name: "signout",
+      description: "Stop tracking all your data",
+    },
+    (i) =>
+      Effect.gen(function* () {
+        const user = i.interaction.member?.user ?? i.interaction.user;
+        if (!user) return reply("Couldn't tell who ran that command :(");
+
+        const existing = yield* database.hasAccount(user.id);
+        if (!existing) return reply("You're not signed up.");
+
+        yield* database.deleteAccount(user.id);
+        return reply(`**${user.username}** signed out, all data deleted.`);
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logError("signout failed", error).pipe(
+            Effect.as(reply("Signout failed, try again in a bit :(")),
+          ),
+        ),
+      ),
+  );
 
 const pause = ({ pollingState }: CommandDeps) =>
   Ix.global(
@@ -171,38 +217,114 @@ const resume = ({ pollingState }: CommandDeps) =>
       ),
   );
 
-// TODO: needs a GameAdapter.getRank and the account's stored region.
-const rankCheck = Ix.global(
-  {
-    name: "rank_check",
-    description: "Check a signed-up user's Valorant or League rank",
-    options: [
-      {
-        type: Discord.ApplicationCommandOptionType.USER,
-        name: "user",
-        description: "the discord user to check",
-        required: true,
-      },
-      {
-        type: Discord.ApplicationCommandOptionType.STRING,
-        name: "game",
-        description: "which game's rank to check",
-        required: true,
-        choices: [
-          { name: "val", value: "valorant" },
-          { name: "lol", value: "lol" },
-        ],
-      },
-    ],
-  },
-  () => todo("rank_check"),
-);
+const rankCheck = (deps: CommandDeps) =>
+  Ix.global(
+    {
+      name: "rank_check",
+      description: "Check a signed-up user's Valorant or League rank",
+      options: [
+        {
+          type: Discord.ApplicationCommandOptionType.USER,
+          name: "user",
+          description: "the discord user to check",
+          required: true,
+        },
+        {
+          type: Discord.ApplicationCommandOptionType.STRING,
+          name: "game",
+          description: "which game's rank to check",
+          required: true,
+          choices: [
+            { name: "val", value: "valorant" },
+            { name: "lol", value: "lol" },
+          ],
+        },
+      ],
+    },
+    (i) =>
+      Effect.gen(function* () {
+        const userId = i.optionValue("user");
+        const game = i.optionValue("game") as GameId;
+        // the username rather than a <@id> mention, which would ping them
+        const target = Option.getOrElse(
+          i.resolve("user", (id, data) => data.users?.[id]?.username),
+          () => "That user",
+        );
 
-export const commands = (deps: CommandDeps) =>
-  Ix.builder
+        const account = yield* deps.database.getAccount(userId);
+        const gameState = account?.games[game];
+        if (!account || !gameState) {
+          return reply(`**${target}** isn't signed up for ${gameNames[game]}.`);
+        }
+
+        const adapter = deps.gameAdapters.all.find(
+          (candidate) => candidate.game === game,
+        );
+        if (!adapter) return reply(`${gameNames[game]} isn't supported.`);
+
+        const followUp = (
+          payload: Discord.IncomingWebhookUpdateRequestPartial,
+        ) =>
+          deps.rest.updateOriginalWebhookMessage(
+            i.interaction.application_id,
+            i.interaction.token,
+            { payload },
+          );
+
+        const lookUp = adapter
+          .getRank(gameState.puuid, gameState.region)
+          .pipe(
+            Effect.flatMap((rank) =>
+              rank
+                ? followUp({
+                    embeds: [
+                      rankEmbed({
+                        riotName: account.riotName,
+                        game,
+                        rank,
+                        iconUrl: adapter.rankIcons.find(
+                          (icon) => icon.key === rank.iconKey,
+                        )?.url,
+                      }),
+                    ],
+                  })
+                : followUp({
+                    content: `**${account.riotName}#${account.riotTag}** has no ranked data for ${gameNames[game]}.`,
+                  }),
+            ),
+            Effect.catch((error) =>
+              Effect.logError("rank_check failed", error).pipe(
+                Effect.andThen(
+                  followUp({ content: "Rank lookup failed, try again :(" }),
+                ),
+                Effect.ignore({
+                  log: "Error",
+                  message: "rank_check follow-up failed",
+                }),
+              ),
+            ),
+          );
+
+        yield* Effect.forkDetach(lookUp);
+        return deferredReply;
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logError("rank_check lookup failed", error).pipe(
+            Effect.as(reply("Rank lookup failed, try again :(")),
+          ),
+        ),
+      ),
+  );
+
+export const commands = (deps: CommandDeps, devMode: boolean) => {
+  const base = Ix.builder
     .add(signup(deps))
-    .add(signout)
+    .add(signout(deps))
     .add(pause(deps))
     .add(resume(deps))
-    .add(rankCheck)
-    .catchAllCause(Effect.logError);
+    .add(rankCheck(deps));
+
+  return (devMode ? base.concat(devCommands(deps)) : base).catchAllCause(
+    Effect.logError,
+  );
+};
