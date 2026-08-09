@@ -100,6 +100,14 @@ export const ValMmrResponse = HenrikResponse(
         rr: Schema.Number,
       }),
     ),
+    // oldest act first, so the last entry is the one in progress
+    seasonal: Schema.optionalKey(
+      Schema.NullOr(
+        Schema.Array(
+          Schema.Struct({ wins: Schema.Number, games: Schema.Number }),
+        ),
+      ),
+    ),
   }),
 );
 

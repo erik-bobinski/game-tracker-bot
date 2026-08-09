@@ -133,9 +133,13 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
         if (!rank || rank.tier === "Unrated") return undefined;
 
         const iconKey = rankIconKey(rank.tier);
+        const record =
+          rank.wins !== undefined && rank.losses !== undefined
+            ? ` · ${rank.wins}W ${rank.losses}L`
+            : "";
         return {
           tier: rank.tier,
-          detail: `${rank.rr} RR`,
+          detail: `${rank.rr} RR${record}`,
           ...(iconKey ? { iconKey } : {}),
         } satisfies RankInfo;
       },

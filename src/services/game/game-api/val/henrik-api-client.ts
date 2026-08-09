@@ -13,6 +13,8 @@ import {
 export interface ValRank {
   readonly tier: string;
   readonly rr: number;
+  readonly wins: number | undefined;
+  readonly losses: number | undefined;
 }
 
 export class HenrikApiClient extends Context.Service<
@@ -105,7 +107,15 @@ export const HenrikApiClientLive = Layer.effect(
       const json = yield* res.json;
       const { data } = yield* Schema.decodeUnknownEffect(ValMmrResponse)(json);
       const tier = data.current?.tier?.name;
-      return tier ? { tier, rr: data.current?.rr ?? 0 } : undefined;
+      if (!tier) return undefined;
+
+      const act = data.seasonal?.at(-1);
+      return {
+        tier,
+        rr: data.current?.rr ?? 0,
+        wins: act?.wins,
+        losses: act ? act.games - act.wins : undefined,
+      };
     });
 
     return HenrikApiClient.of({
