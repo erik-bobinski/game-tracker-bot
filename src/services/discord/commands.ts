@@ -271,24 +271,25 @@ const rankCheck = (deps: CommandDeps) =>
         const lookUp = adapter
           .getRank(gameState.puuid, gameState.region)
           .pipe(
-            Effect.flatMap((rank) =>
-              rank
+            Effect.flatMap((rank) => {
+              const icon = adapter.rankIcons.find(
+                (candidate) => candidate.key === rank?.iconKey,
+              );
+              return rank
                 ? followUp({
                     embeds: [
                       rankEmbed({
                         riotName: account.riotName,
                         game,
                         rank,
-                        iconUrl: adapter.rankIcons.find(
-                          (icon) => icon.key === rank.iconKey,
-                        )?.url,
+                        iconUrl: icon?.largeUrl ?? icon?.url,
                       }),
                     ],
                   })
                 : followUp({
                     content: `**${account.riotName}#${account.riotTag}** has no ranked data for ${gameNames[game]}.`,
-                  }),
-            ),
+                  });
+            }),
             Effect.catch((error) =>
               Effect.logError("rank_check failed", error).pipe(
                 Effect.andThen(

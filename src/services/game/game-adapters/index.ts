@@ -50,6 +50,8 @@ export interface GameAdapter {
 export interface RankIcon {
   readonly key: string;
   readonly url: string;
+  // emoji-sized art is too small to fill an embed, which is what centers it
+  readonly largeUrl?: string;
 }
 
 export class GameAdapters extends Context.Service<

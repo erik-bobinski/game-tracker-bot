@@ -73,6 +73,7 @@ const rankIcons = [
     key === "emerald"
       ? new URL("../../../../assets/rank-lol-emerald.png", import.meta.url).href
       : `${STATIC_ASSETS}/images/ranked-mini-crests/${key}.png`,
+  largeUrl: `${STATIC_ASSETS}/ranked-emblem/emblem-${key}.png`,
 }));
 
 export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
