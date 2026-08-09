@@ -68,10 +68,10 @@ const rankIcons = [
 ].map((key) => ({
   key,
   // the winged emblems shrink to an unreadable smudge at emoji size, so use
-  // the mini crests; emerald ships svg-only there and keeps its emblem
+  // the mini crests; emerald ships svg-only there and falls back to its plate
   url:
     key === "emerald"
-      ? `${STATIC_ASSETS}/ranked-emblem/emblem-emerald.png`
+      ? `${STATIC_ASSETS}/ranked-emblem/tier/emerald-plate.png`
       : `${STATIC_ASSETS}/images/ranked-mini-crests/${key}.png`,
 }));
 
