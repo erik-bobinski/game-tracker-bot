@@ -8,7 +8,7 @@ This a repo for a discord bot that reports newly completed matches of video game
 - If a simpler approach exists, say so and push back when warranted
 - If something is unclear stop and ask, don't make many assumptions
 - Goal of project is to create a match reporting discord bot that is game agnostic (extendable other games with minimal code changes)
-- Do not leave excessive code comments, if that's the case the code may need rethinking
+- Default to not leaving code comments, especially ones that expain source code itself
 
 ## Project Structure
 

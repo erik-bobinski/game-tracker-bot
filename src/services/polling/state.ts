@@ -1,4 +1,3 @@
-// Polling state flag
 import { Context, Effect, Layer, Stream, SubscriptionRef } from "effect";
 import { Database } from "../database/index.ts";
 

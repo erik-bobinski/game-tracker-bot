@@ -98,8 +98,6 @@ export const RiotApiLive = Layer.effect(
       },
     );
 
-    // the shard a player is active on (na1, euw1, ...), which league-v4 is
-    // routed by; account-v1 answers this from any cluster
     const getPlatformId = Effect.fn("RiotApi.getPlatformId")(function* (
       puuid: Puuid,
     ) {

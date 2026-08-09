@@ -1,4 +1,3 @@
-// Dev-only commands, registered when DEV_MODE=true (the dev bot instance).
 import { Discord, Ix } from "dfx";
 import { Effect, Schema } from "effect";
 import { LolMatch } from "../game/game-api/lol/match-schema.ts";
@@ -11,11 +10,6 @@ import {
   reply,
   type CommandDeps,
 } from "./commands.ts";
-
-// -----------------------------------------------------------------------------
-// Mock api responses, decoded through the real schemas and adapter mappers.
-// Fresh ids/timestamps each call so repeated reports render as new matches.
-// -----------------------------------------------------------------------------
 
 const lolParticipant = (
   slot: number,
@@ -163,10 +157,6 @@ export const valMockResponse = () => {
     rounds: Array.from({ length: 22 }, () => ({ result: "Elimination" })),
   };
 };
-
-// -----------------------------------------------------------------------------
-// Commands
-// -----------------------------------------------------------------------------
 
 const devClear = ({ database }: CommandDeps) =>
   Ix.global(

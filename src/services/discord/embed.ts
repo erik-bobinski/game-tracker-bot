@@ -62,7 +62,6 @@ export interface RankReport {
   readonly riotName: string;
   readonly game: GameId;
   readonly rank: RankInfo;
-  // the tier emblem, from the adapter's rankIcons
   readonly iconUrl: string | undefined;
 }
 

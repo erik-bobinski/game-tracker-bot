@@ -1,4 +1,3 @@
-// Base game adapter service and contract to fulfill on game's impl
 import { Context, Effect, Layer, Schema } from "effect";
 import type * as HttpClientError from "effect/unstable/http/HttpClientError";
 import {
@@ -25,7 +24,6 @@ export interface GameAdapter {
   readonly rankIcons: ReadonlyArray<RankIcon>;
 
   readonly resolveAccount: (
-    // discord id will come from the discord /signup command
     name: string,
     tag: string,
   ) => Effect.Effect<

@@ -30,8 +30,7 @@ export const deferredReply: Discord.CreateInteractionResponseRequest = {
   type: Discord.InteractionCallbackTypes.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
 };
 
-// Resolves the riot id against every game and stores the account with its
-// current matches pre-reported, so the first poll doesn't repost old games.
+// pre-reports current matches so the first poll doesn't repost old games
 export const registerAccount = (
   { database, gameAdapters }: CommandDeps,
   input: Omit<Account, "games">,
@@ -44,7 +43,6 @@ export const registerAccount = (
         adapter.resolveAccount(input.riotName, input.riotTag).pipe(
           Effect.flatMap(({ puuid, region }) =>
             adapter.getRecentMatches(puuid, region).pipe(
-              // an empty baseline only means old matches get reported once
               Effect.catchTag("GameApiError", (error) =>
                 Effect.logWarning("baseline match fetch failed", error).pipe(
                   Effect.as([]),
@@ -82,7 +80,6 @@ export const registerAccount = (
       if (entry) games[entry.game] = entry.state;
     }
 
-    // riot id has no puuid in any game
     if (Object.keys(games).length === 0) return "not-found" as const;
 
     yield* database.addAccount({ ...input, games });

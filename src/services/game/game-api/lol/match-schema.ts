@@ -1,4 +1,3 @@
-// Raw decode schemas for LoL APIs
 import { Option, Schema, SchemaGetter } from "effect";
 import { EpochMillis, MatchId, Puuid } from "../../index.ts";
 
@@ -18,9 +17,7 @@ const withDefault = <S extends Schema.Top>(schema: S, fallback: S["Type"]) =>
     }),
   );
 
-// -----------------------------------------------------------------------------
 // /lol/match/v5/matches/{matchId}
-// -----------------------------------------------------------------------------
 
 export const LolParticipant = Schema.Struct({
   puuid: Puuid,
@@ -58,7 +55,6 @@ export interface LolMatchInfo extends Schema.Schema.Type<typeof LolMatchInfo> {}
 
 export const LolMatchMetadata = Schema.Struct({
   matchId: MatchId,
-  // puuids of every participant, in team order
   participants: Schema.Array(Puuid),
 });
 export interface LolMatchMetadata extends Schema.Schema.Type<
@@ -71,13 +67,9 @@ export const LolMatch = Schema.Struct({
 });
 export interface LolMatch extends Schema.Schema.Type<typeof LolMatch> {}
 
-// The by-puuid ids endpoint returns a bare JSON array of match ids.
 export const LolMatchIds = Schema.Array(MatchId);
 
-// -----------------------------------------------------------------------------
 // /lol/league/v4/entries/by-puuid/{puuid} — one entry per ranked queue placed in
-// (used for LP-change reporting, fetched separately from the match itself)
-// -----------------------------------------------------------------------------
 
 export const LolLeagueEntry = Schema.Struct({
   // "RANKED_SOLO_5x5" or "RANKED_FLEX_SR"

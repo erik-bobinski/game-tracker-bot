@@ -6,10 +6,6 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 import { GameId, MatchId, Puuid } from "../game/index.ts";
 import { EpochMillis } from "../game/index.ts";
 
-// -----------------------------------------------------------------------------
-// Domain model and service contract
-// -----------------------------------------------------------------------------
-
 const ReportedMatch = Schema.Struct({
   matchId: MatchId,
   date: EpochMillis,
@@ -18,7 +14,6 @@ export interface ReportedMatch extends Schema.Schema.Type<
   typeof ReportedMatch
 > {}
 const REPORTED_MATCH_CAPACITY = 10;
-// maintains a ring buffer of newest N-matches
 function pushReportedMatch(
   existing: ReadonlyArray<ReportedMatch>,
   newMatch: ReportedMatch,
@@ -81,10 +76,6 @@ export class Database extends Context.Service<
   }
 >()("app/Database") {}
 
-// -----------------------------------------------------------------------------
-// Row codecs (persistence boundary)
-// -----------------------------------------------------------------------------
-
 const ReportedMatches = Schema.fromJsonString(Schema.Array(ReportedMatch));
 
 const AccountRow = Schema.Struct({
@@ -103,11 +94,6 @@ const GameRow = Schema.Struct({
   region: Schema.NullOr(Schema.String),
 });
 
-// -----------------------------------------------------------------------------
-// Database implementation
-// -----------------------------------------------------------------------------
-
-// Migrations run once, in order, when the database layer is constructed
 const migrations = SqliteMigrator.fromRecord({
   "1_create_accounts": Effect.gen(function* () {
     const sql = yield* SqlClient;
@@ -139,7 +125,6 @@ const migrations = SqliteMigrator.fromRecord({
   "2_create_settings": Effect.gen(function* () {
     const sql = yield* SqlClient;
 
-    // single row, so the check constraint keeps it that way
     yield* sql`
       CREATE TABLE settings (
         id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -159,8 +144,6 @@ const migrations = SqliteMigrator.fromRecord({
 const makeDatabase = Effect.gen(function* () {
   const sql = yield* SqlClient;
 
-  // addAccount
-  // -----------------------------------------------------------------------------
   const insertAccountRow = SqlSchema.void({
     Request: AccountRow,
     execute: (account) => sql`
@@ -213,8 +196,6 @@ const makeDatabase = Effect.gen(function* () {
     }
   }, sql.withTransaction);
 
-  // getAccounts
-  // -----------------------------------------------------------------------------
   const accountRowsQuery = SqlSchema.findAll({
     Request: Schema.Struct({}),
     Result: AccountRow,
@@ -249,7 +230,6 @@ const makeDatabase = Effect.gen(function* () {
       gameRowsQuery({}),
     ]);
 
-    // {discordUserId: {gameId: {puuid, reportedMatches, region}}}
     const gamesByUser = new Map<string, Partial<Record<GameId, GameState>>>();
 
     for (const row of gameRows) {
@@ -277,8 +257,6 @@ const makeDatabase = Effect.gen(function* () {
     );
   });
 
-  // hasAccount
-  // -----------------------------------------------------------------------------
   const accountExistsQuery = SqlSchema.findAll({
     Request: Schema.Struct({ discordUserId: Schema.String }),
     Result: Schema.Struct({ discordUserId: Schema.String }),
@@ -296,8 +274,6 @@ const makeDatabase = Effect.gen(function* () {
     return rows.length > 0;
   });
 
-  // deleteAccount
-  // -----------------------------------------------------------------------------
   const deleteGameRows = SqlSchema.void({
     Request: Schema.Struct({ discordUserId: Schema.String }),
     execute: ({ discordUserId }) => sql`
@@ -319,8 +295,6 @@ const makeDatabase = Effect.gen(function* () {
     yield* deleteAccountRow({ discordUserId });
   }, sql.withTransaction);
 
-  // clearReportedMatches (dev-only: makes the next poll re-report recent matches)
-  // -----------------------------------------------------------------------------
   const clearReportedMatchesQuery = SqlSchema.void({
     Request: Schema.Struct({}),
     execute: () => sql`UPDATE account_games SET reported_matches = '[]'`,
@@ -332,8 +306,6 @@ const makeDatabase = Effect.gen(function* () {
     },
   );
 
-  // markMatchAsReported
-  // -----------------------------------------------------------------------------
   const reportedMatchesQuery = SqlSchema.findAll({
     Request: Schema.Struct({
       game: GameId,
@@ -382,8 +354,6 @@ const makeDatabase = Effect.gen(function* () {
     sql.withTransaction,
   );
 
-  // polling pause flag
-  // -----------------------------------------------------------------------------
   const settingsQuery = SqlSchema.findAll({
     Request: Schema.Struct({}),
     // sqlite has no boolean type, map the flag from 0 or 1
@@ -424,21 +394,14 @@ const makeDatabase = Effect.gen(function* () {
   });
 });
 
-// -----------------------------------------------------------------------------
-// Live layers
-// -----------------------------------------------------------------------------
-
-// Low-level SQLite connection. Its lifetime is managed by the Effect scope
 export const SqliteLive = SqliteClient.layer({
   filename: process.env.DB_PATH ?? "riot-tracker.sqlite",
 });
 
-// SQLite connection plus pending database migrations
 const DatabaseSchemaLive = SqliteMigrator.layer({
   loader: migrations,
 }).pipe(Layer.provideMerge(SqliteLive));
 
-// Domain database service, backed by the migrated SQLite connection
 export const DatabaseLive = Layer.effect(Database, makeDatabase).pipe(
   Layer.provide(DatabaseSchemaLive),
 );

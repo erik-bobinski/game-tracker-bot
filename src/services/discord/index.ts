@@ -35,14 +35,12 @@ export class DiscordError extends Schema.TaggedError<DiscordError>()(
 export class Discord extends Context.Service<
   Discord,
   {
-    // posts one message for a match, naming every tracked user in it
     readonly notifyMatch: (
       report: MatchReport,
     ) => Effect.Effect<void, DiscordError>;
   }
 >()("app/Discord") {}
 
-// dfx gateway + REST + interaction registry, wired from env config
 const DiscordApiLive = DiscordIxLive.pipe(
   Layer.provide(NodeHttpClient.layerUndici),
   Layer.provide(NodeSocket.layerWebSocketConstructor),
