@@ -1,5 +1,6 @@
 import { Discord, Ix } from "dfx";
 import { Effect, Schema } from "effect";
+import type { MatchDetails } from "../game/index.ts";
 import { LolMatch } from "../game/game-api/lol/match-schema.ts";
 import { ValRawMatch } from "../game/game-api/val/match-schema.ts";
 import { lolMatchToDetails } from "../game/game-adapters/lol.ts";
@@ -70,12 +71,41 @@ export const lolMockResponse = () => {
       gameMode: "CLASSIC",
       gameDuration: durationSeconds,
       gameStartTimestamp: now - durationSeconds * 1_000,
-      queueId: 400,
+      queueId: 420,
       platformId: "NA1",
       participants,
     },
   };
 };
+
+// lol ranks come from a league-v4 call keyed by puuid, which mock players can't
+// satisfy, so stand in for what enrichMatch would have attached
+const lolMockRanks: ReadonlyArray<readonly [tier: string, division: string]> = [
+  ["Challenger", "I"],
+  ["Grandmaster", "I"],
+  ["Master", "I"],
+  ["Diamond", "II"],
+  ["Emerald", "IV"],
+  ["Platinum", "I"],
+  ["Gold", "III"],
+  ["Silver", "II"],
+  ["Bronze", "IV"],
+  ["Iron", "III"],
+];
+
+export const withMockLolRanks = (match: MatchDetails): MatchDetails => ({
+  ...match,
+  players: match.players.map((player, index) => {
+    const entry = lolMockRanks[index % lolMockRanks.length];
+    if (!entry) return player;
+    const [tier, division] = entry;
+    return {
+      ...player,
+      rank: `${tier} ${division}`,
+      rankIconKey: tier.toLowerCase(),
+    };
+  }),
+});
 
 const valAgents = {
   Jett: "add6443a-41bd-e414-f6ad-e58d267f4e95",
@@ -204,8 +234,12 @@ const devReport = (deps: CommandDeps) =>
 
         const match =
           i.optionValue("game") === "lol"
-            ? lolMatchToDetails(
-                yield* Schema.decodeUnknownEffect(LolMatch)(lolMockResponse()),
+            ? withMockLolRanks(
+                lolMatchToDetails(
+                  yield* Schema.decodeUnknownEffect(LolMatch)(
+                    lolMockResponse(),
+                  ),
+                ),
               )
             : valMatchToDetails(
                 yield* Schema.decodeUnknownEffect(ValRawMatch)(
