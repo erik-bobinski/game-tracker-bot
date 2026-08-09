@@ -68,10 +68,10 @@ const rankIcons = [
 ].map((key) => ({
   key,
   // the winged emblems shrink to an unreadable smudge at emoji size, so use
-  // the mini crests; emerald ships svg-only there and falls back to its plate
+  // the mini crests; riot ships emerald's as svg only, so it is rasterized
   url:
     key === "emerald"
-      ? `${STATIC_ASSETS}/ranked-emblem/tier/emerald-plate.png`
+      ? new URL("../../../../assets/rank-lol-emerald.png", import.meta.url).href
       : `${STATIC_ASSETS}/images/ranked-mini-crests/${key}.png`,
 }));
 
