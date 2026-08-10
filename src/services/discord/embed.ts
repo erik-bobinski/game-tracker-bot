@@ -4,12 +4,14 @@ import type {
   MatchDetails,
   MatchPlayer,
   RankInfo,
+  RankUpdate,
 } from "../game/index.ts";
 
 export interface MatchReport {
   readonly discordNames: ReadonlyArray<string>;
   readonly trackedPuuids: ReadonlyArray<string>;
   readonly match: MatchDetails;
+  readonly rankUpdates: ReadonlyMap<string, RankUpdate>;
 }
 
 export type RankEmojis = Readonly<Record<string, string>>;
@@ -37,11 +39,17 @@ const rankEmoji = (player: MatchPlayer, game: GameId, emojis: RankEmojis) => {
   );
 };
 
+export const formatRankUpdate = (update: RankUpdate) =>
+  update.delta !== undefined
+    ? `${update.delta >= 0 ? "+" : ""}${update.delta} ${update.unit}${update.current ? ` (${update.current})` : ""}`
+    : update.current;
+
 const leaderboard = (
   players: ReadonlyArray<MatchPlayer>,
   trackedPuuids: ReadonlySet<string>,
   game: GameId,
   emojis: RankEmojis,
+  rankUpdates: ReadonlyMap<string, RankUpdate>,
 ) =>
   [...players]
     .sort((a, b) => b.sortKey - a.sortKey)
@@ -49,10 +57,17 @@ const leaderboard = (
       const rawName = `${player.riotName}#${player.riotTag}`;
       const name = trackedPuuids.has(player.puuid) ? `**${rawName}**` : rawName;
       const icon = rankEmoji(player, game, emojis);
+      const update = rankUpdates.get(player.puuid);
+      const rankUpdate = update ? formatRankUpdate(update) : undefined;
       const prefix = icon
         ? `${icon}${player.rankDivision ? ` \`${player.rankDivision}\`` : ""} `
         : "";
-      const extras = [player.stat, icon ? undefined : player.rank, player.flair]
+      const extras = [
+        player.stat,
+        rankUpdate,
+        icon ? undefined : player.rank,
+        player.flair,
+      ]
         .filter((value): value is string => Boolean(value))
         .map((value) => ` · ${value}`)
         .join("");
@@ -117,7 +132,13 @@ export const matchEmbed = (
       "",
       teams
         .map((players) =>
-          leaderboard(players, trackedPuuids, report.match.game, rankEmojis),
+          leaderboard(
+            players,
+            trackedPuuids,
+            report.match.game,
+            rankEmojis,
+            report.rankUpdates,
+          ),
         )
         .join("\n\n"),
     ].join("\n"),

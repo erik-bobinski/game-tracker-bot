@@ -8,6 +8,7 @@ import {
   type MatchTeam,
   type Puuid,
   type RankInfo,
+  type RankUpdate,
   type Region,
 } from "../index.ts";
 import {
@@ -125,7 +126,48 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
       ),
     ),
     enrichMatch: Effect.fn("GameAdapter.valorant.enrichMatch")(
-      (match: MatchDetails) => Effect.succeed(match),
+      function* ({ match, trackedPlayers }) {
+        const rankUpdates = new Map<Puuid, RankUpdate>();
+        if (match.mode !== "Competitive") {
+          return { match, rankUpdates, rankSnapshots: new Map() };
+        }
+
+        yield* Effect.forEach(
+          trackedPlayers,
+          ({ puuid, region }) =>
+            henrikClient.getMmrHistory(puuid, region).pipe(
+              Effect.map((history) => {
+                const entry = history.find(
+                  (candidate) =>
+                    candidate.matchId.toLowerCase() ===
+                    match.matchId.toLowerCase(),
+                );
+                if (entry)
+                  rankUpdates.set(puuid, {
+                    delta: entry.delta,
+                    current: entry.current,
+                    unit: "RR",
+                  });
+              }),
+              Effect.catch((error) =>
+                Effect.logWarning("valorant RR unavailable", error).pipe(
+                  Effect.annotateLogs({ puuid, matchId: match.matchId }),
+                ),
+              ),
+            ),
+          { concurrency: 3 },
+        );
+
+        return { match, rankUpdates, rankSnapshots: new Map() };
+      },
+      Effect.mapError(
+        (cause) =>
+          new GameApiError({
+            game: "valorant",
+            operation: "enrichMatch",
+            cause,
+          }),
+      ),
     ),
     getRank: Effect.fn("GameAdapter.valorant.getRank")(
       function* (puuid: Puuid, region: Region | undefined) {

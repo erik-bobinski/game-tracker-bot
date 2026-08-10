@@ -1,6 +1,11 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { Database } from "../database/index.ts";
-import { type MatchDetails } from "../game/index.ts";
+import {
+  type MatchDetails,
+  type Puuid,
+  type RankSnapshot,
+  type RankUpdate,
+} from "../game/index.ts";
 import { Discord, type DiscordError } from "../discord/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import { GameId, MatchId } from "../game/index.ts";
@@ -20,7 +25,7 @@ interface PendingMatch {
   readonly match: MatchDetails;
   readonly discordNames: Array<string>;
   readonly discordUserIds: Array<string>;
-  readonly trackedPuuids: Array<string>;
+  readonly trackedPuuids: Array<Puuid>;
 }
 
 const makeMatchEngine = Effect.gen(function* () {
@@ -30,6 +35,20 @@ const makeMatchEngine = Effect.gen(function* () {
 
   const pollOnce = Effect.gen(function* () {
     const accounts = yield* database.getAccounts();
+    const liveRankSnapshots = new Map(
+      accounts.flatMap((account) =>
+        Object.entries(account.games).flatMap(([game, state]) =>
+          state
+            ? [
+                [
+                  `${account.discordUserId}:${game}`,
+                  state.rankSnapshots,
+                ] as const,
+              ]
+            : [],
+        ),
+      ),
+    );
 
     const matchesToReport = new Map<GameId, Map<MatchId, PendingMatch>>();
 
@@ -97,31 +116,90 @@ const makeMatchEngine = Effect.gen(function* () {
       const adapter = gameAdapters.all.find(
         (candidate) => candidate.game === match.game,
       );
-      const enrichedMatch = adapter
+      const enrichment = adapter
         ? yield* adapter
-            .enrichMatch(match)
+            .enrichMatch({
+              match,
+              trackedPlayers: trackedPuuids.flatMap((puuid, index) => {
+                const account = accounts.find(
+                  (candidate) =>
+                    candidate.discordUserId === discordUserIds[index],
+                );
+                const state = account?.games[match.game];
+                return state
+                  ? [
+                      {
+                        puuid: state.puuid,
+                        region: state.region,
+                        rankSnapshots:
+                          liveRankSnapshots.get(
+                            `${account.discordUserId}:${match.game}`,
+                          ) ?? {},
+                      },
+                    ]
+                  : [];
+              }),
+            })
             .pipe(
               Effect.catchTag("GameApiError", (error) =>
                 Effect.logWarning(
                   "sending match report without optional enrichment",
                   error,
-                ).pipe(Effect.as(match)),
+                ).pipe(
+                  Effect.as({
+                    match,
+                    rankUpdates: new Map<string, RankUpdate>(),
+                    rankSnapshots: new Map<
+                      string,
+                      Readonly<Record<string, RankSnapshot>>
+                    >(),
+                  }),
+                ),
               ),
             )
-        : match;
+        : {
+            match,
+            rankUpdates: new Map<string, RankUpdate>(),
+            rankSnapshots: new Map<
+              string,
+              Readonly<Record<string, RankSnapshot>>
+            >(),
+          };
       yield* discord.notifyMatch({
         discordNames,
         trackedPuuids,
-        match: enrichedMatch,
+        match: enrichment.match,
+        rankUpdates: enrichment.rankUpdates,
       });
+      const rankSnapshotsByDiscordUserId = Object.fromEntries(
+        trackedPuuids.flatMap((puuid, index) => {
+          const snapshots = enrichment.rankSnapshots.get(puuid);
+          const discordUserId = discordUserIds[index];
+          return snapshots && discordUserId
+            ? [[discordUserId, snapshots] as const]
+            : [];
+        }),
+      );
       yield* database.markMatchAsReported({
         discordUserIds,
-        game: enrichedMatch.game,
+        game: enrichment.match.game,
         match: {
-          matchId: enrichedMatch.matchId,
-          date: enrichedMatch.date,
+          matchId: enrichment.match.matchId,
+          date: enrichment.match.date,
         },
+        rankSnapshotsByDiscordUserId,
       });
+      // league-v4 exposes only the current standing. Advancing the in-poll
+      // snapshot makes the oldest queued report absorb the combined change and
+      // later reports show zero, matching the bot's documented legacy behavior.
+      for (const [discordUserId, snapshots] of Object.entries(
+        rankSnapshotsByDiscordUserId,
+      )) {
+        liveRankSnapshots.set(
+          `${discordUserId}:${enrichment.match.game}`,
+          snapshots,
+        );
+      }
     }
   });
 

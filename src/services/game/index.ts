@@ -59,6 +59,18 @@ export interface RankInfo {
   readonly iconKey?: string;
 }
 
+export interface RankUpdate {
+  readonly delta?: number;
+  readonly current?: string;
+  readonly unit: string;
+}
+
+export interface RankSnapshot {
+  readonly tier: string;
+  readonly division: string;
+  readonly points: number;
+}
+
 export const Puuid = Schema.String.pipe(Schema.brand("Puuid"));
 export type Puuid = typeof Puuid.Type;
 

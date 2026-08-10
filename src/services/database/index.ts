@@ -4,7 +4,7 @@ import { SqlSchema } from "effect/unstable/sql";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { existsSync, readFileSync, renameSync } from "node:fs";
-import { GameId, MatchId, Puuid } from "../game/index.ts";
+import { GameId, MatchId, Puuid, type RankSnapshot } from "../game/index.ts";
 import { EpochMillis } from "../game/index.ts";
 
 const ReportedMatch = Schema.Struct({
@@ -29,6 +29,7 @@ export interface GameState {
   readonly reportedMatches: ReadonlyArray<ReportedMatch>;
   // riot platformId for lol ("na1"), henrik region for val ("na")
   readonly region: string | undefined;
+  readonly rankSnapshots: Readonly<Record<string, RankSnapshot>>;
 }
 
 export interface Account {
@@ -66,6 +67,9 @@ export class Database extends Context.Service<
       readonly discordUserIds: ReadonlyArray<string>;
       readonly game: GameId;
       readonly match: ReportedMatch;
+      readonly rankSnapshotsByDiscordUserId?: Readonly<
+        Record<string, Readonly<Record<string, RankSnapshot>>>
+      >;
     }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
     readonly getPollingPaused: () => Effect.Effect<
       boolean,
@@ -78,6 +82,16 @@ export class Database extends Context.Service<
 >()("app/Database") {}
 
 const ReportedMatches = Schema.fromJsonString(Schema.Array(ReportedMatch));
+const RankSnapshots = Schema.fromJsonString(
+  Schema.Record(
+    Schema.String,
+    Schema.Struct({
+      tier: Schema.String,
+      division: Schema.String,
+      points: Schema.Number,
+    }),
+  ),
+);
 
 const AccountRow = Schema.Struct({
   discordUserId: Schema.String,
@@ -93,6 +107,7 @@ const GameRow = Schema.Struct({
   reportedMatches: ReportedMatches,
   // null for accounts signed up before the region column existed
   region: Schema.NullOr(Schema.String),
+  rankSnapshots: RankSnapshots,
 });
 
 const LegacyAccount = Schema.Struct({
@@ -178,6 +193,10 @@ const migrations = SqliteMigrator.fromRecord({
     const sql = yield* SqlClient;
     yield* sql`ALTER TABLE account_games ADD COLUMN region TEXT`;
   }),
+  "4_add_rank_snapshots": Effect.gen(function* () {
+    const sql = yield* SqlClient;
+    yield* sql`ALTER TABLE account_games ADD COLUMN rank_snapshots TEXT NOT NULL DEFAULT '{}'`;
+  }),
 });
 
 const makeDatabase = Effect.gen(function* () {
@@ -188,6 +207,9 @@ const makeDatabase = Effect.gen(function* () {
   `;
   if (!accountGameColumns.some((column) => column.name === "region")) {
     yield* sql`ALTER TABLE account_games ADD COLUMN region TEXT`;
+  }
+  if (!accountGameColumns.some((column) => column.name === "rank_snapshots")) {
+    yield* sql`ALTER TABLE account_games ADD COLUMN rank_snapshots TEXT NOT NULL DEFAULT '{}'`;
   }
 
   const legacyPath = yield* Config.string("LEGACY_DB_PATH").pipe(
@@ -277,13 +299,15 @@ const makeDatabase = Effect.gen(function* () {
         game,
         puuid,
         reported_matches,
-        region
+        region,
+        rank_snapshots
       ) VALUES (
         ${row.discordUserId},
         ${row.game},
         ${row.puuid},
         ${row.reportedMatches},
-        ${row.region}
+        ${row.region},
+        ${row.rankSnapshots}
       )
     `,
   });
@@ -300,6 +324,7 @@ const makeDatabase = Effect.gen(function* () {
         puuid: state.puuid,
         reportedMatches: state.reportedMatches,
         region: state.region ?? null,
+        rankSnapshots: state.rankSnapshots,
       });
     }
   }, sql.withTransaction);
@@ -327,7 +352,8 @@ const makeDatabase = Effect.gen(function* () {
         game,
         puuid,
         reported_matches AS "reportedMatches",
-        region
+        region,
+        rank_snapshots AS "rankSnapshots"
       FROM account_games
     `,
   });
@@ -346,6 +372,7 @@ const makeDatabase = Effect.gen(function* () {
         puuid: row.puuid,
         reportedMatches: row.reportedMatches,
         region: row.region ?? undefined,
+        rankSnapshots: row.rankSnapshots,
       };
       gamesByUser.set(row.discordUserId, games);
     }
@@ -420,10 +447,12 @@ const makeDatabase = Effect.gen(function* () {
     Result: Schema.Struct({
       discordUserId: Schema.String,
       reportedMatches: ReportedMatches,
+      rankSnapshots: RankSnapshots,
     }),
     execute: ({ game, discordUserIds }) => sql`
     SELECT discord_user_id AS "discordUserId",
-           reported_matches AS "reportedMatches"
+           reported_matches AS "reportedMatches",
+           rank_snapshots AS "rankSnapshots"
     FROM account_games
     WHERE game = ${game} AND ${sql.in("discord_user_id", discordUserIds)}
   `,
@@ -434,10 +463,12 @@ const makeDatabase = Effect.gen(function* () {
       discordUserId: Schema.String,
       game: GameId,
       reportedMatches: ReportedMatches,
+      rankSnapshots: RankSnapshots,
     }),
     execute: (row) => sql`
     UPDATE account_games
-    SET reported_matches = ${row.reportedMatches}
+    SET reported_matches = ${row.reportedMatches},
+        rank_snapshots = ${row.rankSnapshots}
     WHERE discord_user_id = ${row.discordUserId} AND game = ${row.game}
   `,
   });
@@ -447,6 +478,9 @@ const makeDatabase = Effect.gen(function* () {
       readonly discordUserIds: ReadonlyArray<string>;
       readonly game: GameId;
       readonly match: ReportedMatch;
+      readonly rankSnapshotsByDiscordUserId?: Readonly<
+        Record<string, Readonly<Record<string, RankSnapshot>>>
+      >;
     }) {
       const rows = yield* reportedMatchesQuery(input);
       for (const row of rows) {
@@ -454,6 +488,9 @@ const makeDatabase = Effect.gen(function* () {
           discordUserId: row.discordUserId,
           game: input.game,
           reportedMatches: pushReportedMatch(row.reportedMatches, input.match),
+          rankSnapshots:
+            input.rankSnapshotsByDiscordUserId?.[row.discordUserId] ??
+            row.rankSnapshots,
         });
       }
     },

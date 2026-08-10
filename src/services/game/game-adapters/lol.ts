@@ -7,12 +7,11 @@ import type {
   MatchTeam,
   Puuid,
   RankInfo,
+  RankSnapshot,
+  RankUpdate,
   Region,
 } from "../index.ts";
-import type {
-  LolLeagueEntry,
-  LolMatch,
-} from "../game-api/lol/match-schema.ts";
+import type { LolLeagueEntry, LolMatch } from "../game-api/lol/match-schema.ts";
 
 const queue = (queueId: number, gameMode: string) =>
   new Map<number, string>([
@@ -44,7 +43,23 @@ const lolRank = (entry: LolLeagueEntry) => {
   return {
     iconKey,
     division,
-    label: division ? `${titleCase(entry.tier)} ${division}` : titleCase(entry.tier),
+    label: division
+      ? `${titleCase(entry.tier)} ${division}`
+      : titleCase(entry.tier),
+  };
+};
+
+export const lolRankUpdate = (
+  entry: LolLeagueEntry,
+  previous: RankSnapshot | undefined,
+): RankUpdate => {
+  const { label } = lolRank(entry);
+  const comparable =
+    previous?.tier === entry.tier && previous.division === entry.rank;
+  return {
+    ...(comparable ? { delta: entry.leaguePoints - previous.points } : {}),
+    current: comparable ? label : `${label} · ${entry.leaguePoints} LP`,
+    unit: "LP",
   };
 };
 
@@ -169,21 +184,37 @@ export const makeLolGameAdapter = Effect.gen(function* () {
       ),
     ),
     enrichMatch: Effect.fn("GameAdapter.lol.enrichMatch")(
-      function* (match: MatchDetails) {
+      function* ({ match, trackedPlayers }) {
         const queueType =
           match.mode === "Ranked Solo/Duo"
             ? "RANKED_SOLO_5x5"
             : match.mode === "Ranked Flex"
               ? "RANKED_FLEX_SR"
               : undefined;
-        if (!queueType) return match;
+        if (!queueType)
+          return {
+            match,
+            rankUpdates: new Map<Puuid, RankUpdate>(),
+            rankSnapshots: new Map<
+              Puuid,
+              Readonly<Record<string, RankSnapshot>>
+            >(),
+          };
 
         const platformId = match.routingRegion;
-        if (!platformId) return match;
+        if (!platformId)
+          return {
+            match,
+            rankUpdates: new Map<Puuid, RankUpdate>(),
+            rankSnapshots: new Map<
+              Puuid,
+              Readonly<Record<string, RankSnapshot>>
+            >(),
+          };
 
         const ranks = new Map<Puuid, LolLeagueEntry>();
         yield* Effect.forEach(
-          match.players,
+          trackedPlayers,
           (player) =>
             riotClient.getLeagueEntries(player.puuid, platformId).pipe(
               Effect.map((entries) => {
@@ -201,19 +232,45 @@ export const makeLolGameAdapter = Effect.gen(function* () {
           { concurrency: 3 },
         );
 
+        const rankUpdates = new Map<Puuid, RankUpdate>();
+        const rankSnapshots = new Map<
+          Puuid,
+          Readonly<Record<string, RankSnapshot>>
+        >();
+        for (const tracked of trackedPlayers) {
+          const entry = ranks.get(tracked.puuid);
+          if (!entry) continue;
+          rankUpdates.set(
+            tracked.puuid,
+            lolRankUpdate(entry, tracked.rankSnapshots[queueType]),
+          );
+          rankSnapshots.set(tracked.puuid, {
+            ...tracked.rankSnapshots,
+            [queueType]: {
+              tier: entry.tier,
+              division: entry.rank,
+              points: entry.leaguePoints,
+            },
+          });
+        }
+
         return {
-          ...match,
-          players: match.players.map((player) => {
-            const entry = ranks.get(player.puuid);
-            if (!entry) return player;
-            const { iconKey, division, label } = lolRank(entry);
-            return {
-              ...player,
-              rank: label,
-              rankIconKey: iconKey,
-              ...(division ? { rankDivision: division } : {}),
-            };
-          }),
+          match: {
+            ...match,
+            players: match.players.map((player) => {
+              const entry = ranks.get(player.puuid);
+              if (!entry) return player;
+              const { iconKey, division, label } = lolRank(entry);
+              return {
+                ...player,
+                rank: label,
+                rankIconKey: iconKey,
+                ...(division ? { rankDivision: division } : {}),
+              };
+            }),
+          },
+          rankUpdates,
+          rankSnapshots,
         };
       },
       Effect.mapError(

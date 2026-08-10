@@ -6,6 +6,7 @@ import { Puuid, type ResolvedAccount } from "../../index.ts";
 import {
   ValAccountResponse,
   ValMatchesResponse,
+  ValMmrHistoryResponse,
   ValMmrResponse,
   type ValRawMatch,
 } from "./match-schema.ts";
@@ -15,6 +16,12 @@ export interface ValRank {
   readonly rr: number;
   readonly wins: number | undefined;
   readonly losses: number | undefined;
+}
+
+export interface ValMmrHistoryEntry {
+  readonly matchId: string;
+  readonly delta: number;
+  readonly current: string;
 }
 
 export class HenrikApiClient extends Context.Service<
@@ -40,6 +47,13 @@ export class HenrikApiClient extends Context.Service<
       region: string | undefined,
     ) => Effect.Effect<
       ValRank | undefined,
+      HttpClientError.HttpClientError | Schema.SchemaError
+    >;
+    getMmrHistory: (
+      puuid: Puuid,
+      region: string | undefined,
+    ) => Effect.Effect<
+      ReadonlyArray<ValMmrHistoryEntry>,
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
   }
@@ -75,9 +89,8 @@ export const HenrikApiClientLive = Layer.effect(
           `/valorant/v2/account/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`,
         );
         const json = yield* res.json;
-        const { data } = yield* Schema.decodeUnknownEffect(ValAccountResponse)(
-          json,
-        );
+        const { data } =
+          yield* Schema.decodeUnknownEffect(ValAccountResponse)(json);
         return { puuid: data.puuid, region: data.region.toLowerCase() };
       },
     );
@@ -118,10 +131,29 @@ export const HenrikApiClientLive = Layer.effect(
       };
     });
 
+    const getMmrHistory = Effect.fn("HenrikApiClient.getMmrHistory")(function* (
+      puuid: Puuid,
+      region: string | undefined,
+    ) {
+      const res = yield* client.get(
+        `/valorant/v1/by-puuid/mmr-history/${region ?? defaultRegion}/${encodeURIComponent(puuid)}`,
+      );
+      const json = yield* res.json;
+      const { data } = yield* Schema.decodeUnknownEffect(ValMmrHistoryResponse)(
+        json,
+      );
+      return data.map((entry) => ({
+        matchId: entry.match_id,
+        delta: entry.mmr_change_to_last_game,
+        current: entry.currenttierpatched,
+      }));
+    });
+
     return HenrikApiClient.of({
       getAccountByRiotId,
       getRecentMatches,
       getRank,
+      getMmrHistory,
     });
   }),
 );

@@ -85,6 +85,16 @@ export const ValMatchesResponse = HenrikResponse(
   Schema.Array(LenientValRawMatch),
 );
 
+export const ValMmrHistoryResponse = HenrikResponse(
+  Schema.Array(
+    Schema.Struct({
+      match_id: MatchId,
+      mmr_change_to_last_game: Schema.Number,
+      currenttierpatched: Schema.String,
+    }),
+  ),
+);
+
 // /valorant/v3/by-puuid/mmr/{region}/{platform}/{puuid} — only the current
 // standing is decoded; an unrated account sends nulls rather than omitting them
 export const ValMmrResponse = HenrikResponse(
