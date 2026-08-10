@@ -4,10 +4,10 @@ import {
   Context,
   Effect,
   Layer,
+  Ref,
   Schema,
   Stream,
   SubscriptionRef,
-  Ref,
 } from "effect";
 import {
   Discord as DiscordApi,
@@ -96,6 +96,22 @@ const makeDiscord = Effect.gen(function* () {
   yield* Effect.logInfo("slash commands registered").pipe(
     Effect.annotateLogs({ devMode }),
   );
+  yield* gateway
+    .handleDispatch("INTERACTION_CREATE", (interaction) => {
+      if (!interaction.data || !("name" in interaction.data)) {
+        return Effect.void;
+      }
+      const user =
+        ("member" in interaction ? interaction.member?.user : undefined) ??
+        ("user" in interaction ? interaction.user : undefined);
+      return Effect.logInfo("slash command invoked").pipe(
+        Effect.annotateLogs({
+          command: interaction.data.name,
+          discordUser: user ? `${user.username} (${user.id})` : "unknown",
+        }),
+      );
+    })
+    .pipe(Effect.forkScoped);
 
   const setPresence = (paused: boolean) =>
     gateway.send(

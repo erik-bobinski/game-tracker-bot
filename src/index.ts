@@ -9,13 +9,13 @@ import { RiotApiLive } from "./services/game/game-api/lol/riot-api-client.ts";
 import { HenrikApiClientLive } from "./services/game/game-api/val/henrik-api-client.ts";
 import { MatchEngineLive } from "./services/match-engine/index.ts";
 
+const runtimeConfig = Config.all({
+  devMode: Config.boolean("DEV_MODE").pipe(Config.withDefault(false)),
+  logLevel: Config.logLevel("LOG_LEVEL").pipe(Config.withDefault("Info")),
+});
+
 const main = Effect.gen(function* () {
-  const devMode = yield* Config.boolean("DEV_MODE").pipe(
-    Config.withDefault(false),
-  );
-  const logLevel = yield* Config.logLevel("LOG_LEVEL").pipe(
-    Config.withDefault("Info"),
-  );
+  const { devMode, logLevel } = yield* runtimeConfig;
   const polling = yield* Polling;
 
   yield* Effect.logInfo("application started").pipe(
@@ -44,12 +44,7 @@ const AppLive = PollingLive.pipe(
 
 const LoggerLive = Layer.unwrap(
   Effect.gen(function* () {
-    const devMode = yield* Config.boolean("DEV_MODE").pipe(
-      Config.withDefault(false),
-    );
-    const logLevel = yield* Config.logLevel("LOG_LEVEL").pipe(
-      Config.withDefault("Info"),
-    );
+    const { devMode, logLevel } = yield* runtimeConfig;
 
     return Layer.mergeAll(
       Logger.layer([

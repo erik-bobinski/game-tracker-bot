@@ -7,7 +7,6 @@ import { lolMatchToDetails } from "../game/game-adapters/lol.ts";
 import { valMatchToDetails } from "../game/game-adapters/valorant.ts";
 import {
   deferredReply,
-  logCommandInvocation,
   registerAccount,
   reply,
   type CommandDeps,
@@ -195,14 +194,13 @@ const devClear = ({ database }: CommandDeps) =>
       description:
         "[dev] Forget reported matches so the next poll re-reports them",
     },
-    (i) =>
-      Effect.gen(function* () {
-        yield* logCommandInvocation("dev_clear", i.interaction);
-        yield* database.clearReportedMatches();
-        return reply(
-          "Cleared reported matches; the next poll re-reports everyone's recent matches.",
-        );
-      }).pipe(
+    () =>
+      database.clearReportedMatches().pipe(
+        Effect.as(
+          reply(
+            "Cleared reported matches; the next poll re-reports everyone's recent matches.",
+          ),
+        ),
         Effect.catch((error) =>
           Effect.logError("dev_clear failed", error).pipe(
             Effect.as(reply("Clear failed, check the logs.")),
@@ -231,7 +229,6 @@ const devReport = (deps: CommandDeps) =>
     },
     (i) =>
       Effect.gen(function* () {
-        yield* logCommandInvocation("dev_report", i.interaction);
         const user = i.interaction.member?.user ?? i.interaction.user;
 
         const match =
@@ -291,7 +288,6 @@ const devSignup = (deps: CommandDeps) =>
     },
     (i) =>
       Effect.gen(function* () {
-        yield* logCommandInvocation("dev_signup", i.interaction);
         const riotName = i.optionValue("riot_name");
         const riotTag = i.optionValue("riot_tag");
         // never sent to discord, only a database key
