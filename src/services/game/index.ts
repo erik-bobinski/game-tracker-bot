@@ -21,7 +21,6 @@ export interface MatchPlayer {
   readonly rankIconKey?: string;
   readonly rankDivision?: string;
   readonly flair?: string;
-  readonly thumbnailUrl?: string;
 }
 
 export interface MatchTeam {
