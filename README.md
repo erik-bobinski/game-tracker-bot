@@ -44,11 +44,22 @@ ones already reported, and collapses matches shared by multiple users into a
 single entry. Then it enriches each match (rank lookups), posts it, and records
 it as reported.
 
-**Adding a game** means implementing `GameAdapter` in `src/services/game/game-adapters/`:
-resolve a Riot ID to an account, fetch recent matches, optionally enrich them,
-and fetch a rank. The adapter maps that game's API shape into the shared
-`MatchDetails` type, and everything downstream — dedupe, embeds, storage — works
-unchanged.
+### Adding a game
+
+1. Add the game ID to `GameId` in `src/services/game/index.ts` and its display
+   name to `gameNames` in `src/services/discord/embed.ts`.
+2. Add an API client and decode schemas under `src/services/game/game-api/`.
+3. Implement `GameAdapter` in `src/services/game/game-adapters/`: resolve an
+   account, fetch recent matches, map them to `MatchDetails`, optionally enrich
+   them, and fetch rank data.
+4. Register the adapter in `GameAdaptersLive` and provide its API-client layer
+   from `src/index.ts`.
+5. Add the game to the `/rank_check` choices and development report mocks, then
+   run `pnpm typecheck` and test `/dev_report`.
+
+Keep game-specific API shapes inside the client and adapter. Once they produce
+the shared types, polling, deduplication, storage, and Discord reporting should
+not need game-specific branches.
 
 **Failures degrade rather than crash.** One undecodable match is skipped, not
 fatal. A failed rank lookup drops the icon but still posts the report. A failed
