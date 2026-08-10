@@ -107,8 +107,6 @@ export const matchEmbed = (
     `${formatDuration(report.match.durationSeconds)}${report.match.surrendered ? " (surrender)" : ""}`,
     trackedTeam?.score?.join("–"),
   ].filter((value): value is string => Boolean(value));
-  const thumbnail = trackedPlayer?.thumbnailUrl;
-
   return {
     title: `${verdict} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
     description: [
@@ -122,6 +120,5 @@ export const matchEmbed = (
         .join("\n\n"),
     ].join("\n"),
     color,
-    ...(thumbnail ? { thumbnail: { url: thumbnail } } : {}),
   };
 };
