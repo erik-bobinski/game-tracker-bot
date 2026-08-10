@@ -18,6 +18,11 @@ export interface CommandDeps {
   ) => Effect.Effect<void, DiscordError>;
 }
 
+export type AccountCommandDeps = Pick<
+  CommandDeps,
+  "database" | "gameAdapters"
+>;
+
 export const reply = (
   content: string,
 ): Discord.CreateInteractionResponseRequest => ({
@@ -32,7 +37,7 @@ export const deferredReply: Discord.CreateInteractionResponseRequest = {
 
 // pre-reports current matches so the first poll doesn't repost old games
 export const registerAccount = (
-  { database, gameAdapters }: CommandDeps,
+  { database, gameAdapters }: AccountCommandDeps,
   input: Omit<Account, "games">,
 ) =>
   Effect.gen(function* () {

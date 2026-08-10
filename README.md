@@ -114,3 +114,20 @@ in the test server.
 pnpm dev          # loads .env
 pnpm typecheck
 ```
+
+## Production admin CLI
+
+The running bot exposes a private Unix socket for the core administrative
+operations. Run commands inside the production container:
+
+```sh
+pnpm admin -- status
+pnpm admin -- pause
+pnpm admin -- resume
+pnpm admin -- signout 502202450183454721
+pnpm admin -- rank-check 502202450183454721 valorant
+pnpm admin -- signup 502202450183454721 syanx_ syan 7571
+```
+
+Add `--json` for machine-readable output. The socket defaults to
+`/tmp/riot-tracker-bot-admin.sock` and is created with mode `0600`.

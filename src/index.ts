@@ -8,9 +8,13 @@ import { GameAdaptersLive } from "./services/game/game-adapters/index.ts";
 import { RiotApiLive } from "./services/game/game-api/lol/riot-api-client.ts";
 import { HenrikApiClientLive } from "./services/game/game-api/val/henrik-api-client.ts";
 import { MatchEngineLive } from "./services/match-engine/index.ts";
+import { isAdminCli, runAdminCli } from "./admin-cli.ts";
+import { AdminLive } from "./services/admin/index.ts";
+import { serveAdmin } from "./services/admin/socket.ts";
 
 const main = Effect.gen(function* () {
   const polling = yield* Polling;
+  yield* serveAdmin().pipe(Effect.flatMap(Effect.forkScoped));
   yield* Effect.forkScoped(polling.run);
 
   // Keep the parent scope alive for both the gateway and polling fiber.
@@ -26,7 +30,8 @@ const GameLive = GameAdaptersLive.pipe(Layer.provide(ApiClientsLive));
 
 const StateLive = PollingStateLive.pipe(Layer.provideMerge(DatabaseLive));
 
-const AppLive = PollingLive.pipe(
+const AppLive = AdminLive.pipe(
+  Layer.provideMerge(PollingLive),
   Layer.provide(MatchEngineLive),
   Layer.provide(DiscordLive),
   Layer.provide(Layer.mergeAll(StateLive, GameLive)),
@@ -40,4 +45,5 @@ const runner = main.pipe(
   Effect.scoped,
 );
 
-NodeRuntime.runMain(runner);
+if (isAdminCli) runAdminCli();
+else NodeRuntime.runMain(runner);
