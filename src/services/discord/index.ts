@@ -4,6 +4,7 @@ import {
   Context,
   Effect,
   Layer,
+  Ref,
   Schema,
   Stream,
   SubscriptionRef,
@@ -92,6 +93,25 @@ const makeDiscord = Effect.gen(function* () {
       devMode,
     ),
   );
+  yield* Effect.logInfo("slash commands registered").pipe(
+    Effect.annotateLogs({ devMode }),
+  );
+  yield* gateway
+    .handleDispatch("INTERACTION_CREATE", (interaction) => {
+      if (!interaction.data || !("name" in interaction.data)) {
+        return Effect.void;
+      }
+      const user =
+        ("member" in interaction ? interaction.member?.user : undefined) ??
+        ("user" in interaction ? interaction.user : undefined);
+      return Effect.logInfo("slash command invoked").pipe(
+        Effect.annotateLogs({
+          command: interaction.data.name,
+          discordUser: user ? `${user.username} (${user.id})` : "unknown",
+        }),
+      );
+    })
+    .pipe(Effect.forkScoped);
 
   const setPresence = (paused: boolean) =>
     gateway.send(
@@ -112,11 +132,16 @@ const makeDiscord = Effect.gen(function* () {
   );
 
   // presence is per-connection state that discord drops on reconnect
+  const gatewayReady = yield* Ref.make(false);
   yield* gateway
     .handleDispatch("READY", () =>
-      SubscriptionRef.get(pollingState.paused).pipe(
-        Effect.flatMap(setPresence),
-      ),
+      Effect.gen(function* () {
+        const reconnected = yield* Ref.getAndSet(gatewayReady, true);
+        yield* Effect.logInfo(
+          reconnected ? "discord gateway reconnected" : "discord gateway ready",
+        );
+        yield* setPresence(yield* SubscriptionRef.get(pollingState.paused));
+      }),
     )
     .pipe(Effect.forkScoped);
 
