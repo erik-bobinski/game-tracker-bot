@@ -1,4 +1,5 @@
 import type { Discord } from "dfx";
+import { gameNames } from "../game/index.ts";
 import type {
   GameId,
   MatchDetails,
@@ -13,11 +14,6 @@ export interface MatchReport {
 }
 
 export type RankEmojis = Readonly<Record<string, string>>;
-
-export const gameNames: Record<GameId, string> = {
-  lol: "League of Legends",
-  valorant: "Valorant",
-};
 
 const nameList = (names: ReadonlyArray<string>) => {
   const bolded = names.map((name) => `**${name}**`);

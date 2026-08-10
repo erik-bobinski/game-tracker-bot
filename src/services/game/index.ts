@@ -3,6 +3,12 @@ import { Schema } from "effect";
 export const GameId = Schema.Literals(["lol", "valorant"]);
 export type GameId = typeof GameId.Type;
 
+// how a game is named to a human, in discord or in the admin cli
+export const gameNames: Record<GameId, string> = {
+  lol: "League of Legends",
+  valorant: "Valorant",
+};
+
 export const EpochMillis = Schema.Number.pipe(Schema.brand("EpochMillis"));
 export type EpochMillis = typeof EpochMillis.Type;
 

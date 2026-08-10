@@ -180,7 +180,7 @@ const migrations = SqliteMigrator.fromRecord({
   }),
 });
 
-const databasePath = Config.string("DB_PATH").pipe(
+export const databasePath = Config.string("DB_PATH").pipe(
   Config.withDefault("riot-tracker.sqlite"),
 );
 

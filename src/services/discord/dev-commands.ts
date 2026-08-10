@@ -5,12 +5,8 @@ import { LolMatch } from "../game/game-api/lol/match-schema.ts";
 import { ValRawMatch } from "../game/game-api/val/match-schema.ts";
 import { lolMatchToDetails } from "../game/game-adapters/lol.ts";
 import { valMatchToDetails } from "../game/game-adapters/valorant.ts";
-import {
-  deferredReply,
-  registerAccount,
-  reply,
-  type CommandDeps,
-} from "./commands.ts";
+import { registerAccount } from "../accounts/index.ts";
+import { deferredReply, reply, type CommandDeps } from "./commands.ts";
 
 const lolParticipant = (
   slot: number,

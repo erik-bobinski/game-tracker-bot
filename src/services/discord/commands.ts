@@ -1,16 +1,14 @@
 import { Discord, DiscordREST, Ix } from "dfx";
-import { Effect, Option, SubscriptionRef } from "effect";
-import type { Account, Database } from "../database/index.ts";
-import type { GameAdapters } from "../game/game-adapters/index.ts";
-import type { GameId } from "../game/index.ts";
+import { Effect, Option } from "effect";
+import type { AccountDeps } from "../accounts/index.ts";
+import { registerAccount } from "../accounts/index.ts";
+import { gameNames, type GameId } from "../game/index.ts";
 import type { PollingState } from "../polling/state.ts";
 import type { DiscordError } from "./index.ts";
-import { gameNames, rankEmbed, type MatchReport } from "./embed.ts";
+import { rankEmbed, type MatchReport } from "./embed.ts";
 import { devCommands } from "./dev-commands.ts";
 
-export interface CommandDeps {
-  readonly database: Database["Service"];
-  readonly gameAdapters: GameAdapters["Service"];
+export interface CommandDeps extends AccountDeps {
   readonly rest: Effect.Success<typeof DiscordREST>;
   readonly pollingState: PollingState["Service"];
   readonly notifyMatch: (
@@ -29,62 +27,6 @@ export const reply = (
 export const deferredReply: Discord.CreateInteractionResponseRequest = {
   type: Discord.InteractionCallbackTypes.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
 };
-
-// pre-reports current matches so the first poll doesn't repost old games
-export const registerAccount = (
-  { database, gameAdapters }: CommandDeps,
-  input: Omit<Account, "games">,
-) =>
-  Effect.gen(function* () {
-    // a riot id may exist in only one game, so each lookup fails on its own
-    const resolved = yield* Effect.forEach(
-      gameAdapters.all,
-      (adapter) =>
-        adapter.resolveAccount(input.riotName, input.riotTag).pipe(
-          Effect.flatMap(({ puuid, region }) =>
-            adapter.getRecentMatches(puuid, region).pipe(
-              Effect.catchTag("GameApiError", (error) =>
-                Effect.logWarning("baseline match fetch failed", error).pipe(
-                  Effect.as([]),
-                ),
-              ),
-              Effect.map((matches) => ({
-                game: adapter.game,
-                state: {
-                  puuid,
-                  reportedMatches: matches.map((match) => ({
-                    matchId: match.matchId,
-                    date: match.date,
-                  })),
-                  // matches carry the platformId they were played on, which
-                  // covers accounts the region lookup couldn't resolve
-                  region: region ?? matches[0]?.routingRegion,
-                },
-              })),
-            ),
-          ),
-          // a failed lookup is not the same as "no such account", but
-          // both leave this game untracked
-          Effect.catch((error) =>
-            Effect.logWarning("resolveAccount failed", error).pipe(
-              Effect.annotateLogs({ game: adapter.game }),
-              Effect.as(undefined),
-            ),
-          ),
-        ),
-      { concurrency: "unbounded" },
-    );
-
-    const games: Account["games"] = {};
-    for (const entry of resolved) {
-      if (entry) games[entry.game] = entry.state;
-    }
-
-    if (Object.keys(games).length === 0) return "not-found" as const;
-
-    yield* database.addAccount({ ...input, games });
-    return "ok" as const;
-  });
 
 const signup = (deps: CommandDeps) =>
   Ix.global(
@@ -197,8 +139,13 @@ const pause = ({ pollingState }: CommandDeps) =>
       description: "Pause all match reports (the bot will appear as idle)",
     },
     () =>
-      SubscriptionRef.set(pollingState.paused, true).pipe(
+      pollingState.setPaused(true).pipe(
         Effect.as(reply("Match reports paused.")),
+        Effect.catch((error) =>
+          Effect.logError("pause failed", error).pipe(
+            Effect.as(reply("Pause failed, try again in a bit :(")),
+          ),
+        ),
       ),
   );
 
@@ -209,8 +156,13 @@ const resume = ({ pollingState }: CommandDeps) =>
       description: "Resume all match reports (the bot will appear as online)",
     },
     () =>
-      SubscriptionRef.set(pollingState.paused, false).pipe(
+      pollingState.setPaused(false).pipe(
         Effect.as(reply("Match reports resumed.")),
+        Effect.catch((error) =>
+          Effect.logError("resume failed", error).pipe(
+            Effect.as(reply("Resume failed, try again in a bit :(")),
+          ),
+        ),
       ),
   );
 
@@ -268,40 +220,38 @@ const rankCheck = (deps: CommandDeps) =>
             { payload },
           );
 
-        const lookUp = adapter
-          .getRank(gameState.puuid, gameState.region)
-          .pipe(
-            Effect.flatMap((rank) => {
-              const icon = adapter.rankIcons.find(
-                (candidate) => candidate.key === rank?.iconKey,
-              );
-              return rank
-                ? followUp({
-                    embeds: [
-                      rankEmbed({
-                        riotName: account.riotName,
-                        game,
-                        rank,
-                        iconUrl: icon?.largeUrl ?? icon?.url,
-                      }),
-                    ],
-                  })
-                : followUp({
-                    content: `**${account.riotName}#${account.riotTag}** has no ranked data for ${gameNames[game]}.`,
-                  });
-            }),
-            Effect.catch((error) =>
-              Effect.logError("rank_check failed", error).pipe(
-                Effect.andThen(
-                  followUp({ content: "Rank lookup failed, try again :(" }),
-                ),
-                Effect.ignore({
-                  log: "Error",
-                  message: "rank_check follow-up failed",
-                }),
+        const lookUp = adapter.getRank(gameState.puuid, gameState.region).pipe(
+          Effect.flatMap((rank) => {
+            const icon = adapter.rankIcons.find(
+              (candidate) => candidate.key === rank?.iconKey,
+            );
+            return rank
+              ? followUp({
+                  embeds: [
+                    rankEmbed({
+                      riotName: account.riotName,
+                      game,
+                      rank,
+                      iconUrl: icon?.largeUrl ?? icon?.url,
+                    }),
+                  ],
+                })
+              : followUp({
+                  content: `**${account.riotName}#${account.riotTag}** has no ranked data for ${gameNames[game]}.`,
+                });
+          }),
+          Effect.catch((error) =>
+            Effect.logError("rank_check failed", error).pipe(
+              Effect.andThen(
+                followUp({ content: "Rank lookup failed, try again :(" }),
               ),
+              Effect.ignore({
+                log: "Error",
+                message: "rank_check follow-up failed",
+              }),
             ),
-          );
+          ),
+        );
 
         yield* Effect.forkDetach(lookUp);
         return deferredReply;
