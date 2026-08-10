@@ -10,11 +10,17 @@ export class MatchEngine extends Context.Service<
   MatchEngine,
   {
     readonly pollOnce: () => Effect.Effect<
-      void,
+      PollSummary,
       SqlError | Schema.SchemaError | DiscordError
     >;
   }
 >()("app/MatchEngine") {}
+
+export interface PollSummary {
+  readonly accountsScanned: number;
+  readonly matchesFound: number;
+  readonly matchesReported: number;
+}
 
 interface PendingMatch {
   readonly match: MatchDetails;
@@ -54,7 +60,9 @@ const makeMatchEngine = Effect.gen(function* () {
             Effect.catchTag("GameApiError", (error) =>
               Effect.logWarning("skipping account this poll", error).pipe(
                 Effect.annotateLogs({
+                  game: adapter.game,
                   discordUser: `${account.discordName} (${account.discordUserId})`,
+                  riotId: `${account.riotName}#${account.riotTag}`,
                 }),
                 Effect.as([]),
               ),
@@ -123,6 +131,12 @@ const makeMatchEngine = Effect.gen(function* () {
         },
       });
     }
+
+    return {
+      accountsScanned: accounts.length,
+      matchesFound: pending.length,
+      matchesReported: pending.length,
+    } satisfies PollSummary;
   });
 
   return MatchEngine.of({ pollOnce: () => pollOnce });

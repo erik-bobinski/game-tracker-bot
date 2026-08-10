@@ -182,6 +182,9 @@ const migrations = SqliteMigrator.fromRecord({
 
 const makeDatabase = Effect.gen(function* () {
   const sql = yield* SqlClient;
+  const dbPath = yield* Config.string("DB_PATH").pipe(
+    Config.withDefault("riot-tracker.sqlite"),
+  );
 
   const accountGameColumns = yield* sql<{ readonly name: string }>`
     PRAGMA table_info(account_games)
@@ -487,6 +490,10 @@ const makeDatabase = Effect.gen(function* () {
     yield* updatePollingPaused({ pollingPaused: paused ? 1 : 0 });
   });
 
+  yield* Effect.logInfo("database ready; migrations applied").pipe(
+    Effect.annotateLogs({ dbPath }),
+  );
+
   return Database.of({
     addAccount,
     getAccounts,
@@ -500,9 +507,12 @@ const makeDatabase = Effect.gen(function* () {
   });
 });
 
-export const SqliteLive = SqliteClient.layer({
-  filename: process.env.DB_PATH ?? "riot-tracker.sqlite",
-});
+export const SqliteLive = Layer.unwrap(
+  Config.string("DB_PATH").pipe(
+    Config.withDefault("riot-tracker.sqlite"),
+    Effect.map((filename) => SqliteClient.layer({ filename })),
+  ),
+);
 
 const DatabaseSchemaLive = SqliteMigrator.layer({
   loader: migrations,

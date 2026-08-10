@@ -30,6 +30,21 @@ export const deferredReply: Discord.CreateInteractionResponseRequest = {
   type: Discord.InteractionCallbackTypes.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
 };
 
+export const logCommandInvocation = (
+  command: string,
+  interaction: Discord.APIInteraction,
+) => {
+  const user =
+    ("member" in interaction ? interaction.member?.user : undefined) ??
+    ("user" in interaction ? interaction.user : undefined);
+  return Effect.logInfo("slash command invoked").pipe(
+    Effect.annotateLogs({
+      command,
+      discordUser: user ? `${user.username} (${user.id})` : "unknown",
+    }),
+  );
+};
+
 // pre-reports current matches so the first poll doesn't repost old games
 export const registerAccount = (
   { database, gameAdapters }: CommandDeps,
@@ -112,6 +127,8 @@ const signup = (deps: CommandDeps) =>
         const riotTag = i.optionValue("riot_tag");
         const user = i.interaction.member?.user ?? i.interaction.user;
 
+        yield* logCommandInvocation("signup", i.interaction);
+
         if (!user) return reply("Couldn't tell who ran that command :(");
 
         const existing = yield* deps.database
@@ -173,6 +190,7 @@ const signout = ({ database }: CommandDeps) =>
     },
     (i) =>
       Effect.gen(function* () {
+        yield* logCommandInvocation("signout", i.interaction);
         const user = i.interaction.member?.user ?? i.interaction.user;
         if (!user) return reply("Couldn't tell who ran that command :(");
 
@@ -196,10 +214,12 @@ const pause = ({ pollingState }: CommandDeps) =>
       name: "pause",
       description: "Pause all match reports (the bot will appear as idle)",
     },
-    () =>
-      SubscriptionRef.set(pollingState.paused, true).pipe(
-        Effect.as(reply("Match reports paused.")),
-      ),
+    (i) =>
+      Effect.gen(function* () {
+        yield* logCommandInvocation("pause", i.interaction);
+        yield* SubscriptionRef.set(pollingState.paused, true);
+        return reply("Match reports paused.");
+      }),
   );
 
 const resume = ({ pollingState }: CommandDeps) =>
@@ -208,10 +228,12 @@ const resume = ({ pollingState }: CommandDeps) =>
       name: "resume",
       description: "Resume all match reports (the bot will appear as online)",
     },
-    () =>
-      SubscriptionRef.set(pollingState.paused, false).pipe(
-        Effect.as(reply("Match reports resumed.")),
-      ),
+    (i) =>
+      Effect.gen(function* () {
+        yield* logCommandInvocation("resume", i.interaction);
+        yield* SubscriptionRef.set(pollingState.paused, false);
+        return reply("Match reports resumed.");
+      }),
   );
 
 const rankCheck = (deps: CommandDeps) =>
@@ -240,6 +262,7 @@ const rankCheck = (deps: CommandDeps) =>
     },
     (i) =>
       Effect.gen(function* () {
+        yield* logCommandInvocation("rank_check", i.interaction);
         const userId = i.optionValue("user");
         const game = i.optionValue("game") as GameId;
         // the username rather than a <@id> mention, which would ping them
@@ -268,40 +291,38 @@ const rankCheck = (deps: CommandDeps) =>
             { payload },
           );
 
-        const lookUp = adapter
-          .getRank(gameState.puuid, gameState.region)
-          .pipe(
-            Effect.flatMap((rank) => {
-              const icon = adapter.rankIcons.find(
-                (candidate) => candidate.key === rank?.iconKey,
-              );
-              return rank
-                ? followUp({
-                    embeds: [
-                      rankEmbed({
-                        riotName: account.riotName,
-                        game,
-                        rank,
-                        iconUrl: icon?.largeUrl ?? icon?.url,
-                      }),
-                    ],
-                  })
-                : followUp({
-                    content: `**${account.riotName}#${account.riotTag}** has no ranked data for ${gameNames[game]}.`,
-                  });
-            }),
-            Effect.catch((error) =>
-              Effect.logError("rank_check failed", error).pipe(
-                Effect.andThen(
-                  followUp({ content: "Rank lookup failed, try again :(" }),
-                ),
-                Effect.ignore({
-                  log: "Error",
-                  message: "rank_check follow-up failed",
-                }),
+        const lookUp = adapter.getRank(gameState.puuid, gameState.region).pipe(
+          Effect.flatMap((rank) => {
+            const icon = adapter.rankIcons.find(
+              (candidate) => candidate.key === rank?.iconKey,
+            );
+            return rank
+              ? followUp({
+                  embeds: [
+                    rankEmbed({
+                      riotName: account.riotName,
+                      game,
+                      rank,
+                      iconUrl: icon?.largeUrl ?? icon?.url,
+                    }),
+                  ],
+                })
+              : followUp({
+                  content: `**${account.riotName}#${account.riotTag}** has no ranked data for ${gameNames[game]}.`,
+                });
+          }),
+          Effect.catch((error) =>
+            Effect.logError("rank_check failed", error).pipe(
+              Effect.andThen(
+                followUp({ content: "Rank lookup failed, try again :(" }),
               ),
+              Effect.ignore({
+                log: "Error",
+                message: "rank_check follow-up failed",
+              }),
             ),
-          );
+          ),
+        );
 
         yield* Effect.forkDetach(lookUp);
         return deferredReply;

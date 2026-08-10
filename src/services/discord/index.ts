@@ -7,6 +7,7 @@ import {
   Schema,
   Stream,
   SubscriptionRef,
+  Ref,
 } from "effect";
 import {
   Discord as DiscordApi,
@@ -92,6 +93,9 @@ const makeDiscord = Effect.gen(function* () {
       devMode,
     ),
   );
+  yield* Effect.logInfo("slash commands registered").pipe(
+    Effect.annotateLogs({ devMode }),
+  );
 
   const setPresence = (paused: boolean) =>
     gateway.send(
@@ -112,11 +116,16 @@ const makeDiscord = Effect.gen(function* () {
   );
 
   // presence is per-connection state that discord drops on reconnect
+  const gatewayReady = yield* Ref.make(false);
   yield* gateway
     .handleDispatch("READY", () =>
-      SubscriptionRef.get(pollingState.paused).pipe(
-        Effect.flatMap(setPresence),
-      ),
+      Effect.gen(function* () {
+        const reconnected = yield* Ref.getAndSet(gatewayReady, true);
+        yield* Effect.logInfo(
+          reconnected ? "discord gateway reconnected" : "discord gateway ready",
+        );
+        yield* setPresence(yield* SubscriptionRef.get(pollingState.paused));
+      }),
     )
     .pipe(Effect.forkScoped);
 

@@ -14,8 +14,21 @@ const makePolling = Effect.gen(function* () {
   const { paused } = yield* PollingState;
 
   const pollTick = Effect.gen(function* () {
-    if (yield* SubscriptionRef.get(paused)) return;
-    yield* matchEngine.pollOnce();
+    if (yield* SubscriptionRef.get(paused)) {
+      return yield* Effect.logInfo("poll skipped").pipe(
+        Effect.annotateLogs({ paused: true }),
+      );
+    }
+
+    yield* Effect.logInfo("poll started");
+    const summary = yield* matchEngine.pollOnce();
+    yield* Effect.logInfo("poll finished").pipe(
+      Effect.annotateLogs({
+        accountsScanned: summary.accountsScanned,
+        matchesFound: summary.matchesFound,
+        matchesReported: summary.matchesReported,
+      }),
+    );
   });
 
   const pollLoop = pollTick.pipe(
