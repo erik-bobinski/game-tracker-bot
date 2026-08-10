@@ -1,8 +1,9 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Config, Context, Effect, Layer, Schema } from "effect";
 import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-node";
 import { SqlSchema } from "effect/unstable/sql";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
+import { existsSync, readFileSync, renameSync } from "node:fs";
 import { GameId, MatchId, Puuid } from "../game/index.ts";
 import { EpochMillis } from "../game/index.ts";
 
@@ -94,6 +95,44 @@ const GameRow = Schema.Struct({
   region: Schema.NullOr(Schema.String),
 });
 
+const LegacyAccount = Schema.Struct({
+  discord_user_id: Schema.Union([Schema.String, Schema.Number]),
+  discord_name: Schema.String,
+  riot_name: Schema.String,
+  riot_tag: Schema.String,
+  val_puuid: Schema.String,
+  val_region: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  reported_val_match_ids: Schema.optionalKey(Schema.Array(Schema.String)),
+  lol_puuid: Schema.String,
+  lol_region: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  lol_platform: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  reported_lol_match_ids: Schema.optionalKey(Schema.Array(Schema.String)),
+  added_at: Schema.String,
+});
+
+const LegacyDatabase = Schema.Union([
+  Schema.Array(LegacyAccount),
+  Schema.Struct({
+    schema_version: Schema.Literal(1),
+    accounts: Schema.Array(LegacyAccount),
+  }),
+]);
+const LegacyDatabaseJson = Schema.fromJsonString(LegacyDatabase);
+
+function legacyReportedMatches(
+  matchIds: ReadonlyArray<string> | undefined,
+  addedAt: string,
+): ReadonlyArray<ReportedMatch> {
+  const baseDate = Date.parse(addedAt);
+  return [...(matchIds ?? [])]
+    .slice(0, REPORTED_MATCH_CAPACITY)
+    .reverse()
+    .map((matchId, index) => ({
+      matchId: MatchId.make(matchId),
+      date: EpochMillis.make(baseDate + index),
+    }));
+}
+
 const migrations = SqliteMigrator.fromRecord({
   "1_create_accounts": Effect.gen(function* () {
     const sql = yield* SqlClient;
@@ -143,6 +182,68 @@ const migrations = SqliteMigrator.fromRecord({
 
 const makeDatabase = Effect.gen(function* () {
   const sql = yield* SqlClient;
+
+  const legacyPath = yield* Config.string("LEGACY_DB_PATH").pipe(
+    Config.withDefault(""),
+  );
+  if (legacyPath) {
+    const backupPath = `${legacyPath}.migrated.bak`;
+    const legacyJson = yield* Effect.sync(() =>
+      existsSync(legacyPath) ? readFileSync(legacyPath, "utf8") : undefined,
+    );
+
+    if (legacyJson !== undefined) {
+      const decoded =
+        yield* Schema.decodeUnknownEffect(LegacyDatabaseJson)(legacyJson);
+      const legacyAccounts = "accounts" in decoded ? decoded.accounts : decoded;
+
+      yield* Effect.gen(function* () {
+        yield* sql`DELETE FROM account_games`;
+        yield* sql`DELETE FROM accounts`;
+
+        for (const account of legacyAccounts) {
+          const discordUserId = String(account.discord_user_id);
+          yield* sql`
+            INSERT INTO accounts (
+              discord_user_id, discord_name, riot_name, riot_tag, created_at
+            ) VALUES (
+              ${discordUserId}, ${account.discord_name}, ${account.riot_name},
+              ${account.riot_tag}, ${account.added_at}
+            )
+          `;
+
+          if (account.val_puuid) {
+            yield* sql`
+              INSERT INTO account_games (
+                discord_user_id, game, puuid, reported_matches, region
+              ) VALUES (
+                ${discordUserId}, 'valorant', ${account.val_puuid},
+                ${JSON.stringify(legacyReportedMatches(account.reported_val_match_ids, account.added_at))},
+                ${account.val_region ?? null}
+              )
+            `;
+          }
+
+          if (account.lol_puuid) {
+            yield* sql`
+              INSERT INTO account_games (
+                discord_user_id, game, puuid, reported_matches, region
+              ) VALUES (
+                ${discordUserId}, 'lol', ${account.lol_puuid},
+                ${JSON.stringify(legacyReportedMatches(account.reported_lol_match_ids, account.added_at))},
+                ${account.lol_platform ?? account.lol_region ?? null}
+              )
+            `;
+          }
+        }
+      }).pipe(sql.withTransaction);
+
+      yield* Effect.sync(() => renameSync(legacyPath, backupPath));
+      yield* Effect.logInfo("migrated legacy database").pipe(
+        Effect.annotateLogs({ accounts: legacyAccounts.length, backupPath }),
+      );
+    }
+  }
 
   const insertAccountRow = SqlSchema.void({
     Request: AccountRow,
@@ -252,9 +353,7 @@ const makeDatabase = Effect.gen(function* () {
     discordUserId: string,
   ) {
     const accounts = yield* getAccounts();
-    return accounts.find(
-      (account) => account.discordUserId === discordUserId,
-    );
+    return accounts.find((account) => account.discordUserId === discordUserId);
   });
 
   const accountExistsQuery = SqlSchema.findAll({
