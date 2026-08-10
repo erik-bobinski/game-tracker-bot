@@ -1,6 +1,6 @@
 import { Discord, Ix } from "dfx";
 import { Effect, Schema } from "effect";
-import type { MatchDetails, RankUpdate } from "../game/index.ts";
+import type { MatchDetails } from "../game/index.ts";
 import { LolMatch } from "../game/game-api/lol/match-schema.ts";
 import { ValRawMatch } from "../game/game-api/val/match-schema.ts";
 import { lolMatchToDetails } from "../game/game-adapters/lol.ts";
@@ -245,6 +245,7 @@ const devReport = (deps: CommandDeps) =>
                   valMockResponse(),
                 ),
               );
+        const rankUnit = match.game === "lol" ? "LP" : "RR";
 
         // claim two mock players as tracked so the multi-user report renders
         yield* deps.notifyMatch({
@@ -253,20 +254,14 @@ const devReport = (deps: CommandDeps) =>
             .slice(0, 2)
             .map((player) => player.puuid),
           match,
-          rankUpdates: new Map<string, RankUpdate>(
+          rankUpdates: new Map(
             match.players.slice(0, 2).map((player, index) => [
               player.puuid,
-              index === 0
-                ? {
-                    delta: 18,
-                    ...(player.rank ? { current: player.rank } : {}),
-                    unit: match.game === "lol" ? "LP" : "RR",
-                  }
-                : {
-                    delta: -21,
-                    ...(player.rank ? { current: player.rank } : {}),
-                    unit: match.game === "lol" ? "LP" : "RR",
-                  },
+              {
+                delta: index === 0 ? 18 : -21,
+                ...(player.rank ? { current: player.rank } : {}),
+                unit: rankUnit,
+              },
             ]),
           ),
         });

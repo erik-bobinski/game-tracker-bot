@@ -85,14 +85,23 @@ export const ValMatchesResponse = HenrikResponse(
   Schema.Array(LenientValRawMatch),
 );
 
+export const ValMmrHistoryEntry = Schema.Struct({
+  matchId: MatchId,
+  delta: Schema.Number,
+  current: Schema.String,
+}).pipe(
+  Schema.encodeKeys({
+    matchId: "match_id",
+    delta: "mmr_change_to_last_game",
+    current: "currenttierpatched",
+  }),
+);
+export interface ValMmrHistoryEntry extends Schema.Schema.Type<
+  typeof ValMmrHistoryEntry
+> {}
+
 export const ValMmrHistoryResponse = HenrikResponse(
-  Schema.Array(
-    Schema.Struct({
-      match_id: MatchId,
-      mmr_change_to_last_game: Schema.Number,
-      currenttierpatched: Schema.String,
-    }),
-  ),
+  Schema.Array(ValMmrHistoryEntry),
 );
 
 // /valorant/v3/by-puuid/mmr/{region}/{platform}/{puuid} — only the current

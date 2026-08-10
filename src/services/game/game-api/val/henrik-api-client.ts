@@ -8,6 +8,7 @@ import {
   ValMatchesResponse,
   ValMmrHistoryResponse,
   ValMmrResponse,
+  type ValMmrHistoryEntry,
   type ValRawMatch,
 } from "./match-schema.ts";
 
@@ -16,12 +17,6 @@ export interface ValRank {
   readonly rr: number;
   readonly wins: number | undefined;
   readonly losses: number | undefined;
-}
-
-export interface ValMmrHistoryEntry {
-  readonly matchId: string;
-  readonly delta: number;
-  readonly current: string;
 }
 
 export class HenrikApiClient extends Context.Service<
@@ -142,11 +137,7 @@ export const HenrikApiClientLive = Layer.effect(
       const { data } = yield* Schema.decodeUnknownEffect(ValMmrHistoryResponse)(
         json,
       );
-      return data.map((entry) => ({
-        matchId: entry.match_id,
-        delta: entry.mmr_change_to_last_game,
-        current: entry.currenttierpatched,
-      }));
+      return data;
     });
 
     return HenrikApiClient.of({

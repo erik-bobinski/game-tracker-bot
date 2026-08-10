@@ -38,8 +38,7 @@ describe("rank updates", () => {
   it("diffs comparable League snapshots", () => {
     assert.deepEqual(
       lolRankUpdate(entry("EMERALD", "II", 64), {
-        tier: "EMERALD",
-        division: "II",
+        standing: "EMERALD II",
         points: 40,
       }),
       { delta: 24, current: "Emerald II", unit: "LP" },
@@ -53,8 +52,7 @@ describe("rank updates", () => {
     });
     assert.deepEqual(
       lolRankUpdate(entry("EMERALD", "IV", 12), {
-        tier: "PLATINUM",
-        division: "I",
+        standing: "PLATINUM I",
         points: 90,
       }),
       { current: "Emerald IV · 12 LP", unit: "LP" },
@@ -62,13 +60,15 @@ describe("rank updates", () => {
   });
 
   it("associates updates with tracked players on opposing teams", () => {
+    const playerOne = Puuid.make("one");
+    const playerTwo = Puuid.make("two");
     const embed = matchEmbed(
       {
         discordNames: ["One", "Two"],
-        trackedPuuids: ["one", "two"],
+        trackedPuuids: [playerOne, playerTwo],
         rankUpdates: new Map([
-          ["one", { delta: 18, current: "Gold 2", unit: "RR" }],
-          ["two", { delta: -21, current: "Silver 3", unit: "RR" }],
+          [playerOne, { delta: 18, current: "Gold 2", unit: "RR" }],
+          [playerTwo, { delta: -21, current: "Silver 3", unit: "RR" }],
         ]),
         match: {
           matchId: MatchId.make("match"),
@@ -83,7 +83,7 @@ describe("rank updates", () => {
           ],
           players: [
             {
-              puuid: Puuid.make("one"),
+              puuid: playerOne,
               team: "blue",
               riotName: "PlayerOne",
               riotTag: "NA1",
@@ -95,7 +95,7 @@ describe("rank updates", () => {
               sortKey: 1,
             },
             {
-              puuid: Puuid.make("two"),
+              puuid: playerTwo,
               team: "red",
               riotName: "PlayerTwo",
               riotTag: "NA1",

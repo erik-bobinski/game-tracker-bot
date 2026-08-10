@@ -3,15 +3,16 @@ import type {
   GameId,
   MatchDetails,
   MatchPlayer,
+  Puuid,
   RankInfo,
   RankUpdate,
 } from "../game/index.ts";
 
 export interface MatchReport {
   readonly discordNames: ReadonlyArray<string>;
-  readonly trackedPuuids: ReadonlyArray<string>;
+  readonly trackedPuuids: ReadonlyArray<Puuid>;
   readonly match: MatchDetails;
-  readonly rankUpdates: ReadonlyMap<string, RankUpdate>;
+  readonly rankUpdates: ReadonlyMap<Puuid, RankUpdate>;
 }
 
 export type RankEmojis = Readonly<Record<string, string>>;
@@ -46,10 +47,10 @@ export const formatRankUpdate = (update: RankUpdate) =>
 
 const leaderboard = (
   players: ReadonlyArray<MatchPlayer>,
-  trackedPuuids: ReadonlySet<string>,
+  trackedPuuids: ReadonlySet<Puuid>,
   game: GameId,
   emojis: RankEmojis,
-  rankUpdates: ReadonlyMap<string, RankUpdate>,
+  rankUpdates: ReadonlyMap<Puuid, RankUpdate>,
 ) =>
   [...players]
     .sort((a, b) => b.sortKey - a.sortKey)

@@ -4,8 +4,13 @@ import { SqlSchema } from "effect/unstable/sql";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { existsSync, readFileSync, renameSync } from "node:fs";
-import { GameId, MatchId, Puuid, type RankSnapshot } from "../game/index.ts";
-import { EpochMillis } from "../game/index.ts";
+import {
+  EpochMillis,
+  GameId,
+  MatchId,
+  Puuid,
+  RankSnapshots,
+} from "../game/index.ts";
 
 const ReportedMatch = Schema.Struct({
   matchId: MatchId,
@@ -29,7 +34,7 @@ export interface GameState {
   readonly reportedMatches: ReadonlyArray<ReportedMatch>;
   // riot platformId for lol ("na1"), henrik region for val ("na")
   readonly region: string | undefined;
-  readonly rankSnapshots: Readonly<Record<string, RankSnapshot>>;
+  readonly rankSnapshots: RankSnapshots;
 }
 
 export interface Account {
@@ -38,6 +43,15 @@ export interface Account {
   readonly riotName: string;
   readonly riotTag: string;
   readonly games: Partial<Record<GameId, GameState>>;
+}
+
+interface MarkMatchAsReportedInput {
+  readonly discordUserIds: ReadonlyArray<string>;
+  readonly game: GameId;
+  readonly match: ReportedMatch;
+  readonly rankSnapshotsByDiscordUserId?: Readonly<
+    Record<string, RankSnapshots>
+  >;
 }
 
 export class Database extends Context.Service<
@@ -63,14 +77,9 @@ export class Database extends Context.Service<
       void,
       SqlError | Schema.SchemaError
     >;
-    readonly markMatchAsReported: (input: {
-      readonly discordUserIds: ReadonlyArray<string>;
-      readonly game: GameId;
-      readonly match: ReportedMatch;
-      readonly rankSnapshotsByDiscordUserId?: Readonly<
-        Record<string, Readonly<Record<string, RankSnapshot>>>
-      >;
-    }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    readonly markMatchAsReported: (
+      input: MarkMatchAsReportedInput,
+    ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
     readonly getPollingPaused: () => Effect.Effect<
       boolean,
       SqlError | Schema.SchemaError
@@ -82,16 +91,7 @@ export class Database extends Context.Service<
 >()("app/Database") {}
 
 const ReportedMatches = Schema.fromJsonString(Schema.Array(ReportedMatch));
-const RankSnapshots = Schema.fromJsonString(
-  Schema.Record(
-    Schema.String,
-    Schema.Struct({
-      tier: Schema.String,
-      division: Schema.String,
-      points: Schema.Number,
-    }),
-  ),
-);
+const RankSnapshotsJson = Schema.fromJsonString(RankSnapshots);
 
 const AccountRow = Schema.Struct({
   discordUserId: Schema.String,
@@ -107,7 +107,7 @@ const GameRow = Schema.Struct({
   reportedMatches: ReportedMatches,
   // null for accounts signed up before the region column existed
   region: Schema.NullOr(Schema.String),
-  rankSnapshots: RankSnapshots,
+  rankSnapshots: RankSnapshotsJson,
 });
 
 const LegacyAccount = Schema.Struct({
@@ -447,7 +447,7 @@ const makeDatabase = Effect.gen(function* () {
     Result: Schema.Struct({
       discordUserId: Schema.String,
       reportedMatches: ReportedMatches,
-      rankSnapshots: RankSnapshots,
+      rankSnapshots: RankSnapshotsJson,
     }),
     execute: ({ game, discordUserIds }) => sql`
     SELECT discord_user_id AS "discordUserId",
@@ -463,7 +463,7 @@ const makeDatabase = Effect.gen(function* () {
       discordUserId: Schema.String,
       game: GameId,
       reportedMatches: ReportedMatches,
-      rankSnapshots: RankSnapshots,
+      rankSnapshots: RankSnapshotsJson,
     }),
     execute: (row) => sql`
     UPDATE account_games
@@ -473,29 +473,21 @@ const makeDatabase = Effect.gen(function* () {
   `,
   });
 
-  const markMatchAsReported = Effect.fn("Database.markReported")(
-    function* (input: {
-      readonly discordUserIds: ReadonlyArray<string>;
-      readonly game: GameId;
-      readonly match: ReportedMatch;
-      readonly rankSnapshotsByDiscordUserId?: Readonly<
-        Record<string, Readonly<Record<string, RankSnapshot>>>
-      >;
-    }) {
-      const rows = yield* reportedMatchesQuery(input);
-      for (const row of rows) {
-        yield* updateReportedMatches({
-          discordUserId: row.discordUserId,
-          game: input.game,
-          reportedMatches: pushReportedMatch(row.reportedMatches, input.match),
-          rankSnapshots:
-            input.rankSnapshotsByDiscordUserId?.[row.discordUserId] ??
-            row.rankSnapshots,
-        });
-      }
-    },
-    sql.withTransaction,
-  );
+  const markMatchAsReported = Effect.fn("Database.markReported")(function* (
+    input: MarkMatchAsReportedInput,
+  ) {
+    const rows = yield* reportedMatchesQuery(input);
+    for (const row of rows) {
+      yield* updateReportedMatches({
+        discordUserId: row.discordUserId,
+        game: input.game,
+        reportedMatches: pushReportedMatch(row.reportedMatches, input.match),
+        rankSnapshots:
+          input.rankSnapshotsByDiscordUserId?.[row.discordUserId] ??
+          row.rankSnapshots,
+      });
+    }
+  }, sql.withTransaction);
 
   const settingsQuery = SqlSchema.findAll({
     Request: Schema.Struct({}),

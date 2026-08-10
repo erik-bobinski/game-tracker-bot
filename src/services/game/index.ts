@@ -65,11 +65,14 @@ export interface RankUpdate {
   readonly unit: string;
 }
 
-export interface RankSnapshot {
-  readonly tier: string;
-  readonly division: string;
-  readonly points: number;
-}
+export const RankSnapshot = Schema.Struct({
+  standing: Schema.String,
+  points: Schema.Number,
+});
+export interface RankSnapshot extends Schema.Schema.Type<typeof RankSnapshot> {}
+
+export const RankSnapshots = Schema.Record(Schema.String, RankSnapshot);
+export type RankSnapshots = typeof RankSnapshots.Type;
 
 export const Puuid = Schema.String.pipe(Schema.brand("Puuid"));
 export type Puuid = typeof Puuid.Type;

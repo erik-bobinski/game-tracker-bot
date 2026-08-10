@@ -5,7 +5,7 @@ import {
   type MatchDetails,
   type Puuid,
   type RankInfo,
-  type RankSnapshot,
+  type RankSnapshots,
   type RankUpdate,
   type Region,
   type ResolvedAccount,
@@ -43,16 +43,13 @@ export interface GameAdapter {
     readonly trackedPlayers: ReadonlyArray<{
       readonly puuid: Puuid;
       readonly region: Region | undefined;
-      readonly rankSnapshots: Readonly<Record<string, RankSnapshot>>;
+      readonly previousRankSnapshots: RankSnapshots;
     }>;
   }) => Effect.Effect<
     {
       readonly match: MatchDetails;
       readonly rankUpdates: ReadonlyMap<Puuid, RankUpdate>;
-      readonly rankSnapshots: ReadonlyMap<
-        Puuid,
-        Readonly<Record<string, RankSnapshot>>
-      >;
+      readonly updatedRankSnapshots: ReadonlyMap<Puuid, RankSnapshots>;
     },
     GameApiError
   >;
@@ -70,6 +67,12 @@ export interface RankIcon {
   // emoji-sized art is too small to fill an embed, which is what centers it
   readonly largeUrl?: string;
 }
+
+export const emptyEnrichment = (match: MatchDetails) => ({
+  match,
+  rankUpdates: new Map<Puuid, RankUpdate>(),
+  updatedRankSnapshots: new Map<Puuid, RankSnapshots>(),
+});
 
 export class GameAdapters extends Context.Service<
   GameAdapters,

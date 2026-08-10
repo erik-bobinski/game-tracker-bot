@@ -8,6 +8,7 @@ This a repo for a discord bot that reports newly completed matches of video game
 - If a simpler approach exists, say so and push back when warranted
 - If something is unclear stop and ask, don't make many assumptions
 - Goal of project is to create a match reporting discord bot that is game agnostic (extendable other games with minimal code changes)
+
 ## Taste
 
 - Re-use the Effect pieces as much as possible
