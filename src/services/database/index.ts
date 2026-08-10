@@ -183,6 +183,13 @@ const migrations = SqliteMigrator.fromRecord({
 const makeDatabase = Effect.gen(function* () {
   const sql = yield* SqlClient;
 
+  const accountGameColumns = yield* sql<{ readonly name: string }>`
+    PRAGMA table_info(account_games)
+  `;
+  if (!accountGameColumns.some((column) => column.name === "region")) {
+    yield* sql`ALTER TABLE account_games ADD COLUMN region TEXT`;
+  }
+
   const legacyPath = yield* Config.string("LEGACY_DB_PATH").pipe(
     Config.withDefault(""),
   );
