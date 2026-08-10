@@ -1,0 +1,88 @@
+import { Option, Schema, SchemaGetter } from "effect";
+import { EpochMillis, MatchId, Puuid } from "../../index.ts";
+
+// A field Riot may omit or send as null; decodes to `fallback` in both cases.
+const withDefault = <S extends Schema.Top>(schema: S, fallback: S["Type"]) =>
+  Schema.optionalKey(Schema.NullOr(schema)).pipe(
+    Schema.decodeTo(schema, {
+      decode: SchemaGetter.transformOptional(
+        (encoded: Option.Option<S["Type"] | null>) =>
+          Option.some(
+            Option.isSome(encoded) && encoded.value !== null
+              ? encoded.value
+              : fallback,
+          ),
+      ),
+      encode: SchemaGetter.transform((value: S["Type"]) => value),
+    }),
+  );
+
+// /lol/match/v5/matches/{matchId}
+
+export const LolParticipant = Schema.Struct({
+  puuid: Puuid,
+  riotIdGameName: Schema.String,
+  riotIdTagline: Schema.String,
+  teamId: Schema.Literals([100, 200]),
+  championName: Schema.String,
+  kills: Schema.Number,
+  deaths: Schema.Number,
+  assists: Schema.Number,
+  win: Schema.Boolean,
+  totalMinionsKilled: Schema.Number,
+  neutralMinionsKilled: Schema.Number,
+  totalDamageDealtToChampions: Schema.Number,
+  // 5 = penta, 4 = quadra, ... used for the "flair" callout
+  largestMultiKill: Schema.Number,
+  gameEndedInSurrender: withDefault(Schema.Boolean, false),
+});
+export interface LolParticipant extends Schema.Schema.Type<
+  typeof LolParticipant
+> {}
+
+export const LolMatchInfo = Schema.Struct({
+  gameMode: Schema.String,
+  // seconds
+  gameDuration: Schema.Number,
+  gameStartTimestamp: EpochMillis,
+  // distinguishes ranked solo (420) vs flex (440) vs normals, which gameMode can't
+  queueId: Schema.Number,
+  // shard the match ran on (na1, euw1, ...); league-v4 is routed by this
+  platformId: Schema.String,
+  participants: Schema.Array(LolParticipant),
+});
+export interface LolMatchInfo extends Schema.Schema.Type<typeof LolMatchInfo> {}
+
+export const LolMatchMetadata = Schema.Struct({
+  matchId: MatchId,
+  participants: Schema.Array(Puuid),
+});
+export interface LolMatchMetadata extends Schema.Schema.Type<
+  typeof LolMatchMetadata
+> {}
+
+export const LolMatch = Schema.Struct({
+  metadata: LolMatchMetadata,
+  info: LolMatchInfo,
+});
+export interface LolMatch extends Schema.Schema.Type<typeof LolMatch> {}
+
+export const LolMatchIds = Schema.Array(MatchId);
+
+// /lol/league/v4/entries/by-puuid/{puuid} — one entry per ranked queue placed in
+
+export const LolLeagueEntry = Schema.Struct({
+  // "RANKED_SOLO_5x5" or "RANKED_FLEX_SR"
+  queueType: Schema.String,
+  tier: Schema.String,
+  // division within the tier: "I".."IV"
+  rank: Schema.String,
+  leaguePoints: Schema.Number,
+  wins: withDefault(Schema.Number, 0),
+  losses: withDefault(Schema.Number, 0),
+});
+export interface LolLeagueEntry extends Schema.Schema.Type<
+  typeof LolLeagueEntry
+> {}
+
+export const LolLeagueEntries = Schema.Array(LolLeagueEntry);

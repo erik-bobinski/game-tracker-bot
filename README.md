@@ -1,62 +1,105 @@
-# Riot Tracker Bot
+# riot-tracker-bot
 
-## Production admin CLI
+A Discord bot that reports finished matches for opted-in users. Someone signs
+up with their Riot ID, and when they finish a game the bot posts a scoreboard
+embed to a channel. If several signed-up users played the same match, it posts
+once and names all of them.
 
-The running Rust bot exposes a private Unix-domain socket inside its Railway
-container. Admin commands sent through that socket operate on the same in-memory
-database, persistent `accounts.json`, API clients, and polling flag as Discord
-slash commands.
+The goal is to be **game agnostic**: League of Legends and Valorant are the two
+implementations, but supporting another game should mean writing one adapter,
+not touching the rest of the app.
 
-Set a reusable shell prefix:
+## Commands
 
-```bash
-railway_admin=(
-  railway ssh
-  --project b7c45da2-61ef-4c9b-8d46-9a64baaf1f22
-  --service 3c97af33-467b-4c28-8e03-4d291cfe501f
-  --environment production
-  /app/bin/riot-tracker-bot admin
-)
+| Command | What it does |
+| --- | --- |
+| `/signup <riot_name> <riot_tag>` | Start reporting your matches |
+| `/signout` | Stop tracking and delete your data |
+| `/rank_check <user> <game>` | Post someone's current rank with their tier emblem |
+| `/pause` / `/resume` | Stop or restart all reports (the bot goes idle while paused) |
+
+## Architecture
+
+TypeScript on [Effect](https://effect.website) v4, with [dfx](https://github.com/tim-smart/dfx)
+for Discord and SQLite for storage. Every piece is an Effect service, wired
+together as layers in `src/index.ts`.
+
+```
+src/
+  index.ts                     layer wiring and entry point
+  services/
+    polling/                   ticks every minute, respects the pause flag
+    match-engine/              the core loop, see below
+    game/
+      index.ts                 game-agnostic domain types
+      game-adapters/           one adapter per game, behind a shared interface
+      game-api/                raw API clients and decode schemas
+    discord/                   gateway, slash commands, embeds
+    database/                  SQLite, migrations, account storage
 ```
 
-Then run:
+**The match engine** is where it comes together. Each tick it loads every
+account, asks each game adapter for that account's recent matches, drops the
+ones already reported, and collapses matches shared by multiple users into a
+single entry. Then it enriches each match (rank lookups), posts it, and records
+it as reported.
 
-```bash
-"${railway_admin[@]}" status
-"${railway_admin[@]}" pause
-"${railway_admin[@]}" resume
-"${railway_admin[@]}" signout --discord-user-id 502202450183454721
-"${railway_admin[@]}" rank-check --discord-user-id 502202450183454721 --game val
-"${railway_admin[@]}" signup \
-  --discord-user-id 502202450183454721 \
-  --discord-name syanx_ \
-  --riot-name syan \
-  --riot-tag 7571
+**Adding a game** means implementing `GameAdapter` in `src/services/game/game-adapters/`:
+resolve a Riot ID to an account, fetch recent matches, optionally enrich them,
+and fetch a rank. The adapter maps that game's API shape into the shared
+`MatchDetails` type, and everything downstream — dedupe, embeds, storage — works
+unchanged.
+
+**Failures degrade rather than crash.** One undecodable match is skipped, not
+fatal. A failed rank lookup drops the icon but still posts the report. A failed
+poll is logged and retried on the next tick.
+
+## Setup
+
+Requires Node and pnpm.
+
+```sh
+pnpm install
+cp .env.example .env
 ```
 
-Human-readable output is the default. Add `--json` before or after the admin
-subcommand for automation:
+Fill in `.env`:
 
-```bash
-"${railway_admin[@]}" signout --discord-user-id 502202450183454721 --json
+| Variable | How to get it |
+| --- | --- |
+| `DISCORD_BOT_TOKEN` | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot |
+| `NOTIFICATION_CHANNEL_ID` | Right-click the target channel → Copy Channel ID (needs Developer Mode on) |
+| `RIOT_API_KEY` | [developer.riotgames.com](https://developer.riotgames.com) |
+| `HENRIK_API_KEY` | [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN) |
+
+`RIOT_REGION`, `VAL_REGION` and `VAL_PLATFORM` are optional. Each account's
+region is resolved and stored at signup; these are only fallbacks.
+
+Invite the bot with the `bot` and `applications.commands` scopes, and give it
+permission to send messages in your notification channel. Commands register
+themselves on startup.
+
+```sh
+pnpm start
 ```
 
-Discord user IDs are authoritative; usernames are not accepted as selectors.
-`signup`, `signout`, `pause`, and `resume` mutate live production state
-immediately. CLI commands do not post messages into Discord.
+## Local development
 
-Exit codes:
+Run a second bot application in a separate test server, with its own token and
+API keys, and set `DEV_MODE=true`. That registers three extra commands:
 
-- `0`: success
-- `2`: invalid CLI usage
-- `3`: live admin socket unavailable
-- `4`: command rejected, invalid request, or target not found
-- `5`: database, upstream API, protocol, or internal failure
+| Command | What it does |
+| --- | --- |
+| `/dev_clear` | Forget reported matches, so the next poll re-reports your real recent ones |
+| `/dev_report <game>` | Post a report built from mock API responses, no game required |
+| `/dev_signup <riot_name> <riot_tag>` | Track a Riot account under a fake Discord identity |
 
-The socket defaults to `/tmp/riot-tracker-bot-admin.sock`. Override it with
-`ADMIN_SOCKET_PATH` for local testing. Railway SSH is the authorization boundary;
-the bot does not expose a public admin port.
+`/dev_signup` exists because tracked users are just database rows — Discord
+membership is never checked. Registering a friend's Riot ID under a fabricated
+identity lets you produce real multi-user reports while you're the only person
+in the test server.
 
-If recovery from a bad mutation is required, stop the bot before restoring a
-persistent-volume backup so the live in-memory database cannot overwrite the
-restored file.
+```sh
+pnpm dev          # loads .env
+pnpm typecheck
+```
