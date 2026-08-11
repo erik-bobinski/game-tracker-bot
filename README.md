@@ -20,50 +20,25 @@ not touching the rest of the app.
 
 ## Admin CLI
 
-The same operations, without Discord. Useful when the bot is misbehaving, when
-someone needs signing up on their behalf, or when you just want to see what
-production thinks is true.
-
-```sh
-pnpm admin status
-pnpm admin signup syan#NA1 --discord-id 195042765893632000
-pnpm admin signout syan
-pnpm admin pause
-pnpm admin resume
-pnpm admin rank-check syan --game lol
-```
-
-In production it runs inside the container, next to the bot:
+The same operations, without Discord. It runs inside the production container,
+next to the bot:
 
 ```sh
 railway ssh --service riot-tracker-bot
-pnpm admin status
+pnpm admin <command>
 ```
 
-It shares its logic with the slash commands rather than reimplementing it:
-`src/services/discord/commands.ts` is the source of truth for what a command
-does, and `src/admin/index.ts` imports from it.
+| Command                               | What it does                                                  |
+| ------------------------------------- | ------------------------------------------------------------- |
+| `status`                              | Polling state, the database in use, and every tracked account |
+| `signup <riot-id> --discord-id <id>`  | Track a Riot account on someone's behalf                      |
+| `signout <target>`                    | Stop tracking an account and delete its data                  |
+| `pause` / `resume`                    | Stop or restart all reports                                   |
+| `rank-check <target> [--game <game>]` | Look up a tracked account's current rank                      |
 
-There is no socket and no server. The CLI opens the same SQLite file the bot
-uses, so writes are visible to the running process immediately; the bot re-reads
-the pause flag every few seconds, so `pause` and `resume` take effect without a
-restart. It follows that the CLI needs the same `DB_PATH` as the bot, and that
-`signup` and `rank-check` need `RIOT_API_KEY` and `HENRIK_API_KEY` — the other
-commands don't.
-
-It is built to be usable without looking anything up first:
-
-- **Targets** are a Discord user ID, a Discord name, or a Riot ID — whichever
-  you have. `pnpm admin signout syan`, `signout syan#NA1`, and
-  `signout 195042765893632000` all work.
-- **Omit an argument and it asks.** `pnpm admin signout` with no target opens a
-  filterable list of tracked accounts; `rank-check` picks the game for you when
-  the account only plays one. `--wizard` walks any command start to finish.
-- **`--help` on every command**, and `--completions <bash|zsh|fish>` if you want
-  tab completion.
-- **`--json` for scripts.** It prints the result as JSON and never prompts, so a
-  missing argument fails instead of hanging. Exit codes: `0` success, `2` bad
-  usage, `3` the command ran and could not do what you asked.
+`<target>` is a Discord user ID, a Discord name, or a Riot ID — whichever you
+have. Leave an argument off and the command asks for it. `--json` prints the
+result as JSON and never prompts, for scripts. Every command takes `--help`.
 
 ## Architecture
 
