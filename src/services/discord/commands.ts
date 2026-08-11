@@ -1,14 +1,16 @@
 import { Discord, DiscordREST, Ix } from "dfx";
 import { Effect, Option } from "effect";
-import type { AccountDeps } from "../accounts/index.ts";
-import { registerAccount } from "../accounts/index.ts";
+import type { Account, Database } from "../database/index.ts";
+import type { GameAdapters } from "../game/game-adapters/index.ts";
 import { gameNames, type GameId } from "../game/index.ts";
 import type { PollingState } from "../polling/state.ts";
 import type { DiscordError } from "./index.ts";
 import { rankEmbed, type MatchReport } from "./embed.ts";
 import { devCommands } from "./dev-commands.ts";
 
-export interface CommandDeps extends AccountDeps {
+export interface CommandDeps {
+  readonly database: Database["Service"];
+  readonly gameAdapters: GameAdapters["Service"];
   readonly rest: Effect.Success<typeof DiscordREST>;
   readonly pollingState: PollingState["Service"];
   readonly notifyMatch: (
@@ -27,6 +29,63 @@ export const reply = (
 export const deferredReply: Discord.CreateInteractionResponseRequest = {
   type: Discord.InteractionCallbackTypes.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
 };
+
+// Pre-reports current matches so the first poll doesn't repost old games.
+// Only needs the two services, so the admin cli can call it too.
+export const registerAccount = (
+  { database, gameAdapters }: Pick<CommandDeps, "database" | "gameAdapters">,
+  input: Omit<Account, "games">,
+) =>
+  Effect.gen(function* () {
+    // a riot id may exist in only one game, so each lookup fails on its own
+    const resolved = yield* Effect.forEach(
+      gameAdapters.all,
+      (adapter) =>
+        adapter.resolveAccount(input.riotName, input.riotTag).pipe(
+          Effect.flatMap(({ puuid, region }) =>
+            adapter.getRecentMatches(puuid, region).pipe(
+              Effect.catchTag("GameApiError", (error) =>
+                Effect.logWarning("baseline match fetch failed", error).pipe(
+                  Effect.as([]),
+                ),
+              ),
+              Effect.map((matches) => ({
+                game: adapter.game,
+                state: {
+                  puuid,
+                  reportedMatches: matches.map((match) => ({
+                    matchId: match.matchId,
+                    date: match.date,
+                  })),
+                  // matches carry the platformId they were played on, which
+                  // covers accounts the region lookup couldn't resolve
+                  region: region ?? matches[0]?.routingRegion,
+                },
+              })),
+            ),
+          ),
+          // a failed lookup is not the same as "no such account", but
+          // both leave this game untracked
+          Effect.catch((error) =>
+            Effect.logWarning("resolveAccount failed", error).pipe(
+              Effect.annotateLogs({ game: adapter.game }),
+              Effect.as(undefined),
+            ),
+          ),
+        ),
+      { concurrency: "unbounded" },
+    );
+
+    const games: Account["games"] = {};
+    for (const entry of resolved) {
+      if (entry) games[entry.game] = entry.state;
+    }
+
+    if (Object.keys(games).length === 0) return "not-found" as const;
+
+    yield* database.addAccount({ ...input, games });
+    return "ok" as const;
+  });
 
 const signup = (deps: CommandDeps) =>
   Ix.global(

@@ -40,6 +40,10 @@ railway ssh --service riot-tracker-bot
 pnpm admin status
 ```
 
+It shares its logic with the slash commands rather than reimplementing it:
+`src/services/discord/commands.ts` is the source of truth for what a command
+does, and `src/admin/index.ts` imports from it.
+
 There is no socket and no server. The CLI opens the same SQLite file the bot
 uses, so writes are visible to the running process immediately; the bot re-reads
 the pause flag every few seconds, so `pause` and `resume` take effect without a
@@ -74,7 +78,6 @@ src/
   services/
     polling/                   ticks every minute, respects the pause flag
     match-engine/              the core loop, see below
-    accounts/                  signup, shared by /signup and the admin CLI
     game/
       index.ts                 game-agnostic domain types
       game-adapters/           one adapter per game, behind a shared interface

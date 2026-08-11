@@ -9,10 +9,7 @@ import type {
   RankInfo,
   Region,
 } from "../index.ts";
-import type {
-  LolLeagueEntry,
-  LolMatch,
-} from "../game-api/lol/match-schema.ts";
+import type { LolLeagueEntry, LolMatch } from "../game-api/lol/match-schema.ts";
 
 const queue = (queueId: number, gameMode: string) =>
   new Map<number, string>([
@@ -44,7 +41,9 @@ const lolRank = (entry: LolLeagueEntry) => {
   return {
     iconKey,
     division,
-    label: division ? `${titleCase(entry.tier)} ${division}` : titleCase(entry.tier),
+    label: division
+      ? `${titleCase(entry.tier)} ${division}`
+      : titleCase(entry.tier),
   };
 };
 

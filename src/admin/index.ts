@@ -15,7 +15,7 @@ import {
   Schema,
 } from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
-import { registerAccount } from "../services/accounts/index.ts";
+import { registerAccount } from "../services/discord/commands.ts";
 import {
   Database,
   DatabaseLive,
@@ -68,63 +68,28 @@ const trackedGames = (account: Account) =>
     (game) => account.games[game] !== undefined,
   );
 
-const lastReportedAt = (account: Account) => {
-  const dates = trackedGames(account).flatMap((game) =>
-    (account.games[game]?.reportedMatches ?? []).map((match) => match.date),
-  );
-  return dates.length === 0 ? undefined : new Date(Math.max(...dates));
-};
-
-const columns = (rows: ReadonlyArray<ReadonlyArray<string>>) => {
-  const widths = rows.reduce<Array<number>>(
-    (acc, row) =>
-      row.map((cell, index) => Math.max(acc[index] ?? 0, cell.length)),
-    [],
-  );
-  return rows.map((row) =>
-    row
-      .map((cell, index) =>
-        index === row.length - 1 ? cell : cell.padEnd(widths[index] ?? 0),
-      )
-      .join("  "),
-  );
-};
-
 const accounts = Database.pipe(
   Effect.flatMap((database) => database.getAccounts()),
   orFail("Could not read accounts"),
 );
 
 // An operator has a discord name or a riot id at hand far more often than a
-// snowflake, so any of the three identifies an account.
-const findAccount = (list: ReadonlyArray<Account>, target: string) =>
-  Effect.gen(function* () {
-    const needle = target.trim().replace(/^@/, "").toLowerCase();
-    const [match, ...rest] = list.filter(
-      (account) =>
-        account.discordUserId === target.trim() ||
-        account.discordName.toLowerCase() === needle ||
-        riotId(account).toLowerCase() === needle ||
-        account.riotName.toLowerCase() === needle,
-    );
-
-    if (!match) return yield* fail(`No tracked account matches "${target}".`);
-    if (rest.length > 0) {
-      return yield* fail(
-        `"${target}" matches ${rest.length + 1} accounts; pass the discord user id instead.`,
-      );
-    }
-    return match;
-  });
-
-const pickAccount = (
+// snowflake, so any of the three names an account; with no target at all they
+// pick one off the list.
+const resolveAccount = (
   json: boolean,
   list: ReadonlyArray<Account>,
+  target: Option.Option<string>,
   message: string,
 ) =>
-  list.length === 0
-    ? fail("No accounts are signed up yet.")
-    : ask(
+  Effect.gen(function* () {
+    const wanted = Option.getOrUndefined(target)?.trim();
+
+    if (wanted === undefined) {
+      if (list.length === 0) {
+        return yield* fail("No accounts are signed up yet.");
+      }
+      return yield* ask(
         json,
         "Pass a discord id, discord name, or riot id.",
         Prompt.autoComplete({
@@ -136,16 +101,24 @@ const pickAccount = (
           })),
         }),
       );
+    }
 
-const resolveAccount = (
-  json: boolean,
-  list: ReadonlyArray<Account>,
-  target: Option.Option<string>,
-  message: string,
-) =>
-  Option.match(target, {
-    onNone: () => pickAccount(json, list, message),
-    onSome: (value) => findAccount(list, value),
+    const needle = wanted.replace(/^@/, "").toLowerCase();
+    const [match, ...rest] = list.filter(
+      (account) =>
+        account.discordUserId === wanted ||
+        account.discordName.toLowerCase() === needle ||
+        riotId(account).toLowerCase() === needle ||
+        account.riotName.toLowerCase() === needle,
+    );
+
+    if (!match) return yield* fail(`No tracked account matches "${wanted}".`);
+    if (rest.length > 0) {
+      return yield* fail(
+        `"${wanted}" matches ${rest.length + 1} accounts; pass the discord user id instead.`,
+      );
+    }
+    return match;
   });
 
 // Built per command rather than up front, so `status` and `pause` still work
@@ -187,15 +160,38 @@ const status = Command.make(
     const path = yield* databasePath;
 
     const rows = list.map((account) => {
-      const last = lastReportedAt(account);
+      const games = trackedGames(account);
+      const dates = games.flatMap((game) =>
+        (account.games[game]?.reportedMatches ?? []).map((match) => match.date),
+      );
       return {
         discordUserId: account.discordUserId,
         discordName: account.discordName,
         riotId: riotId(account),
-        games: trackedGames(account),
-        lastReportedAt: last?.toISOString(),
+        games,
+        lastReportedAt:
+          dates.length === 0
+            ? undefined
+            : new Date(Math.max(...dates)).toISOString(),
       };
     });
+
+    // header plus one line per account, every column but the last padded out
+    const table = [
+      ["DISCORD", "DISCORD ID", "RIOT ID", "GAMES", "LAST REPORT"],
+      ...rows.map((row) => [
+        row.discordName,
+        row.discordUserId,
+        row.riotId,
+        row.games.join(", ") || "-",
+        row.lastReportedAt?.replace("T", " ").slice(0, 16) ?? "never",
+      ]),
+    ];
+    const widths = table.reduce<Array<number>>(
+      (acc, row) =>
+        row.map((cell, index) => Math.max(acc[index] ?? 0, cell.length)),
+      [],
+    );
 
     yield* emit(
       json,
@@ -204,21 +200,18 @@ const status = Command.make(
         `Polling:   ${paused ? "paused" : "active"}`,
         `Accounts:  ${list.length}`,
         `Database:  ${path}`,
+        "",
         ...(rows.length === 0
-          ? ["", "No accounts are signed up yet."]
-          : [
-              "",
-              ...columns([
-                ["DISCORD", "DISCORD ID", "RIOT ID", "GAMES", "LAST REPORT"],
-                ...rows.map((row) => [
-                  row.discordName,
-                  row.discordUserId,
-                  row.riotId,
-                  row.games.join(", ") || "-",
-                  row.lastReportedAt?.replace("T", " ").slice(0, 16) ?? "never",
-                ]),
-              ]),
-            ]),
+          ? ["No accounts are signed up yet."]
+          : table.map((row) =>
+              row
+                .map((cell, index) =>
+                  index === row.length - 1
+                    ? cell
+                    : cell.padEnd(widths[index] ?? 0),
+                )
+                .join("  "),
+            )),
       ],
     );
   }),
