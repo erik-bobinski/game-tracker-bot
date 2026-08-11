@@ -70,13 +70,12 @@ export interface RankUpdate {
   readonly unit: string;
 }
 
-export const RankSnapshot = Schema.Struct({
-  standing: Schema.String,
-  points: Schema.Number,
-});
-export interface RankSnapshot extends Schema.Schema.Type<typeof RankSnapshot> {}
-
-export const RankSnapshots = Schema.Record(Schema.String, RankSnapshot);
+// the last standing an adapter persisted, keyed by whatever queue identifier
+// that game ranks separately, so the next report can diff against it
+export const RankSnapshots = Schema.Record(
+  Schema.String,
+  Schema.Struct({ standing: Schema.String, points: Schema.Number }),
+);
 export type RankSnapshots = typeof RankSnapshots.Type;
 
 export const Puuid = Schema.String.pipe(Schema.brand("Puuid"));

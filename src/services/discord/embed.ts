@@ -36,11 +36,6 @@ const rankEmoji = (player: MatchPlayer, game: GameId, emojis: RankEmojis) => {
   );
 };
 
-export const formatRankUpdate = (update: RankUpdate) =>
-  update.delta !== undefined
-    ? `${update.delta >= 0 ? "+" : ""}${update.delta} ${update.unit}${update.current ? ` (${update.current})` : ""}`
-    : update.current;
-
 const leaderboard = (
   players: ReadonlyArray<MatchPlayer>,
   trackedPuuids: ReadonlySet<Puuid>,
@@ -55,7 +50,10 @@ const leaderboard = (
       const name = trackedPuuids.has(player.puuid) ? `**${rawName}**` : rawName;
       const icon = rankEmoji(player, game, emojis);
       const update = rankUpdates.get(player.puuid);
-      const rankUpdate = update ? formatRankUpdate(update) : undefined;
+      const rankUpdate =
+        update?.delta !== undefined
+          ? `${update.delta >= 0 ? "+" : ""}${update.delta} ${update.unit}${update.current ? ` (${update.current})` : ""}`
+          : update?.current;
       const prefix = icon
         ? `${icon}${player.rankDivision ? ` \`${player.rankDivision}\`` : ""} `
         : "";

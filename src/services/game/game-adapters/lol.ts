@@ -12,7 +12,6 @@ import type {
   MatchTeam,
   Puuid,
   RankInfo,
-  RankSnapshot,
   RankSnapshots,
   RankUpdate,
   Region,
@@ -54,19 +53,6 @@ const lolRank = (entry: LolLeagueEntry) => {
     label: division
       ? `${titleCase(entry.tier)} ${division}`
       : titleCase(entry.tier),
-  };
-};
-
-export const lolRankUpdate = (
-  entry: LolLeagueEntry,
-  previous: RankSnapshot | undefined,
-): RankUpdate => {
-  const { label } = lolRank(entry);
-  const comparable = previous?.standing === lolStanding(entry);
-  return {
-    ...(comparable ? { delta: entry.leaguePoints - previous.points } : {}),
-    current: comparable ? label : `${label} · ${entry.leaguePoints} LP`,
-    unit: "LP",
   };
 };
 
@@ -227,16 +213,21 @@ export const makeLolGameAdapter = Effect.gen(function* () {
       for (const tracked of trackedPlayers) {
         const entry = ranks.get(tracked.puuid);
         if (!entry) continue;
-        rankUpdates.set(
-          tracked.puuid,
-          lolRankUpdate(entry, tracked.previousRankSnapshots[queueType]),
-        );
+        const standing = lolStanding(entry);
+        const { label } = lolRank(entry);
+        // a delta only means anything within the same tier and division
+        const previous = tracked.previousRankSnapshots[queueType];
+        const comparable = previous?.standing === standing;
+        rankUpdates.set(tracked.puuid, {
+          ...(comparable
+            ? { delta: entry.leaguePoints - previous.points }
+            : {}),
+          current: comparable ? label : `${label} · ${entry.leaguePoints} LP`,
+          unit: "LP",
+        });
         updatedRankSnapshots.set(tracked.puuid, {
           ...tracked.previousRankSnapshots,
-          [queueType]: {
-            standing: lolStanding(entry),
-            points: entry.leaguePoints,
-          },
+          [queueType]: { standing, points: entry.leaguePoints },
         });
       }
 

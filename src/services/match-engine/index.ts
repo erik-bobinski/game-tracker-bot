@@ -15,17 +15,15 @@ import {
   type Region,
 } from "../game/index.ts";
 
-interface PendingPlayer {
-  readonly discordName: string;
-  readonly discordUserId: string;
-  readonly puuid: Puuid;
-  readonly region: Region | undefined;
-}
-
 interface PendingMatch {
   readonly adapter: GameAdapter;
   readonly match: MatchDetails;
-  readonly players: Array<PendingPlayer>;
+  readonly players: Array<{
+    readonly discordName: string;
+    readonly discordUserId: string;
+    readonly puuid: Puuid;
+    readonly region: Region | undefined;
+  }>;
   readonly currentRankSnapshots: Map<Puuid, RankSnapshots>;
 }
 
