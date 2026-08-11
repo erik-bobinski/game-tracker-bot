@@ -75,8 +75,9 @@ export const HenrikApiClientLive = Layer.effect(
           `/valorant/v2/account/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`,
         );
         const json = yield* res.json;
-        const { data } =
-          yield* Schema.decodeUnknownEffect(ValAccountResponse)(json);
+        const { data } = yield* Schema.decodeUnknownEffect(ValAccountResponse)(
+          json,
+        );
         return { puuid: data.puuid, region: data.region.toLowerCase() };
       },
     );
