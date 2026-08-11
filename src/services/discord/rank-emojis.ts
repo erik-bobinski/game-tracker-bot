@@ -25,12 +25,16 @@ export const provisionRankEmojis = Effect.fn("Discord.provisionRankEmojis")(
       existing.map((emoji) => [emoji.name, emoji]),
     );
     const resolved: Record<string, string> = {};
+    let reused = 0;
+    let uploaded = 0;
 
     for (const adapter of adapters) {
       for (const icon of adapter.rankIcons) {
         const name = emojiName(adapter.game, icon.key);
+        const existingEmoji = existingByName.get(name);
+        if (existingEmoji) reused++;
         const emoji =
-          existingByName.get(name) ??
+          existingEmoji ??
           (yield* Effect.gen(function* () {
             const bytes = icon.url.startsWith("file:")
               ? new Uint8Array(
@@ -40,16 +44,20 @@ export const provisionRankEmojis = Effect.fn("Discord.provisionRankEmojis")(
                       new Error(`could not read ${icon.url}: ${cause}`),
                   }),
                 )
-              : new Uint8Array(yield* (yield* client.get(icon.url)).arrayBuffer);
+              : new Uint8Array(
+                  yield* (yield* client.get(icon.url)).arrayBuffer,
+                );
             if (bytes.byteLength > MAX_EMOJI_BYTES) {
               return yield* Effect.fail(
                 new Error(`${name} exceeds Discord's 256 KiB emoji limit`),
               );
             }
-            return yield* rest.createApplicationEmoji(application.id, {
+            const created = yield* rest.createApplicationEmoji(application.id, {
               name,
               image: `data:image/png;base64,${Encoding.encodeBase64(bytes)}`,
             });
+            uploaded++;
+            return created;
           }).pipe(
             Effect.catch((error) =>
               Effect.logWarning("rank emoji provisioning failed", error).pipe(
@@ -63,6 +71,10 @@ export const provisionRankEmojis = Effect.fn("Discord.provisionRankEmojis")(
           resolved[`${adapter.game}.${icon.key}`] = `<:${name}:${emoji.id}>`;
       }
     }
+
+    yield* Effect.logInfo("rank emoji provisioning finished").pipe(
+      Effect.annotateLogs({ reused, uploaded }),
+    );
 
     return resolved satisfies RankEmojis;
   },

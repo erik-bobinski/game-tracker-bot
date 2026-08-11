@@ -1,4 +1,5 @@
 import type { Discord } from "dfx";
+import { gameNames } from "../game/index.ts";
 import type {
   GameId,
   MatchDetails,
@@ -16,11 +17,6 @@ export interface MatchReport {
 }
 
 export type RankEmojis = Readonly<Record<string, string>>;
-
-export const gameNames: Record<GameId, string> = {
-  lol: "League of Legends",
-  valorant: "Valorant",
-};
 
 const nameList = (names: ReadonlyArray<string>) => {
   const bolded = names.map((name) => `**${name}**`);
@@ -123,8 +119,6 @@ export const matchEmbed = (
     `${formatDuration(report.match.durationSeconds)}${report.match.surrendered ? " (surrender)" : ""}`,
     trackedTeam?.score?.join("–"),
   ].filter((value): value is string => Boolean(value));
-  const thumbnail = trackedPlayer?.thumbnailUrl;
-
   return {
     title: `${verdict} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
     description: [
@@ -144,6 +138,5 @@ export const matchEmbed = (
         .join("\n\n"),
     ].join("\n"),
     color,
-    ...(thumbnail ? { thumbnail: { url: thumbnail } } : {}),
   };
 };

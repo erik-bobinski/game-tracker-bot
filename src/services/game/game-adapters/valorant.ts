@@ -72,7 +72,6 @@ export const valMatchToDetails = (match: ValRawMatch): MatchDetails => {
         ? { rank: player.tier.name }
         : {}),
       ...(iconKey ? { rankIconKey: iconKey } : {}),
-      thumbnailUrl: `https://media.valorant-api.com/agents/${encodeURIComponent(player.agent.id)}/displayicon.png`,
     };
   });
 

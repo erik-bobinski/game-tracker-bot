@@ -1,29 +1,19 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { Database } from "../database/index.ts";
-import {
-  type MatchDetails,
-  type Puuid,
-  type RankSnapshots,
-  type Region,
-} from "../game/index.ts";
-import { Discord, type DiscordError } from "../discord/index.ts";
+import { Discord } from "../discord/index.ts";
 import {
   emptyEnrichment,
   GameAdapters,
   type GameAdapter,
 } from "../game/game-adapters/index.ts";
-import { GameId, MatchId } from "../game/index.ts";
-import type { SqlError } from "effect/unstable/sql/SqlError";
-
-export class MatchEngine extends Context.Service<
-  MatchEngine,
-  {
-    readonly pollOnce: () => Effect.Effect<
-      void,
-      SqlError | Schema.SchemaError | DiscordError
-    >;
-  }
->()("app/MatchEngine") {}
+import {
+  GameId,
+  MatchId,
+  type MatchDetails,
+  type Puuid,
+  type RankSnapshots,
+  type Region,
+} from "../game/index.ts";
 
 interface PendingPlayer {
   readonly discordName: string;
@@ -44,7 +34,7 @@ const makeMatchEngine = Effect.gen(function* () {
   const gameAdapters = yield* GameAdapters;
   const discord = yield* Discord;
 
-  const pollOnce = Effect.gen(function* () {
+  const pollOnce = Effect.fn("MatchEngine.pollOnce")(function* () {
     const accounts = yield* database.getAccounts();
     const matchesToReport = new Map<GameId, Map<MatchId, PendingMatch>>();
 
@@ -71,7 +61,9 @@ const makeMatchEngine = Effect.gen(function* () {
             Effect.catchTag("GameApiError", (error) =>
               Effect.logWarning("skipping account this poll", error).pipe(
                 Effect.annotateLogs({
+                  game: adapter.game,
                   discordUser: `${account.discordName} (${account.discordUserId})`,
+                  riotId: `${account.riotName}#${account.riotTag}`,
                 }),
                 Effect.as([]),
               ),
@@ -154,9 +146,19 @@ const makeMatchEngine = Effect.gen(function* () {
         currentRankSnapshots.set(player.puuid, snapshots);
       }
     }
+
+    return {
+      accountsScanned: accounts.length,
+      matchesReported: pending.length,
+    };
   });
 
-  return MatchEngine.of({ pollOnce: () => pollOnce });
+  return { pollOnce };
 });
+
+export class MatchEngine extends Context.Service<
+  MatchEngine,
+  Effect.Success<typeof makeMatchEngine>
+>()("app/MatchEngine") {}
 
 export const MatchEngineLive = Layer.effect(MatchEngine, makeMatchEngine);

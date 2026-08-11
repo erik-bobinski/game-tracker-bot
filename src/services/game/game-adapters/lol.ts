@@ -121,7 +121,6 @@ export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
           (participant.kills + participant.assists) /
           Math.max(participant.deaths, 1),
         ...(multiKill ? { flair: multiKill } : {}),
-        thumbnailUrl: `https://cdn.communitydragon.org/latest/champion/${encodeURIComponent(participant.championName)}/square`,
       };
     },
   );
