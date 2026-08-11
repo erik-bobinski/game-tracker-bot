@@ -1,12 +1,10 @@
-import { Context, Effect, Layer, Schedule, SubscriptionRef } from "effect";
+import { Context, Effect, Layer, SubscriptionRef } from "effect";
 import { Database } from "../database/index.ts";
-
-// short enough that `admin pause` looks instant to whoever ran it
-const REFRESH_INTERVAL = "5 seconds";
 
 // The database row is the source of truth, because the admin cli flips it from
 // its own process; `paused` is the live copy the poll loop and the discord
-// presence read, and `setPaused` is the only writer inside the bot.
+// presence read. `setPaused` is the only writer inside the bot, and `refresh`
+// is how a write from outside it gets noticed.
 const makePollingState = Effect.gen(function* () {
   const database = yield* Database;
   const paused = yield* SubscriptionRef.make(
@@ -20,16 +18,18 @@ const makePollingState = Effect.gen(function* () {
     yield* SubscriptionRef.set(paused, next);
   });
 
-  yield* database.getPollingPaused().pipe(
-    Effect.flatMap((next) => SubscriptionRef.set(paused, next)),
+  // A failed read leaves the last known value in place rather than skipping the
+  // poll it was called from.
+  const refresh = Effect.fn("PollingState.refresh")(
+    function* () {
+      yield* SubscriptionRef.set(paused, yield* database.getPollingPaused());
+    },
     Effect.catch((error) =>
       Effect.logError("failed to re-read pause state", error),
     ),
-    Effect.repeat(Schedule.spaced(REFRESH_INTERVAL)),
-    Effect.forkScoped,
   );
 
-  return { paused, setPaused };
+  return { paused, setPaused, refresh };
 });
 
 export class PollingState extends Context.Service<
