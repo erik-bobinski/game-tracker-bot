@@ -60,6 +60,7 @@ export const registerAccount = (
                   // matches carry the platformId they were played on, which
                   // covers accounts the region lookup couldn't resolve
                   region: region ?? matches[0]?.routingRegion,
+                  rankSnapshots: {},
                 },
               })),
             ),

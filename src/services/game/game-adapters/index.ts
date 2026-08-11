@@ -5,6 +5,8 @@ import {
   type MatchDetails,
   type Puuid,
   type RankInfo,
+  type RankSnapshots,
+  type RankUpdate,
   type Region,
   type ResolvedAccount,
 } from "../index.ts";
@@ -36,9 +38,21 @@ export interface GameAdapter {
     region: Region | undefined,
   ) => Effect.Effect<ReadonlyArray<MatchDetails>, GameApiError>;
 
-  readonly enrichMatch: (
-    match: MatchDetails,
-  ) => Effect.Effect<MatchDetails, GameApiError>;
+  readonly enrichMatch: (input: {
+    readonly match: MatchDetails;
+    readonly trackedPlayers: ReadonlyArray<{
+      readonly puuid: Puuid;
+      readonly region: Region | undefined;
+      readonly previousRankSnapshots: RankSnapshots;
+    }>;
+  }) => Effect.Effect<
+    {
+      readonly match: MatchDetails;
+      readonly rankUpdates: ReadonlyMap<Puuid, RankUpdate>;
+      readonly updatedRankSnapshots: ReadonlyMap<Puuid, RankSnapshots>;
+    },
+    GameApiError
+  >;
 
   // undefined means the account is unranked, not that the lookup failed
   readonly getRank: (
@@ -53,6 +67,12 @@ export interface RankIcon {
   // emoji-sized art is too small to fill an embed, which is what centers it
   readonly largeUrl?: string;
 }
+
+export const emptyEnrichment = (match: MatchDetails) => ({
+  match,
+  rankUpdates: new Map<Puuid, RankUpdate>(),
+  updatedRankSnapshots: new Map<Puuid, RankSnapshots>(),
+});
 
 export class GameAdapters extends Context.Service<
   GameAdapters,

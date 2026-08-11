@@ -245,6 +245,7 @@ const devReport = (deps: CommandDeps) =>
                   valMockResponse(),
                 ),
               );
+        const rankUnit = match.game === "lol" ? "LP" : "RR";
 
         // claim two mock players as tracked so the multi-user report renders
         yield* deps.notifyMatch({
@@ -253,6 +254,16 @@ const devReport = (deps: CommandDeps) =>
             .slice(0, 2)
             .map((player) => player.puuid),
           match,
+          rankUpdates: new Map(
+            match.players.slice(0, 2).map((player, index) => [
+              player.puuid,
+              {
+                delta: index === 0 ? 18 : -21,
+                ...(player.rank ? { current: player.rank } : {}),
+                unit: rankUnit,
+              },
+            ]),
+          ),
         });
         return reply("Mock match report sent.");
       }).pipe(

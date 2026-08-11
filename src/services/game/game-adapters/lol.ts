@@ -1,18 +1,22 @@
 import { Effect } from "effect";
 import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
-import { GameApiError, RECENT_MATCH_COUNT, type GameAdapter } from "./index.ts";
+import {
+  GameApiError,
+  RECENT_MATCH_COUNT,
+  emptyEnrichment,
+  type GameAdapter,
+} from "./index.ts";
 import type {
   MatchDetails,
   MatchPlayer,
   MatchTeam,
   Puuid,
   RankInfo,
+  RankSnapshots,
+  RankUpdate,
   Region,
 } from "../index.ts";
-import type {
-  LolLeagueEntry,
-  LolMatch,
-} from "../game-api/lol/match-schema.ts";
+import type { LolLeagueEntry, LolMatch } from "../game-api/lol/match-schema.ts";
 
 const queue = (queueId: number, gameMode: string) =>
   new Map<number, string>([
@@ -35,6 +39,8 @@ const queue = (queueId: number, gameMode: string) =>
 const titleCase = (value: string) =>
   value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
 
+const lolStanding = (entry: LolLeagueEntry) => `${entry.tier} ${entry.rank}`;
+
 // the apex tiers only ever sit in division I, which riot's own client omits
 const APEX_TIERS = new Set(["master", "grandmaster", "challenger"]);
 
@@ -44,7 +50,9 @@ const lolRank = (entry: LolLeagueEntry) => {
   return {
     iconKey,
     division,
-    label: division ? `${titleCase(entry.tier)} ${division}` : titleCase(entry.tier),
+    label: division
+      ? `${titleCase(entry.tier)} ${division}`
+      : titleCase(entry.tier),
   };
 };
 
@@ -167,40 +175,64 @@ export const makeLolGameAdapter = Effect.gen(function* () {
           }),
       ),
     ),
-    enrichMatch: Effect.fn("GameAdapter.lol.enrichMatch")(
-      function* (match: MatchDetails) {
-        const queueType =
-          match.mode === "Ranked Solo/Duo"
-            ? "RANKED_SOLO_5x5"
-            : match.mode === "Ranked Flex"
-              ? "RANKED_FLEX_SR"
-              : undefined;
-        if (!queueType) return match;
+    enrichMatch: Effect.fn("GameAdapter.lol.enrichMatch")(function* ({
+      match,
+      trackedPlayers,
+    }) {
+      const queueType =
+        match.mode === "Ranked Solo/Duo"
+          ? "RANKED_SOLO_5x5"
+          : match.mode === "Ranked Flex"
+            ? "RANKED_FLEX_SR"
+            : undefined;
+      const platformId = match.routingRegion;
+      if (!queueType || !platformId) return emptyEnrichment(match);
 
-        const platformId = match.routingRegion;
-        if (!platformId) return match;
-
-        const ranks = new Map<Puuid, LolLeagueEntry>();
-        yield* Effect.forEach(
-          match.players,
-          (player) =>
-            riotClient.getLeagueEntries(player.puuid, platformId).pipe(
-              Effect.map((entries) => {
-                const entry = entries.find(
-                  (candidate) => candidate.queueType === queueType,
-                );
-                if (entry) ranks.set(player.puuid, entry);
-              }),
-              Effect.catch((error) =>
-                Effect.logWarning("rank unavailable for lol player").pipe(
-                  Effect.annotateLogs({ puuid: player.puuid, error }),
-                ),
+      const ranks = new Map<Puuid, LolLeagueEntry>();
+      yield* Effect.forEach(
+        trackedPlayers,
+        (player) =>
+          riotClient.getLeagueEntries(player.puuid, platformId).pipe(
+            Effect.map((entries) => {
+              const entry = entries.find(
+                (candidate) => candidate.queueType === queueType,
+              );
+              if (entry) ranks.set(player.puuid, entry);
+            }),
+            Effect.catch((error) =>
+              Effect.logWarning("rank unavailable for lol player").pipe(
+                Effect.annotateLogs({ puuid: player.puuid, error }),
               ),
             ),
-          { concurrency: 3 },
-        );
+          ),
+        { concurrency: 3 },
+      );
 
-        return {
+      const rankUpdates = new Map<Puuid, RankUpdate>();
+      const updatedRankSnapshots = new Map<Puuid, RankSnapshots>();
+      for (const tracked of trackedPlayers) {
+        const entry = ranks.get(tracked.puuid);
+        if (!entry) continue;
+        const standing = lolStanding(entry);
+        const { label } = lolRank(entry);
+        // a delta only means anything within the same tier and division
+        const previous = tracked.previousRankSnapshots[queueType];
+        const comparable = previous?.standing === standing;
+        rankUpdates.set(tracked.puuid, {
+          ...(comparable
+            ? { delta: entry.leaguePoints - previous.points }
+            : {}),
+          current: comparable ? label : `${label} · ${entry.leaguePoints} LP`,
+          unit: "LP",
+        });
+        updatedRankSnapshots.set(tracked.puuid, {
+          ...tracked.previousRankSnapshots,
+          [queueType]: { standing, points: entry.leaguePoints },
+        });
+      }
+
+      return {
+        match: {
           ...match,
           players: match.players.map((player) => {
             const entry = ranks.get(player.puuid);
@@ -213,17 +245,11 @@ export const makeLolGameAdapter = Effect.gen(function* () {
               ...(division ? { rankDivision: division } : {}),
             };
           }),
-        };
-      },
-      Effect.mapError(
-        (cause) =>
-          new GameApiError({
-            game: "lol",
-            operation: "enrichMatch",
-            cause,
-          }),
-      ),
-    ),
+        },
+        rankUpdates,
+        updatedRankSnapshots,
+      };
+    }),
     getRank: Effect.fn("GameAdapter.lol.getRank")(
       function* (puuid: Puuid, region: Region | undefined) {
         // league-v4 is shard-routed, so an unknown shard means no rank

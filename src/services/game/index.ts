@@ -64,6 +64,20 @@ export interface RankInfo {
   readonly iconKey?: string;
 }
 
+export interface RankUpdate {
+  readonly delta?: number;
+  readonly current?: string;
+  readonly unit: string;
+}
+
+// the last standing an adapter persisted, keyed by whatever queue identifier
+// that game ranks separately, so the next report can diff against it
+export const RankSnapshots = Schema.Record(
+  Schema.String,
+  Schema.Struct({ standing: Schema.String, points: Schema.Number }),
+);
+export type RankSnapshots = typeof RankSnapshots.Type;
+
 export const Puuid = Schema.String.pipe(Schema.brand("Puuid"));
 export type Puuid = typeof Puuid.Type;
 
