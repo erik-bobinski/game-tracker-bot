@@ -1,23 +1,22 @@
 import type { Discord } from "dfx";
+import { gameNames } from "../game/index.ts";
 import type {
   GameId,
   MatchDetails,
   MatchPlayer,
+  Puuid,
   RankInfo,
+  RankUpdate,
 } from "../game/index.ts";
 
 export interface MatchReport {
   readonly discordNames: ReadonlyArray<string>;
-  readonly trackedPuuids: ReadonlyArray<string>;
+  readonly trackedPuuids: ReadonlyArray<Puuid>;
   readonly match: MatchDetails;
+  readonly rankUpdates: ReadonlyMap<Puuid, RankUpdate>;
 }
 
 export type RankEmojis = Readonly<Record<string, string>>;
-
-export const gameNames: Record<GameId, string> = {
-  lol: "League of Legends",
-  valorant: "Valorant",
-};
 
 const nameList = (names: ReadonlyArray<string>) => {
   const bolded = names.map((name) => `**${name}**`);
@@ -39,9 +38,10 @@ const rankEmoji = (player: MatchPlayer, game: GameId, emojis: RankEmojis) => {
 
 const leaderboard = (
   players: ReadonlyArray<MatchPlayer>,
-  trackedPuuids: ReadonlySet<string>,
+  trackedPuuids: ReadonlySet<Puuid>,
   game: GameId,
   emojis: RankEmojis,
+  rankUpdates: ReadonlyMap<Puuid, RankUpdate>,
 ) =>
   [...players]
     .sort((a, b) => b.sortKey - a.sortKey)
@@ -49,10 +49,20 @@ const leaderboard = (
       const rawName = `${player.riotName}#${player.riotTag}`;
       const name = trackedPuuids.has(player.puuid) ? `**${rawName}**` : rawName;
       const icon = rankEmoji(player, game, emojis);
+      const update = rankUpdates.get(player.puuid);
+      const rankUpdate =
+        update?.delta !== undefined
+          ? `${update.delta >= 0 ? "+" : ""}${update.delta} ${update.unit}${update.current ? ` (${update.current})` : ""}`
+          : update?.current;
       const prefix = icon
         ? `${icon}${player.rankDivision ? ` \`${player.rankDivision}\`` : ""} `
         : "";
-      const extras = [player.stat, icon ? undefined : player.rank, player.flair]
+      const extras = [
+        player.stat,
+        rankUpdate,
+        icon ? undefined : player.rank,
+        player.flair,
+      ]
         .filter((value): value is string => Boolean(value))
         .map((value) => ` · ${value}`)
         .join("");
@@ -107,8 +117,6 @@ export const matchEmbed = (
     `${formatDuration(report.match.durationSeconds)}${report.match.surrendered ? " (surrender)" : ""}`,
     trackedTeam?.score?.join("–"),
   ].filter((value): value is string => Boolean(value));
-  const thumbnail = trackedPlayer?.thumbnailUrl;
-
   return {
     title: `${verdict} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
     description: [
@@ -117,11 +125,16 @@ export const matchEmbed = (
       "",
       teams
         .map((players) =>
-          leaderboard(players, trackedPuuids, report.match.game, rankEmojis),
+          leaderboard(
+            players,
+            trackedPuuids,
+            report.match.game,
+            rankEmojis,
+            report.rankUpdates,
+          ),
         )
         .join("\n\n"),
     ].join("\n"),
     color,
-    ...(thumbnail ? { thumbnail: { url: thumbnail } } : {}),
   };
 };

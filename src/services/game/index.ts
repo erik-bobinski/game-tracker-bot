@@ -3,6 +3,12 @@ import { Schema } from "effect";
 export const GameId = Schema.Literals(["lol", "valorant"]);
 export type GameId = typeof GameId.Type;
 
+// how a game is named to a human, in discord or in the admin cli
+export const gameNames: Record<GameId, string> = {
+  lol: "League of Legends",
+  valorant: "Valorant",
+};
+
 export const EpochMillis = Schema.Number.pipe(Schema.brand("EpochMillis"));
 export type EpochMillis = typeof EpochMillis.Type;
 
@@ -21,7 +27,6 @@ export interface MatchPlayer {
   readonly rankIconKey?: string;
   readonly rankDivision?: string;
   readonly flair?: string;
-  readonly thumbnailUrl?: string;
 }
 
 export interface MatchTeam {
@@ -58,6 +63,20 @@ export interface RankInfo {
   // matches a GameAdapter.rankIcons key, so it renders with the same emojis
   readonly iconKey?: string;
 }
+
+export interface RankUpdate {
+  readonly delta?: number;
+  readonly current?: string;
+  readonly unit: string;
+}
+
+// the last standing an adapter persisted, keyed by whatever queue identifier
+// that game ranks separately, so the next report can diff against it
+export const RankSnapshots = Schema.Record(
+  Schema.String,
+  Schema.Struct({ standing: Schema.String, points: Schema.Number }),
+);
+export type RankSnapshots = typeof RankSnapshots.Type;
 
 export const Puuid = Schema.String.pipe(Schema.brand("Puuid"));
 export type Puuid = typeof Puuid.Type;

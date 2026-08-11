@@ -1,6 +1,11 @@
 import { Effect } from "effect";
 import { HenrikApiClient } from "../game-api/val/henrik-api-client.ts";
-import { GameApiError, RECENT_MATCH_COUNT, type GameAdapter } from "./index.ts";
+import {
+  GameApiError,
+  RECENT_MATCH_COUNT,
+  emptyEnrichment,
+  type GameAdapter,
+} from "./index.ts";
 import {
   EpochMillis,
   type MatchDetails,
@@ -67,7 +72,6 @@ export const valMatchToDetails = (match: ValRawMatch): MatchDetails => {
         ? { rank: player.tier.name }
         : {}),
       ...(iconKey ? { rankIconKey: iconKey } : {}),
-      thumbnailUrl: `https://media.valorant-api.com/agents/${encodeURIComponent(player.agent.id)}/displayicon.png`,
     };
   });
 
@@ -124,9 +128,41 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
           }),
       ),
     ),
-    enrichMatch: Effect.fn("GameAdapter.valorant.enrichMatch")(
-      (match: MatchDetails) => Effect.succeed(match),
-    ),
+    enrichMatch: Effect.fn("GameAdapter.valorant.enrichMatch")(function* ({
+      match,
+      trackedPlayers,
+    }) {
+      const enrichment = emptyEnrichment(match);
+      if (match.mode !== "Competitive") return enrichment;
+
+      yield* Effect.forEach(
+        trackedPlayers,
+        ({ puuid, region }) =>
+          henrikClient.getMmrHistory(puuid, region).pipe(
+            Effect.map((history) => {
+              const entry = history.find(
+                (candidate) =>
+                  candidate.matchId.toLowerCase() ===
+                  match.matchId.toLowerCase(),
+              );
+              if (entry)
+                enrichment.rankUpdates.set(puuid, {
+                  delta: entry.delta,
+                  current: entry.current,
+                  unit: "RR",
+                });
+            }),
+            Effect.catch((error) =>
+              Effect.logWarning("valorant RR unavailable", error).pipe(
+                Effect.annotateLogs({ puuid, matchId: match.matchId }),
+              ),
+            ),
+          ),
+        { concurrency: 3 },
+      );
+
+      return enrichment;
+    }),
     getRank: Effect.fn("GameAdapter.valorant.getRank")(
       function* (puuid: Puuid, region: Region | undefined) {
         const rank = yield* henrikClient.getRank(puuid, region);

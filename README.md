@@ -11,12 +11,34 @@ not touching the rest of the app.
 
 ## Commands
 
-| Command | What it does |
-| --- | --- |
-| `/signup <riot_name> <riot_tag>` | Start reporting your matches |
-| `/signout` | Stop tracking and delete your data |
-| `/rank_check <user> <game>` | Post someone's current rank with their tier emblem |
-| `/pause` / `/resume` | Stop or restart all reports (the bot goes idle while paused) |
+| Command                          | What it does                                                 |
+| -------------------------------- | ------------------------------------------------------------ |
+| `/signup <riot_name> <riot_tag>` | Start reporting your matches                                 |
+| `/signout`                       | Stop tracking and delete your data                           |
+| `/rank_check <user> <game>`      | Post someone's current rank with their tier emblem           |
+| `/pause` / `/resume`             | Stop or restart all reports (the bot goes idle while paused) |
+
+## Admin CLI
+
+The same operations, without Discord. It runs inside the production container,
+next to the bot:
+
+```sh
+railway ssh --service riot-tracker-bot
+pnpm admin <command>
+```
+
+| Command                               | What it does                                                  |
+| ------------------------------------- | ------------------------------------------------------------- |
+| `status`                              | Polling state, the database in use, and every tracked account |
+| `signup <riot-id> --discord-id <id>`  | Track a Riot account on someone's behalf                      |
+| `signout <target>`                    | Stop tracking an account and delete its data                  |
+| `pause` / `resume`                    | Stop or restart all reports                                   |
+| `rank-check <target> [--game <game>]` | Look up a tracked account's current rank                      |
+
+`<target>` is a Discord user ID, a Discord name, or a Riot ID — whichever you
+have. Leave an argument off and the command asks for it. `--json` prints the
+result as JSON and never prompts, for scripts. Every command takes `--help`.
 
 ## Architecture
 
@@ -27,6 +49,7 @@ together as layers in `src/index.ts`.
 ```
 src/
   index.ts                     layer wiring and entry point
+  admin/                       the admin CLI, a second entry point
   services/
     polling/                   ticks every minute, respects the pause flag
     match-engine/              the core loop, see below
@@ -46,16 +69,17 @@ it as reported.
 
 ### Adding a game
 
-1. Add the game ID to `GameId` in `src/services/game/index.ts` and its display
-   name to `gameNames` in `src/services/discord/embed.ts`.
+1. Add the game ID to `GameId` in `src/services/game/index.ts`, along with its
+   display name in `gameNames` just below it.
 2. Add an API client and decode schemas under `src/services/game/game-api/`.
 3. Implement `GameAdapter` in `src/services/game/game-adapters/`: resolve an
    account, fetch recent matches, map them to `MatchDetails`, optionally enrich
    them, and fetch rank data.
 4. Register the adapter in `GameAdaptersLive` and provide its API-client layer
    from `src/index.ts`.
-5. Add the game to the `/rank_check` choices and development report mocks, then
-   run `pnpm typecheck` and test `/dev_report`.
+5. Add the game to the `/rank_check` choices, the admin CLI's `--game` choices,
+   and the development report mocks, then run `pnpm typecheck` and test
+   `/dev_report`.
 
 Keep game-specific API shapes inside the client and adapter. Once they produce
 the shared types, polling, deduplication, storage, and Discord reporting should
@@ -76,12 +100,12 @@ cp .env.example .env
 
 Fill in `.env`:
 
-| Variable | How to get it |
-| --- | --- |
-| `DISCORD_BOT_TOKEN` | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot |
-| `NOTIFICATION_CHANNEL_ID` | Right-click the target channel → Copy Channel ID (needs Developer Mode on) |
-| `RIOT_API_KEY` | [developer.riotgames.com](https://developer.riotgames.com) |
-| `HENRIK_API_KEY` | [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN) |
+| Variable                  | How to get it                                                                            |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| `DISCORD_BOT_TOKEN`       | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot |
+| `NOTIFICATION_CHANNEL_ID` | Right-click the target channel → Copy Channel ID (needs Developer Mode on)               |
+| `RIOT_API_KEY`            | [developer.riotgames.com](https://developer.riotgames.com)                               |
+| `HENRIK_API_KEY`          | [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN)                               |
 
 `RIOT_REGION`, `VAL_REGION` and `VAL_PLATFORM` are optional. Each account's
 region is resolved and stored at signup; these are only fallbacks.
@@ -99,11 +123,11 @@ pnpm start
 Run a second bot application in a separate test server, with its own token and
 API keys, and set `DEV_MODE=true`. That registers three extra commands:
 
-| Command | What it does |
-| --- | --- |
-| `/dev_clear` | Forget reported matches, so the next poll re-reports your real recent ones |
-| `/dev_report <game>` | Post a report built from mock API responses, no game required |
-| `/dev_signup <riot_name> <riot_tag>` | Track a Riot account under a fake Discord identity |
+| Command                              | What it does                                                               |
+| ------------------------------------ | -------------------------------------------------------------------------- |
+| `/dev_clear`                         | Forget reported matches, so the next poll re-reports your real recent ones |
+| `/dev_report <game>`                 | Post a report built from mock API responses, no game required              |
+| `/dev_signup <riot_name> <riot_tag>` | Track a Riot account under a fake Discord identity                         |
 
 `/dev_signup` exists because tracked users are just database rows — Discord
 membership is never checked. Registering a friend's Riot ID under a fabricated

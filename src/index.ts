@@ -1,5 +1,5 @@
 import { NodeHttpClient, NodeRuntime } from "@effect/platform-node";
-import { Effect, Layer, Logger } from "effect";
+import { Config, Effect, Layer, Logger, References } from "effect";
 import { Polling, PollingLive } from "./services/polling/index.ts";
 import { PollingStateLive } from "./services/polling/state.ts";
 import { DatabaseLive } from "./services/database/index.ts";
@@ -9,8 +9,18 @@ import { RiotApiLive } from "./services/game/game-api/lol/riot-api-client.ts";
 import { HenrikApiClientLive } from "./services/game/game-api/val/henrik-api-client.ts";
 import { MatchEngineLive } from "./services/match-engine/index.ts";
 
+const runtimeConfig = Config.all({
+  devMode: Config.boolean("DEV_MODE").pipe(Config.withDefault(false)),
+  logLevel: Config.logLevel("LOG_LEVEL").pipe(Config.withDefault("Info")),
+});
+
 const main = Effect.gen(function* () {
+  const { devMode, logLevel } = yield* runtimeConfig;
   const polling = yield* Polling;
+
+  yield* Effect.logInfo("application started").pipe(
+    Effect.annotateLogs({ devMode, logLevel }),
+  );
   yield* Effect.forkScoped(polling.run);
 
   // Keep the parent scope alive for both the gateway and polling fiber.
@@ -32,7 +42,18 @@ const AppLive = PollingLive.pipe(
   Layer.provide(Layer.mergeAll(StateLive, GameLive)),
 );
 
-const LoggerLive = Logger.layer([Logger.consoleJson]);
+const LoggerLive = Layer.unwrap(
+  Effect.gen(function* () {
+    const { devMode, logLevel } = yield* runtimeConfig;
+
+    return Layer.mergeAll(
+      Logger.layer([
+        devMode ? Logger.consolePretty({ colors: "auto" }) : Logger.consoleJson,
+      ]),
+      Layer.succeed(References.MinimumLogLevel, logLevel),
+    );
+  }),
+);
 
 const runner = main.pipe(
   Effect.provide(AppLive),

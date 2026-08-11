@@ -1,11 +1,11 @@
 import { Discord, DiscordREST, Ix } from "dfx";
-import { Effect, Option, SubscriptionRef } from "effect";
+import { Effect, Option } from "effect";
 import type { Account, Database } from "../database/index.ts";
 import type { GameAdapters } from "../game/game-adapters/index.ts";
-import type { GameId } from "../game/index.ts";
+import { gameNames, type GameId } from "../game/index.ts";
 import type { PollingState } from "../polling/state.ts";
 import type { DiscordError } from "./index.ts";
-import { gameNames, rankEmbed, type MatchReport } from "./embed.ts";
+import { rankEmbed, type MatchReport } from "./embed.ts";
 import { devCommands } from "./dev-commands.ts";
 
 export interface CommandDeps {
@@ -30,9 +30,10 @@ export const deferredReply: Discord.CreateInteractionResponseRequest = {
   type: Discord.InteractionCallbackTypes.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
 };
 
-// pre-reports current matches so the first poll doesn't repost old games
+// Pre-reports current matches so the first poll doesn't repost old games.
+// Only needs the two services, so the admin cli can call it too.
 export const registerAccount = (
-  { database, gameAdapters }: CommandDeps,
+  { database, gameAdapters }: Pick<CommandDeps, "database" | "gameAdapters">,
   input: Omit<Account, "games">,
 ) =>
   Effect.gen(function* () {
@@ -59,6 +60,7 @@ export const registerAccount = (
                   // matches carry the platformId they were played on, which
                   // covers accounts the region lookup couldn't resolve
                   region: region ?? matches[0]?.routingRegion,
+                  rankSnapshots: {},
                 },
               })),
             ),
@@ -197,8 +199,13 @@ const pause = ({ pollingState }: CommandDeps) =>
       description: "Pause all match reports (the bot will appear as idle)",
     },
     () =>
-      SubscriptionRef.set(pollingState.paused, true).pipe(
+      pollingState.setPaused(true).pipe(
         Effect.as(reply("Match reports paused.")),
+        Effect.catch((error) =>
+          Effect.logError("pause failed", error).pipe(
+            Effect.as(reply("Pause failed, try again in a bit :(")),
+          ),
+        ),
       ),
   );
 
@@ -209,8 +216,13 @@ const resume = ({ pollingState }: CommandDeps) =>
       description: "Resume all match reports (the bot will appear as online)",
     },
     () =>
-      SubscriptionRef.set(pollingState.paused, false).pipe(
+      pollingState.setPaused(false).pipe(
         Effect.as(reply("Match reports resumed.")),
+        Effect.catch((error) =>
+          Effect.logError("resume failed", error).pipe(
+            Effect.as(reply("Resume failed, try again in a bit :(")),
+          ),
+        ),
       ),
   );
 
@@ -268,40 +280,38 @@ const rankCheck = (deps: CommandDeps) =>
             { payload },
           );
 
-        const lookUp = adapter
-          .getRank(gameState.puuid, gameState.region)
-          .pipe(
-            Effect.flatMap((rank) => {
-              const icon = adapter.rankIcons.find(
-                (candidate) => candidate.key === rank?.iconKey,
-              );
-              return rank
-                ? followUp({
-                    embeds: [
-                      rankEmbed({
-                        riotName: account.riotName,
-                        game,
-                        rank,
-                        iconUrl: icon?.largeUrl ?? icon?.url,
-                      }),
-                    ],
-                  })
-                : followUp({
-                    content: `**${account.riotName}#${account.riotTag}** has no ranked data for ${gameNames[game]}.`,
-                  });
-            }),
-            Effect.catch((error) =>
-              Effect.logError("rank_check failed", error).pipe(
-                Effect.andThen(
-                  followUp({ content: "Rank lookup failed, try again :(" }),
-                ),
-                Effect.ignore({
-                  log: "Error",
-                  message: "rank_check follow-up failed",
-                }),
+        const lookUp = adapter.getRank(gameState.puuid, gameState.region).pipe(
+          Effect.flatMap((rank) => {
+            const icon = adapter.rankIcons.find(
+              (candidate) => candidate.key === rank?.iconKey,
+            );
+            return rank
+              ? followUp({
+                  embeds: [
+                    rankEmbed({
+                      riotName: account.riotName,
+                      game,
+                      rank,
+                      iconUrl: icon?.largeUrl ?? icon?.url,
+                    }),
+                  ],
+                })
+              : followUp({
+                  content: `**${account.riotName}#${account.riotTag}** has no ranked data for ${gameNames[game]}.`,
+                });
+          }),
+          Effect.catch((error) =>
+            Effect.logError("rank_check failed", error).pipe(
+              Effect.andThen(
+                followUp({ content: "Rank lookup failed, try again :(" }),
               ),
+              Effect.ignore({
+                log: "Error",
+                message: "rank_check follow-up failed",
+              }),
             ),
-          );
+          ),
+        );
 
         yield* Effect.forkDetach(lookUp);
         return deferredReply;

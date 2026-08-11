@@ -6,7 +6,9 @@ import { Puuid, type ResolvedAccount } from "../../index.ts";
 import {
   ValAccountResponse,
   ValMatchesResponse,
+  ValMmrHistoryResponse,
   ValMmrResponse,
+  type ValMmrHistoryEntry,
   type ValRawMatch,
 } from "./match-schema.ts";
 
@@ -42,6 +44,13 @@ export class HenrikApiClient extends Context.Service<
       ValRank | undefined,
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
+    getMmrHistory: (
+      puuid: Puuid,
+      region: string | undefined,
+    ) => Effect.Effect<
+      ReadonlyArray<ValMmrHistoryEntry>,
+      HttpClientError.HttpClientError | Schema.SchemaError
+    >;
   }
 >()("app/HenrikApiClient") {}
 
@@ -75,9 +84,8 @@ export const HenrikApiClientLive = Layer.effect(
           `/valorant/v2/account/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`,
         );
         const json = yield* res.json;
-        const { data } = yield* Schema.decodeUnknownEffect(ValAccountResponse)(
-          json,
-        );
+        const { data } =
+          yield* Schema.decodeUnknownEffect(ValAccountResponse)(json);
         return { puuid: data.puuid, region: data.region.toLowerCase() };
       },
     );
@@ -118,10 +126,25 @@ export const HenrikApiClientLive = Layer.effect(
       };
     });
 
+    const getMmrHistory = Effect.fn("HenrikApiClient.getMmrHistory")(function* (
+      puuid: Puuid,
+      region: string | undefined,
+    ) {
+      const res = yield* client.get(
+        `/valorant/v1/by-puuid/mmr-history/${region ?? defaultRegion}/${encodeURIComponent(puuid)}`,
+      );
+      const json = yield* res.json;
+      const { data } = yield* Schema.decodeUnknownEffect(ValMmrHistoryResponse)(
+        json,
+      );
+      return data;
+    });
+
     return HenrikApiClient.of({
       getAccountByRiotId,
       getRecentMatches,
       getRank,
+      getMmrHistory,
     });
   }),
 );

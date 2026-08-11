@@ -1,26 +1,30 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { Database } from "../database/index.ts";
-import { type MatchDetails } from "../game/index.ts";
-import { Discord, type DiscordError } from "../discord/index.ts";
-import { GameAdapters } from "../game/game-adapters/index.ts";
-import { GameId, MatchId } from "../game/index.ts";
-import type { SqlError } from "effect/unstable/sql/SqlError";
-
-export class MatchEngine extends Context.Service<
-  MatchEngine,
-  {
-    readonly pollOnce: () => Effect.Effect<
-      void,
-      SqlError | Schema.SchemaError | DiscordError
-    >;
-  }
->()("app/MatchEngine") {}
+import { Discord } from "../discord/index.ts";
+import {
+  emptyEnrichment,
+  GameAdapters,
+  type GameAdapter,
+} from "../game/game-adapters/index.ts";
+import {
+  GameId,
+  MatchId,
+  type MatchDetails,
+  type Puuid,
+  type RankSnapshots,
+  type Region,
+} from "../game/index.ts";
 
 interface PendingMatch {
+  readonly adapter: GameAdapter;
   readonly match: MatchDetails;
-  readonly discordNames: Array<string>;
-  readonly discordUserIds: Array<string>;
-  readonly trackedPuuids: Array<string>;
+  readonly players: Array<{
+    readonly discordName: string;
+    readonly discordUserId: string;
+    readonly puuid: Puuid;
+    readonly region: Region | undefined;
+  }>;
+  readonly currentRankSnapshots: Map<Puuid, RankSnapshots>;
 }
 
 const makeMatchEngine = Effect.gen(function* () {
@@ -28,17 +32,18 @@ const makeMatchEngine = Effect.gen(function* () {
   const gameAdapters = yield* GameAdapters;
   const discord = yield* Discord;
 
-  const pollOnce = Effect.gen(function* () {
+  const pollOnce = Effect.fn("MatchEngine.pollOnce")(function* () {
     const accounts = yield* database.getAccounts();
-
     const matchesToReport = new Map<GameId, Map<MatchId, PendingMatch>>();
 
     for (const adapter of gameAdapters.all) {
       const matchesPerGame = new Map<MatchId, PendingMatch>();
+      const currentRankSnapshots = new Map<Puuid, RankSnapshots>();
 
       for (const account of accounts) {
         const gameState = account.games[adapter.game];
         if (!gameState) continue;
+        currentRankSnapshots.set(gameState.puuid, gameState.rankSnapshots);
 
         const storedMatchIds = new Set(
           gameState.reportedMatches.map((m) => m.matchId),
@@ -54,7 +59,9 @@ const makeMatchEngine = Effect.gen(function* () {
             Effect.catchTag("GameApiError", (error) =>
               Effect.logWarning("skipping account this poll", error).pipe(
                 Effect.annotateLogs({
+                  game: adapter.game,
                   discordUser: `${account.discordName} (${account.discordUserId})`,
+                  riotId: `${account.riotName}#${account.riotTag}`,
                 }),
                 Effect.as([]),
               ),
@@ -65,19 +72,21 @@ const makeMatchEngine = Effect.gen(function* () {
             !storedMatchIds.has(match.matchId) && match.date > latestStoredDate,
         );
 
-        // users who shared a match land on the same entry, so it reports once
         for (const m of unreportedMatches) {
           const pending = matchesPerGame.get(m.matchId);
-          if (pending) {
-            pending.discordNames.push(account.discordName);
-            pending.discordUserIds.push(account.discordUserId);
-            pending.trackedPuuids.push(gameState.puuid);
-          } else
+          const player = {
+            discordName: account.discordName,
+            discordUserId: account.discordUserId,
+            puuid: gameState.puuid,
+            region: gameState.region,
+          };
+          if (pending) pending.players.push(player);
+          else
             matchesPerGame.set(m.matchId, {
+              adapter,
               match: m,
-              discordNames: [account.discordName],
-              discordUserIds: [account.discordUserId],
-              trackedPuuids: [gameState.puuid],
+              players: [player],
+              currentRankSnapshots,
             });
         }
       }
@@ -88,44 +97,66 @@ const makeMatchEngine = Effect.gen(function* () {
       .flatMap((perGame) => [...perGame.values()])
       .sort((a, b) => a.match.date - b.match.date);
 
-    for (const {
-      match,
-      discordNames,
-      discordUserIds,
-      trackedPuuids,
-    } of pending) {
-      const adapter = gameAdapters.all.find(
-        (candidate) => candidate.game === match.game,
-      );
-      const enrichedMatch = adapter
-        ? yield* adapter
-            .enrichMatch(match)
-            .pipe(
-              Effect.catchTag("GameApiError", (error) =>
-                Effect.logWarning(
-                  "sending match report without optional enrichment",
-                  error,
-                ).pipe(Effect.as(match)),
-              ),
-            )
-        : match;
+    for (const { adapter, match, players, currentRankSnapshots } of pending) {
+      const enrichment = yield* adapter
+        .enrichMatch({
+          match,
+          trackedPlayers: players.map(({ puuid, region }) => ({
+            puuid,
+            region,
+            previousRankSnapshots: currentRankSnapshots.get(puuid) ?? {},
+          })),
+        })
+        .pipe(
+          Effect.catchTag("GameApiError", (error) =>
+            Effect.logWarning(
+              "sending match report without optional enrichment",
+              error,
+            ).pipe(Effect.as(emptyEnrichment(match))),
+          ),
+        );
       yield* discord.notifyMatch({
-        discordNames,
-        trackedPuuids,
-        match: enrichedMatch,
+        discordNames: players.map((player) => player.discordName),
+        trackedPuuids: players.map((player) => player.puuid),
+        match: enrichment.match,
+        rankUpdates: enrichment.rankUpdates,
       });
+      const snapshotUpdates = players.flatMap((player) => {
+        const snapshots = enrichment.updatedRankSnapshots.get(player.puuid);
+        return snapshots ? [{ player, snapshots }] : [];
+      });
+      const rankSnapshotsByDiscordUserId = Object.fromEntries(
+        snapshotUpdates.map(({ player, snapshots }) => [
+          player.discordUserId,
+          snapshots,
+        ]),
+      );
       yield* database.markMatchAsReported({
-        discordUserIds,
-        game: enrichedMatch.game,
+        discordUserIds: players.map((player) => player.discordUserId),
+        game: enrichment.match.game,
         match: {
-          matchId: enrichedMatch.matchId,
-          date: enrichedMatch.date,
+          matchId: enrichment.match.matchId,
+          date: enrichment.match.date,
         },
+        rankSnapshotsByDiscordUserId,
       });
+      for (const { player, snapshots } of snapshotUpdates) {
+        currentRankSnapshots.set(player.puuid, snapshots);
+      }
     }
+
+    return {
+      accountsScanned: accounts.length,
+      matchesReported: pending.length,
+    };
   });
 
-  return MatchEngine.of({ pollOnce: () => pollOnce });
+  return { pollOnce };
 });
+
+export class MatchEngine extends Context.Service<
+  MatchEngine,
+  Effect.Success<typeof makeMatchEngine>
+>()("app/MatchEngine") {}
 
 export const MatchEngineLive = Layer.effect(MatchEngine, makeMatchEngine);
