@@ -4,9 +4,12 @@ import { PollingState } from "./state.ts";
 
 const makePolling = Effect.gen(function* () {
   const matchEngine = yield* MatchEngine;
-  const { paused } = yield* PollingState;
+  const { paused, refresh } = yield* PollingState;
 
   const pollTick = Effect.gen(function* () {
+    // the admin cli pauses by writing the row from its own process
+    yield* refresh();
+
     if (yield* SubscriptionRef.get(paused)) {
       return yield* Effect.logInfo("poll skipped").pipe(
         Effect.annotateLogs({ paused: true }),
