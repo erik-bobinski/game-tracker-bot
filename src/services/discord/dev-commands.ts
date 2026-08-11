@@ -1,5 +1,5 @@
 import { Discord, Ix } from "dfx";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import type { MatchDetails } from "../game/index.ts";
 import { LolMatch } from "../game/game-api/lol/match-schema.ts";
 import { ValRawMatch } from "../game/game-api/val/match-schema.ts";
@@ -275,13 +275,20 @@ const devReport = (deps: CommandDeps) =>
       ),
   );
 
-// Tracks a real riot account under a fabricated discord identity, so shared
-// matches produce multi-user reports without anyone else in the dev server.
+// Fake identity keyed by riot id, never sent to discord, so one tester can
+// hold several tracked accounts at once.
+const fakeIdentity = (riotName: string, riotTag: string) => ({
+  discordUserId: `dev-${riotName}-${riotTag}`.toLowerCase(),
+  discordName: `${riotName} (dev)`,
+});
+
+// Tracks a riot account under a fake identity, or under a real member of the
+// dev server, so shared matches report as multi-user.
 const devSignup = (deps: CommandDeps) =>
   Ix.global(
     {
       name: "dev_signup",
-      description: "[dev] Track a riot account under a fake discord user",
+      description: "[dev] Track a riot account for a fake or real discord user",
       options: [
         {
           type: Discord.ApplicationCommandOptionType.STRING,
@@ -295,18 +302,36 @@ const devSignup = (deps: CommandDeps) =>
           description: "after the # (e.g. NA1)",
           required: true,
         },
+        {
+          type: Discord.ApplicationCommandOptionType.USER,
+          name: "user",
+          description: "sign up on this user's behalf (default: a fake user)",
+          required: false,
+        },
       ],
     },
     (i) =>
       Effect.gen(function* () {
         const riotName = i.optionValue("riot_name");
         const riotTag = i.optionValue("riot_tag");
-        // never sent to discord, only a database key
-        const fakeUserId = `dev-${riotName}-${riotTag}`.toLowerCase();
-        const fakeUserName = `${riotName} (dev)`;
+        const fake = fakeIdentity(riotName, riotTag);
+        const { discordUserId, discordName } = Option.match(
+          i.optionValueOptional("user"),
+          {
+            onNone: () => fake,
+            onSome: (userId) => ({
+              discordUserId: userId,
+              // the username, not a <@id> mention that would ping them
+              discordName: Option.getOrElse(
+                i.resolve("user", (id, data) => data.users?.[id]?.username),
+                () => fake.discordName,
+              ),
+            }),
+          },
+        );
 
-        const existing = yield* deps.database.hasAccount(fakeUserId);
-        if (existing) return reply(`Already tracking **${fakeUserName}**.`);
+        const existing = yield* deps.database.hasAccount(discordUserId);
+        if (existing) return reply(`Already tracking **${discordName}**.`);
 
         const followUp = (content: string) =>
           deps.rest.updateOriginalWebhookMessage(
@@ -316,15 +341,15 @@ const devSignup = (deps: CommandDeps) =>
           );
 
         const register = registerAccount(deps, {
-          discordUserId: fakeUserId,
-          discordName: fakeUserName,
+          discordUserId,
+          discordName,
           riotName,
           riotTag,
         }).pipe(
           Effect.flatMap((result) =>
             followUp(
               result === "ok"
-                ? `Now tracking **${fakeUserName}**; shared matches report as multi-user.`
+                ? `Now tracking **${discordName}**; shared matches report as multi-user.`
                 : "Couldn't find recent account data for that Riot ID :(",
             ),
           ),
@@ -350,5 +375,78 @@ const devSignup = (deps: CommandDeps) =>
       ),
   );
 
+// Drops the account of a real member, or of a fake dev_signup identity.
+const devSignout = ({ database }: CommandDeps) =>
+  Ix.global(
+    {
+      name: "dev_signout",
+      description: "[dev] Stop tracking a fake or real discord user's account",
+      options: [
+        {
+          type: Discord.ApplicationCommandOptionType.USER,
+          name: "user",
+          description: "sign out on this user's behalf",
+          required: false,
+        },
+        {
+          type: Discord.ApplicationCommandOptionType.STRING,
+          name: "riot_name",
+          description: "before the # of a fake dev_signup (e.g. syan)",
+          required: false,
+        },
+        {
+          type: Discord.ApplicationCommandOptionType.STRING,
+          name: "riot_tag",
+          description: "after the # of a fake dev_signup (e.g. NA1)",
+          required: false,
+        },
+      ],
+    },
+    (i) =>
+      Effect.gen(function* () {
+        const riotId = Option.all([
+          i.optionValueOptional("riot_name"),
+          i.optionValueOptional("riot_tag"),
+        ]).pipe(
+          Option.map(([riotName, riotTag]) => fakeIdentity(riotName, riotTag)),
+        );
+        const target = Option.orElse(
+          i.optionValueOptional("user").pipe(
+            Option.map((userId) => ({
+              discordUserId: userId,
+              discordName: Option.getOrElse(
+                i.resolve("user", (id, data) => data.users?.[id]?.username),
+                () => userId,
+              ),
+            })),
+          ),
+          () => riotId,
+        );
+
+        if (Option.isNone(target)) {
+          return reply(
+            "Pass a user, or the riot_name and riot_tag it was signed up with.",
+          );
+        }
+
+        const { discordUserId, discordName } = target.value;
+        const existing = yield* database.hasAccount(discordUserId);
+        if (!existing) return reply(`**${discordName}** isn't signed up.`);
+
+        yield* database.deleteAccount(discordUserId);
+        return reply(`**${discordName}** signed out, all data deleted.`);
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logError("dev_signout failed", error).pipe(
+            Effect.as(reply("dev_signout failed, check the logs.")),
+          ),
+        ),
+      ),
+  );
+
 export const devCommands = (deps: CommandDeps) =>
-  Ix.builder.add(devClear(deps)).add(devReport(deps)).add(devSignup(deps));
+  Ix.builder
+    .add(devClear(deps))
+    .add(devReport(deps))
+    .add(devSignup(deps))
+    .add(devSignout(deps));

@@ -222,7 +222,8 @@ export const makeLolGameAdapter = Effect.gen(function* () {
           ...(comparable
             ? { delta: entry.leaguePoints - previous.points }
             : {}),
-          current: comparable ? label : `${label} · ${entry.leaguePoints} LP`,
+          // "·" already separates the report's fields, so keep LP parenthesised
+          current: comparable ? label : `${label} (${entry.leaguePoints} LP)`,
           unit: "LP",
         });
         updatedRankSnapshots.set(tracked.puuid, {
