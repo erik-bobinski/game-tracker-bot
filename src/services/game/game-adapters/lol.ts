@@ -4,6 +4,7 @@ import {
   GameApiError,
   RECENT_MATCH_COUNT,
   emptyEnrichment,
+  logApiWarning,
   type GameAdapter,
 } from "./index.ts";
 import type {
@@ -150,7 +151,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
         .getPlatformId(puuid)
         .pipe(
           Effect.catch((error) =>
-            Effect.logWarning("lol platformId lookup failed", error).pipe(
+            logApiWarning("lol platformId lookup failed", error).pipe(
               Effect.as(undefined),
             ),
           ),
@@ -190,7 +191,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
 
       const ranks = new Map<Puuid, LolLeagueEntry>();
       yield* Effect.forEach(
-        trackedPlayers,
+        match.players,
         (player) =>
           riotClient.getLeagueEntries(player.puuid, platformId).pipe(
             Effect.map((entries) => {
@@ -200,8 +201,8 @@ export const makeLolGameAdapter = Effect.gen(function* () {
               if (entry) ranks.set(player.puuid, entry);
             }),
             Effect.catch((error) =>
-              Effect.logWarning("rank unavailable for lol player").pipe(
-                Effect.annotateLogs({ puuid: player.puuid, error }),
+              logApiWarning("rank unavailable for lol player", error).pipe(
+                Effect.annotateLogs({ puuid: player.puuid }),
               ),
             ),
           ),

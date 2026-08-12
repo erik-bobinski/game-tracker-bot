@@ -1,7 +1,11 @@
 import { Discord, DiscordREST, Ix } from "dfx";
 import { Effect, Option } from "effect";
 import type { Account, Database } from "../database/index.ts";
-import type { GameAdapters } from "../game/game-adapters/index.ts";
+import {
+  logApiError,
+  logApiWarning,
+  type GameAdapters,
+} from "../game/game-adapters/index.ts";
 import { gameNames, type GameId } from "../game/index.ts";
 import type { PollingState } from "../polling/state.ts";
 import type { DiscordError } from "./index.ts";
@@ -45,7 +49,7 @@ export const registerAccount = (
           Effect.flatMap(({ puuid, region }) =>
             adapter.getRecentMatches(puuid, region).pipe(
               Effect.catchTag("GameApiError", (error) =>
-                Effect.logWarning("baseline match fetch failed", error).pipe(
+                logApiWarning("baseline match fetch failed", error).pipe(
                   Effect.as([]),
                 ),
               ),
@@ -68,7 +72,7 @@ export const registerAccount = (
           // a failed lookup is not the same as "no such account", but
           // both leave this game untracked
           Effect.catch((error) =>
-            Effect.logWarning("resolveAccount failed", error).pipe(
+            logApiWarning("resolveAccount failed", error).pipe(
               Effect.annotateLogs({ game: adapter.game }),
               Effect.as(undefined),
             ),
@@ -301,7 +305,7 @@ const rankCheck = (deps: CommandDeps) =>
                 });
           }),
           Effect.catch((error) =>
-            Effect.logError("rank_check failed", error).pipe(
+            logApiError("rank_check failed", error).pipe(
               Effect.andThen(
                 followUp({ content: "Rank lookup failed, try again :(" }),
               ),
