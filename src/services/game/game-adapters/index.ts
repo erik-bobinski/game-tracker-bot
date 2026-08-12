@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import type * as HttpClientError from "effect/unstable/http/HttpClientError";
+import * as HttpClientError from "effect/unstable/http/HttpClientError";
 import {
   GameId,
   type MatchDetails,
@@ -20,6 +20,45 @@ export class GameApiError extends Schema.TaggedError<GameApiError>()(
   "GameApiError",
   { game: GameId, operation: Schema.String, cause: Schema.Defect() },
 ) {}
+
+const apiErrorAnnotations = (error: unknown) =>
+  Effect.gen(function* () {
+    const cause = error instanceof GameApiError ? error.cause : error;
+    if (!HttpClientError.isHttpClientError(cause)) {
+      return {
+        error: cause instanceof Error ? cause.message : String(cause),
+      };
+    }
+
+    const responseBody = cause.response
+      ? yield* cause.response.text.pipe(
+          Effect.map((body) => body.slice(0, 1_000)),
+          Effect.catch(() => Effect.succeed(undefined)),
+        )
+      : undefined;
+
+    return {
+      error: cause.message,
+      httpMethod: cause.request.method,
+      httpUrl: cause.request.url,
+      ...(cause.response ? { httpStatus: cause.response.status } : {}),
+      ...(responseBody ? { responseBody } : {}),
+    };
+  });
+
+export const logApiWarning = (message: string, error: unknown) =>
+  apiErrorAnnotations(error).pipe(
+    Effect.flatMap((annotations) =>
+      Effect.logWarning(message).pipe(Effect.annotateLogs(annotations)),
+    ),
+  );
+
+export const logApiError = (message: string, error: unknown) =>
+  apiErrorAnnotations(error).pipe(
+    Effect.flatMap((annotations) =>
+      Effect.logError(message).pipe(Effect.annotateLogs(annotations)),
+    ),
+  );
 
 export interface GameAdapter {
   readonly game: GameId;
