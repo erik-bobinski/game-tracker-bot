@@ -4,6 +4,7 @@ import { Discord } from "../discord/index.ts";
 import {
   emptyEnrichment,
   GameAdapters,
+  logApiWarning,
   type GameAdapter,
 } from "../game/game-adapters/index.ts";
 import {
@@ -57,7 +58,7 @@ const makeMatchEngine = Effect.gen(function* () {
           .getRecentMatches(gameState.puuid, gameState.region)
           .pipe(
             Effect.catchTag("GameApiError", (error) =>
-              Effect.logWarning("skipping account this poll", error).pipe(
+              logApiWarning("skipping account this poll", error).pipe(
                 Effect.annotateLogs({
                   game: adapter.game,
                   discordUser: `${account.discordName} (${account.discordUserId})`,
@@ -109,7 +110,7 @@ const makeMatchEngine = Effect.gen(function* () {
         })
         .pipe(
           Effect.catchTag("GameApiError", (error) =>
-            Effect.logWarning(
+            logApiWarning(
               "sending match report without optional enrichment",
               error,
             ).pipe(Effect.as(emptyEnrichment(match))),
