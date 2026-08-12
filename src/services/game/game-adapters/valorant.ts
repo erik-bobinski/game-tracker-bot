@@ -4,6 +4,7 @@ import {
   GameApiError,
   RECENT_MATCH_COUNT,
   emptyEnrichment,
+  logApiWarning,
   type GameAdapter,
 } from "./index.ts";
 import {
@@ -153,7 +154,7 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
                 });
             }),
             Effect.catch((error) =>
-              Effect.logWarning("valorant RR unavailable", error).pipe(
+              logApiWarning("valorant RR unavailable", error).pipe(
                 Effect.annotateLogs({ puuid, matchId: match.matchId }),
               ),
             ),
