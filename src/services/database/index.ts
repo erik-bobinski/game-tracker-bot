@@ -107,7 +107,7 @@ const GameRow = Schema.Struct({
 });
 
 const LegacyAccount = Schema.Struct({
-  discord_user_id: Schema.Union([Schema.String, Schema.Number]),
+  discord_user_id: Schema.String,
   discord_name: Schema.String,
   riot_name: Schema.String,
   riot_tag: Schema.String,
@@ -129,6 +129,14 @@ const LegacyDatabase = Schema.Union([
   }),
 ]);
 const LegacyDatabaseJson = Schema.fromJsonString(LegacyDatabase);
+
+const decodeLegacyDatabase = (json: string) =>
+  Schema.decodeUnknownEffect(LegacyDatabaseJson)(
+    json.replace(
+      /(\"discord_user_id\"\s*:\s*)(\d+)/g,
+      (_, prefix: string, id: string) => `${prefix}"${id}"`,
+    ),
+  );
 
 function legacyReportedMatches(
   matchIds: ReadonlyArray<string> | undefined,
@@ -223,8 +231,7 @@ const makeDatabase = Effect.gen(function* () {
     );
 
     if (legacyJson !== undefined) {
-      const decoded =
-        yield* Schema.decodeUnknownEffect(LegacyDatabaseJson)(legacyJson);
+      const decoded = yield* decodeLegacyDatabase(legacyJson);
       const legacyAccounts = "accounts" in decoded ? decoded.accounts : decoded;
 
       yield* Effect.gen(function* () {
@@ -232,7 +239,7 @@ const makeDatabase = Effect.gen(function* () {
         yield* sql`DELETE FROM accounts`;
 
         for (const account of legacyAccounts) {
-          const discordUserId = String(account.discord_user_id);
+          const discordUserId = account.discord_user_id;
           yield* sql`
             INSERT INTO accounts (
               discord_user_id, discord_name, riot_name, riot_tag, created_at
@@ -272,6 +279,60 @@ const makeDatabase = Effect.gen(function* () {
       yield* Effect.logInfo("migrated legacy database").pipe(
         Effect.annotateLogs({ accounts: legacyAccounts.length, backupPath }),
       );
+    }
+
+    const backupJson = yield* Effect.sync(() =>
+      existsSync(backupPath) ? readFileSync(backupPath, "utf8") : undefined,
+    );
+    if (backupJson !== undefined) {
+      const decoded = yield* decodeLegacyDatabase(backupJson);
+      const legacyAccounts = "accounts" in decoded ? decoded.accounts : decoded;
+      let repaired = 0;
+
+      for (const account of legacyAccounts) {
+        const exactId = account.discord_user_id;
+        const roundedId = String(Number(exactId));
+        if (exactId === roundedId) continue;
+
+        const exactRows = yield* sql`
+          SELECT 1 FROM accounts WHERE discord_user_id = ${exactId}
+        `;
+        if (exactRows.length > 0) continue;
+
+        const roundedRows = yield* sql`
+          SELECT 1
+          FROM accounts
+          WHERE discord_user_id = ${roundedId}
+            AND riot_name = ${account.riot_name}
+            AND riot_tag = ${account.riot_tag}
+        `;
+        if (roundedRows.length === 0) continue;
+
+        yield* Effect.gen(function* () {
+          yield* sql`
+            INSERT INTO accounts (
+              discord_user_id, discord_name, riot_name, riot_tag, created_at
+            )
+            SELECT
+              ${exactId}, discord_name, riot_name, riot_tag, created_at
+            FROM accounts
+            WHERE discord_user_id = ${roundedId}
+          `;
+          yield* sql`
+            UPDATE account_games
+            SET discord_user_id = ${exactId}
+            WHERE discord_user_id = ${roundedId}
+          `;
+          yield* sql`DELETE FROM accounts WHERE discord_user_id = ${roundedId}`;
+        }).pipe(sql.withTransaction);
+        repaired += 1;
+      }
+
+      if (repaired > 0) {
+        yield* Effect.logInfo("repaired legacy discord user ids").pipe(
+          Effect.annotateLogs({ accounts: repaired, backupPath }),
+        );
+      }
     }
   }
 
