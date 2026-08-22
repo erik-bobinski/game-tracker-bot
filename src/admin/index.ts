@@ -122,7 +122,8 @@ const resolveAccount = (
   });
 
 // Built per command rather than up front, so `status` and `pause` still work
-// somewhere the riot api keys aren't set.
+// somewhere the riot api keys aren't set. Provide GameLive around the whole
+// use: the Undici agent is scoped and dies when the provided effect ends.
 const GameLive = GameAdaptersLive.pipe(
   Layer.provide(
     Layer.mergeAll(RiotApiLive, HenrikApiClientLive).pipe(
@@ -131,10 +132,28 @@ const GameLive = GameAdaptersLive.pipe(
   ),
 );
 
-const gameAdapters = GameAdapters.pipe(
-  Effect.provide(GameLive),
-  orFail("This command needs RIOT_API_KEY and HENRIK_API_KEY"),
-);
+const withGameAdapters = <A, E>(
+  run: (
+    adapters: GameAdapters["Service"],
+  ) => Effect.Effect<A, E | AdminError>,
+) =>
+  Effect.gen(function* () {
+    const adapters = yield* GameAdapters;
+    return yield* run(adapters);
+  }).pipe(
+    Effect.provide(GameLive),
+    Effect.mapError((cause) =>
+      cause instanceof AdminError
+        ? cause
+        : new AdminError({
+            message: `This command needs RIOT_API_KEY and HENRIK_API_KEY${
+              cause instanceof Error && cause.message
+                ? `: ${cause.message}`
+                : ""
+            }`,
+          }),
+    ),
+  );
 
 const admin = Command.make("admin").pipe(
   Command.withDescription(
@@ -277,16 +296,17 @@ const signup = Command.make(
       return yield* fail(`Discord user ${discordUserId} is already signed up.`);
     }
 
-    const adapters = yield* gameAdapters;
-    const result = yield* registerAccount(
-      { database, gameAdapters: adapters },
-      {
-        discordUserId,
-        discordName: Option.getOrElse(discordName, () => riotName),
-        riotName,
-        riotTag,
-      },
-    ).pipe(orFail("Signup failed"));
+    const result = yield* withGameAdapters((adapters) =>
+      registerAccount(
+        { database, gameAdapters: adapters },
+        {
+          discordUserId,
+          discordName: Option.getOrElse(discordName, () => riotName),
+          riotName,
+          riotTag,
+        },
+      ).pipe(orFail("Signup failed")),
+    );
 
     if (result === "not-found") {
       return yield* fail(
@@ -437,13 +457,15 @@ const rankCheck = Command.make(
       );
     }
 
-    const adapters = yield* gameAdapters;
-    const adapter = adapters.all.find((candidate) => candidate.game === chosen);
-    if (!adapter) return yield* fail(`${gameNames[chosen]} isn't supported.`);
-
-    const rank = yield* adapter
-      .getRank(state.puuid, state.region)
-      .pipe(orFail("Rank lookup failed"));
+    const rank = yield* withGameAdapters((adapters) => {
+      const adapter = adapters.all.find(
+        (candidate) => candidate.game === chosen,
+      );
+      if (!adapter) return fail(`${gameNames[chosen]} isn't supported.`);
+      return adapter
+        .getRank(state.puuid, state.region)
+        .pipe(orFail("Rank lookup failed"));
+    });
 
     yield* emit(
       json,
