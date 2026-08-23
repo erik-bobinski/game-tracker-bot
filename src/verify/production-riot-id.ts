@@ -40,10 +40,11 @@ const statusFromDb = (workspace: string, dbPath: string) => {
 
 const railwayEnv = () => ({
   ...process.env,
-  // Cursor stores the account/workspace token as RAILWAY_TOKEN; the CLI
-  // authenticates that token type via RAILWAY_API_TOKEN.
+  // Cursor Cloud injects RAILWAY_API_KEY; the CLI expects RAILWAY_API_TOKEN.
   RAILWAY_API_TOKEN:
-    process.env.RAILWAY_API_TOKEN ?? process.env.RAILWAY_TOKEN,
+    process.env.RAILWAY_API_TOKEN ??
+    process.env.RAILWAY_API_KEY ??
+    process.env.RAILWAY_TOKEN,
 });
 
 const statusFromRailway = (workspace: string) => {
@@ -67,7 +68,7 @@ const statusFromRailway = (workspace: string) => {
 };
 
 // Picks a real riot id for verification: explicit env, a copied prod sqlite,
-// or live production via `railway ssh` when RAILWAY_TOKEN is set.
+// or live production via `railway ssh` when RAILWAY_API_KEY is set.
 export const resolveVerifyRiotId = (workspace: string) => {
   if (process.env.VERIFY_RIOT_ID) {
     return process.env.VERIFY_RIOT_ID;
@@ -78,11 +79,15 @@ export const resolveVerifyRiotId = (workspace: string) => {
     return statusFromDb(workspace, productionDb);
   }
 
-  if (process.env.RAILWAY_TOKEN || process.env.RAILWAY_API_TOKEN) {
+  if (
+    process.env.RAILWAY_API_KEY ||
+    process.env.RAILWAY_API_TOKEN ||
+    process.env.RAILWAY_TOKEN
+  ) {
     return statusFromRailway(workspace);
   }
 
   throw new Error(
-    "Set VERIFY_RIOT_ID, PRODUCTION_DB_PATH, or RAILWAY_TOKEN to use a real riot account",
+    "Set VERIFY_RIOT_ID, PRODUCTION_DB_PATH, or RAILWAY_API_KEY to use a real riot account",
   );
 };

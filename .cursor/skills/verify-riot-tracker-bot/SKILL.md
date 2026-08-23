@@ -36,7 +36,7 @@ Verification needs a real Riot account. Resolution order:
 
 1. `VERIFY_RIOT_ID=name#tag` — explicit override
 2. `PRODUCTION_DB_PATH=/path/to/riot-tracker.sqlite` — read accounts via `pnpm admin status --json`
-3. `RAILWAY_TOKEN` — `railway ssh --service riot-tracker-bot -- pnpm admin status --json`
+3. `RAILWAY_API_KEY` — `railway ssh --service riot-tracker-bot -- pnpm admin status --json`
 
 Pick the first account with tracked games when reading production status.
 

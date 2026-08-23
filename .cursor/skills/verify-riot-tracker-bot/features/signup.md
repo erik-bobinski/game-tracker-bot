@@ -20,4 +20,4 @@ Preconditions: `RIOT_API_KEY`, `HENRIK_API_KEY`, isolated `DB_PATH`, real riot i
 ## Gotchas
 
 - Signup calls live Riot/Henrik APIs; a bad riot id fails the step.
-- Use production-derived riot ids when possible (`RAILWAY_TOKEN` or `PRODUCTION_DB_PATH`).
+- Use production-derived riot ids when possible (`RAILWAY_API_KEY` or `PRODUCTION_DB_PATH`).
