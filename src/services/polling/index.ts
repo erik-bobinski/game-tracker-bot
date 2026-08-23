@@ -28,7 +28,39 @@ const makePolling = Effect.gen(function* () {
     Effect.asVoid,
   );
 
-  return { run: pollLoop };
+  // Riot ids often exist in only one game at signup; this retries the
+  // missing ones on a slower cadence so we don't hammer the apis.
+  const missingTick = Effect.gen(function* () {
+    yield* refresh();
+
+    if (yield* SubscriptionRef.get(paused)) {
+      return yield* Effect.logInfo("missing-game check skipped").pipe(
+        Effect.annotateLogs({ paused: true }),
+      );
+    }
+
+    yield* Effect.logInfo("missing-game check started");
+    const summary = yield* matchEngine.resolveMissingGames();
+    yield* Effect.logInfo("missing-game check finished").pipe(
+      Effect.annotateLogs(summary),
+    );
+  });
+
+  const missingLoop = missingTick.pipe(
+    Effect.tapError((error) =>
+      Effect.logError("missing-game check failed", error),
+    ),
+    Effect.ignore,
+    Effect.repeat(Schedule.spaced("1 hour")),
+    Effect.asVoid,
+  );
+
+  return {
+    run: Effect.all([pollLoop, missingLoop], {
+      concurrency: "unbounded",
+      discard: true,
+    }),
+  };
 });
 
 export class Polling extends Context.Service<

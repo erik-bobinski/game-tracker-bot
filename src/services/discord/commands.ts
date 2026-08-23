@@ -4,6 +4,7 @@ import type { Account, Database } from "../database/index.ts";
 import {
   logApiError,
   logApiWarning,
+  resolveGameState,
   type GameAdapters,
 } from "../game/game-adapters/index.ts";
 import { gameNames, type GameId } from "../game/index.ts";
@@ -45,30 +46,8 @@ export const registerAccount = (
     const resolved = yield* Effect.forEach(
       gameAdapters.all,
       (adapter) =>
-        adapter.resolveAccount(input.riotName, input.riotTag).pipe(
-          Effect.flatMap(({ puuid, region }) =>
-            adapter.getRecentMatches(puuid, region).pipe(
-              Effect.catchTag("GameApiError", (error) =>
-                logApiWarning("baseline match fetch failed", error).pipe(
-                  Effect.as([]),
-                ),
-              ),
-              Effect.map((matches) => ({
-                game: adapter.game,
-                state: {
-                  puuid,
-                  reportedMatches: matches.map((match) => ({
-                    matchId: match.matchId,
-                    date: match.date,
-                  })),
-                  // matches carry the platformId they were played on, which
-                  // covers accounts the region lookup couldn't resolve
-                  region: region ?? matches[0]?.routingRegion,
-                  rankSnapshots: {},
-                },
-              })),
-            ),
-          ),
+        resolveGameState(adapter, input.riotName, input.riotTag).pipe(
+          Effect.map((state) => ({ game: adapter.game, state })),
           // a failed lookup is not the same as "no such account", but
           // both leave this game untracked
           Effect.catch((error) =>
