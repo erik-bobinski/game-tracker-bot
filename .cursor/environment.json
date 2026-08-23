@@ -1,0 +1,8 @@
+{
+  "name": "riot-tracker-bot",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "user": "node",
+  "install": "pnpm install --frozen-lockfile"
+}
