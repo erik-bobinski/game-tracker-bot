@@ -1,8 +1,4 @@
 {
   "name": "riot-tracker-bot",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
-  "user": "node",
-  "install": "pnpm install --frozen-lockfile"
+  "install": "export NVM_DIR=\"${NVM_DIR:-$HOME/.nvm}\"\nif [ -s \"$NVM_DIR/nvm.sh\" ]; then . \"$NVM_DIR/nvm.sh\"; nvm install 24; nvm alias default 24; nvm use 24; fi\ncorepack enable\ncorepack prepare pnpm@11.16.0 --activate\npnpm install --frozen-lockfile"
 }
