@@ -122,7 +122,7 @@ export const refreshAccount = (
     return { added, missing, tracked };
   });
 
-const refreshMessage = (result: {
+export const formatRefreshResult = (result: {
   readonly added: ReadonlyArray<GameId>;
   readonly missing: ReadonlyArray<GameId>;
   readonly tracked: ReadonlyArray<GameId>;
@@ -302,7 +302,7 @@ const refresh = (deps: CommandDeps) =>
           );
 
         const run = refreshAccount(deps, account).pipe(
-          Effect.flatMap((result) => followUp(refreshMessage(result))),
+          Effect.flatMap((result) => followUp(formatRefreshResult(result))),
           Effect.catch((error) =>
             Effect.logError("refresh failed", error).pipe(
               Effect.andThen(followUp("Refresh failed, try again in a bit :(")),
