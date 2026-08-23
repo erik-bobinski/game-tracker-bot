@@ -113,8 +113,8 @@ export const emptyEnrichment = (match: MatchDetails) => ({
   updatedRankSnapshots: new Map<Puuid, RankSnapshots>(),
 });
 
-// Used at signup and by the hourly missing-game check. Failed recent-match
-// fetches still return the account so we can start tracking it.
+// Used at signup and by /refresh. Failed recent-match fetches still
+// return the account so we can start tracking it.
 export const resolveGameState = (
   adapter: GameAdapter,
   riotName: string,

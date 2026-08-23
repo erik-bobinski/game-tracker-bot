@@ -1,11 +1,10 @@
 import { Context, Effect, Layer } from "effect";
-import { Database, type Account } from "../database/index.ts";
+import { Database } from "../database/index.ts";
 import { Discord } from "../discord/index.ts";
 import {
   emptyEnrichment,
   GameAdapters,
   logApiWarning,
-  resolveGameState,
   type GameAdapter,
 } from "../game/game-adapters/index.ts";
 import {
@@ -153,54 +152,8 @@ const makeMatchEngine = Effect.gen(function* () {
     };
   });
 
-  const resolveMissingGames = Effect.fn("MatchEngine.resolveMissingGames")(
-    function* () {
-      const accounts = yield* database.getAccounts();
-      let missingChecked = 0;
-      let gamesResolved = 0;
-
-      for (const account of accounts) {
-        const missing = missingAdaptersFor(account, gameAdapters.all);
-        for (const adapter of missing) {
-          missingChecked += 1;
-          const state = yield* resolveGameState(
-            adapter,
-            account.riotName,
-            account.riotTag,
-          ).pipe(Effect.catch(() => Effect.succeed(undefined)));
-          if (!state) continue;
-
-          yield* database.addGame({
-            discordUserId: account.discordUserId,
-            game: adapter.game,
-            state,
-          });
-          gamesResolved += 1;
-          yield* Effect.logInfo("resolved missing game account").pipe(
-            Effect.annotateLogs({
-              game: adapter.game,
-              discordUser: `${account.discordName} (${account.discordUserId})`,
-              riotId: `${account.riotName}#${account.riotTag}`,
-            }),
-          );
-        }
-      }
-
-      return {
-        accountsScanned: accounts.length,
-        missingChecked,
-        gamesResolved,
-      };
-    },
-  );
-
-  return { pollOnce, resolveMissingGames };
+  return { pollOnce };
 });
-
-const missingAdaptersFor = (
-  account: Account,
-  adapters: ReadonlyArray<GameAdapter>,
-) => adapters.filter((adapter) => account.games[adapter.game] === undefined);
 
 export class MatchEngine extends Context.Service<
   MatchEngine,
