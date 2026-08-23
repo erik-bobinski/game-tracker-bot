@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Harness for the riot-tracker Discord bot. Requires Node 24+, ambient Discord
+# secrets, and DEV_MODE=true for dev slash commands.
+#
+# Usage:
+#   export RUN_ID=my-run
+#   control-riot-tracker launch
+#   control-riot-tracker doctor
+#   control-riot-tracker logs --tail 50
+#   control-riot-tracker messages --limit 5
+#   control-riot-tracker stop
+
+NODE24="${NODE24:-/home/ubuntu/.nvm/versions/node/v24.19.0/bin/node}"
+REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}"
+RUN_ID="${RUN_ID:-verify-$(date +%s)}"
+STATE_DIR="/tmp/riot-tracker-verify-${RUN_ID}"
+LOG_FILE="${STATE_DIR}/bot.log"
+PID_FILE="${STATE_DIR}/bot.pid"
+DB_PATH="${DB_PATH:-${STATE_DIR}/riot-tracker.sqlite}"
+TMUX_SESSION="riot-tracker-verify-${RUN_ID}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-/opt/cursor/artifacts/riot-tracker-verify/${RUN_ID}}"
+
+require_node24() {
+  if [[ ! -x "$NODE24" ]]; then
+    echo "error: Node 24 binary not found at $NODE24" >&2
+    echo "hint: nvm install 24 && export NODE24=\$(nvm which 24)" >&2
+    exit 1
+  fi
+  local version
+  version="$("$NODE24" --version)"
+  if [[ "$version" != v24* ]]; then
+    echo "error: expected Node 24, got $version at $NODE24" >&2
+    exit 1
+  fi
+}
+
+require_env() {
+  local missing=()
+  for var in DISCORD_BOT_TOKEN NOTIFICATION_CHANNEL_ID; do
+    if [[ -z "${!var:-}" ]]; then
+      missing+=("$var")
+    fi
+  done
+  if [[ -z "${DEV_MODE:-}" ]]; then
+    missing+=("DEV_MODE")
+  fi
+  if ((${#missing[@]} > 0)); then
+    echo "error: missing required env: ${missing[*]}" >&2
+    exit 1
+  fi
+}
+
+launch() {
+  require_node24
+  require_env
+  mkdir -p "$STATE_DIR" "$ARTIFACT_DIR"
+
+  if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    echo "error: bot already running for RUN_ID=$RUN_ID (pid $(cat "$PID_FILE"))" >&2
+    exit 1
+  fi
+
+  if tmux -f /exec-daemon/tmux.portal.conf has-session -t "=$TMUX_SESSION" 2>/dev/null; then
+    echo "error: tmux session $TMUX_SESSION already exists" >&2
+    exit 1
+  fi
+
+  local launch_cmd
+  launch_cmd="cd '$REPO_ROOT' && export PATH='$(dirname "$NODE24")':\$PATH && export DEV_MODE=true DB_PATH='$DB_PATH' && pnpm start 2>&1 | tee '$LOG_FILE'"
+
+  tmux -f /exec-daemon/tmux.portal.conf new-session -d -s "$TMUX_SESSION" -c "$REPO_ROOT" -- bash -lc "$launch_cmd"
+
+  local pid=""
+  for _ in $(seq 1 30); do
+    if [[ -f "$LOG_FILE" ]]; then
+      pid="$(pgrep -f "tsx src/index.ts" | head -1 || true)"
+      if [[ -n "$pid" ]]; then
+        break
+      fi
+    fi
+    sleep 0.5
+  done
+
+  if [[ -z "$pid" ]]; then
+    echo "error: bot process did not appear within 15s" >&2
+    tmux -f /exec-daemon/tmux.portal.conf kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+    exit 1
+  fi
+
+  echo "$pid" >"$PID_FILE"
+  cat >"${STATE_DIR}/meta.env" <<EOF
+RUN_ID=$RUN_ID
+STATE_DIR=$STATE_DIR
+LOG_FILE=$LOG_FILE
+PID_FILE=$PID_FILE
+DB_PATH=$DB_PATH
+TMUX_SESSION=$TMUX_SESSION
+ARTIFACT_DIR=$ARTIFACT_DIR
+EOF
+
+  echo "launched RUN_ID=$RUN_ID pid=$pid"
+  echo "log: $LOG_FILE"
+  echo "artifacts: $ARTIFACT_DIR"
+}
+
+doctor() {
+  require_node24
+  require_env
+
+  local ok=1
+  echo "RUN_ID=$RUN_ID"
+  echo "STATE_DIR=$STATE_DIR"
+  echo "node24=$("$NODE24" --version)"
+
+  if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    echo "process: running (pid $(cat "$PID_FILE"))"
+  else
+    echo "process: not running"
+    ok=0
+  fi
+
+  if [[ ! -f "$LOG_FILE" ]]; then
+    echo "log: missing ($LOG_FILE)"
+    ok=0
+  else
+    for marker in "database ready" "slash commands registered" "discord gateway ready"; do
+      if grep -q "$marker" "$LOG_FILE"; then
+        echo "log: saw '$marker'"
+      else
+        echo "log: missing '$marker'"
+        ok=0
+      fi
+    done
+    if grep -q "devMode: true" "$LOG_FILE"; then
+      echo "devMode: true"
+    else
+      echo "devMode: not confirmed in logs"
+      ok=0
+    fi
+  fi
+
+  if [[ "$ok" -eq 1 ]]; then
+    echo "doctor: ok"
+    exit 0
+  fi
+  echo "doctor: failed"
+  exit 1
+}
+
+logs() {
+  local tail_lines=50
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --tail)
+        tail_lines="$2"
+        shift 2
+        ;;
+      *)
+        echo "usage: control-riot-tracker logs [--tail N]" >&2
+        exit 2
+        ;;
+    esac
+  done
+  if [[ ! -f "$LOG_FILE" ]]; then
+    echo "error: log file not found ($LOG_FILE)" >&2
+    exit 1
+  fi
+  tail -n "$tail_lines" "$LOG_FILE"
+}
+
+messages() {
+  require_env
+  local limit=5
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --limit)
+        limit="$2"
+        shift 2
+        ;;
+      *)
+        echo "usage: control-riot-tracker messages [--limit N]" >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  local out="${ARTIFACT_DIR}/channel-messages.json"
+  mkdir -p "$ARTIFACT_DIR"
+  curl -fsS \
+    -H "Authorization: Bot ${DISCORD_BOT_TOKEN}" \
+    "https://discord.com/api/v10/channels/${NOTIFICATION_CHANNEL_ID}/messages?limit=${limit}" \
+    -o "$out"
+  echo "$out"
+  cat "$out"
+}
+
+stop() {
+  local pid=""
+  if [[ -f "$PID_FILE" ]]; then
+    pid="$(cat "$PID_FILE")"
+    if kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+      for _ in $(seq 1 20); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.25
+      done
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -9 "$pid" 2>/dev/null || true
+      fi
+      echo "stopped pid $pid"
+    fi
+    rm -f "$PID_FILE"
+  fi
+
+  if tmux -f /exec-daemon/tmux.portal.conf has-session -t "=$TMUX_SESSION" 2>/dev/null; then
+    tmux -f /exec-daemon/tmux.portal.conf kill-session -t "$TMUX_SESSION"
+    echo "killed tmux session $TMUX_SESSION"
+  fi
+
+  if [[ -f "$DB_PATH" ]]; then
+    rm -f "$DB_PATH"
+    echo "removed $DB_PATH"
+  fi
+}
+
+usage() {
+  cat <<EOF
+usage: control-riot-tracker <command>
+
+commands:
+  launch     start an isolated bot instance (tmux + disposable DB)
+  doctor     check process, logs, and dev mode markers
+  logs       tail the bot log (--tail N, default 50)
+  messages   fetch recent notification-channel messages to artifacts
+  stop       stop the instance started for RUN_ID (keeps artifacts)
+
+env:
+  RUN_ID                 unique run id (default: verify-<timestamp>)
+  NODE24                 path to Node 24 binary
+  DB_PATH                sqlite path (default: under STATE_DIR)
+  ARTIFACT_DIR           proof output directory
+EOF
+}
+
+main() {
+  local cmd="${1:-}"
+  shift || true
+  case "$cmd" in
+    launch) launch "$@" ;;
+    doctor) doctor "$@" ;;
+    logs) logs "$@" ;;
+    messages) messages "$@" ;;
+    stop) stop "$@" ;;
+    "" | -h | --help) usage ;;
+    *)
+      echo "unknown command: $cmd" >&2
+      usage
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"
