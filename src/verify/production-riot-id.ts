@@ -38,6 +38,14 @@ const statusFromDb = (workspace: string, dbPath: string) => {
   return parseStatus(result.stdout);
 };
 
+const railwayEnv = () => ({
+  ...process.env,
+  // Cursor stores the account/workspace token as RAILWAY_TOKEN; the CLI
+  // authenticates that token type via RAILWAY_API_TOKEN.
+  RAILWAY_API_TOKEN:
+    process.env.RAILWAY_API_TOKEN ?? process.env.RAILWAY_TOKEN,
+});
+
 const statusFromRailway = (workspace: string) => {
   const service = process.env.RAILWAY_SERVICE ?? "riot-tracker-bot";
   const result = spawnSync(
@@ -45,7 +53,7 @@ const statusFromRailway = (workspace: string) => {
     ["exec", "railway", "ssh", "--service", service, "--", "pnpm", "admin", "status", "--json"],
     {
       cwd: workspace,
-      env: process.env,
+      env: railwayEnv(),
       encoding: "utf-8",
       timeout: 90_000,
     },
@@ -70,7 +78,7 @@ export const resolveVerifyRiotId = (workspace: string) => {
     return statusFromDb(workspace, productionDb);
   }
 
-  if (process.env.RAILWAY_TOKEN) {
+  if (process.env.RAILWAY_TOKEN || process.env.RAILWAY_API_TOKEN) {
     return statusFromRailway(workspace);
   }
 
