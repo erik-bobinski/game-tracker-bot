@@ -17,6 +17,7 @@ not touching the rest of the app.
 | `/signout`                       | Stop tracking and delete your data                           |
 | `/rank_check <user> <game>`      | Post someone's current rank with their tier emblem           |
 | `/pause` / `/resume`             | Stop or restart all reports (the bot goes idle while paused) |
+| `/refresh`                       | Recheck your Riot ID for games that were missing at signup   |
 
 ## Admin CLI
 
@@ -35,6 +36,8 @@ pnpm admin <command>
 | `signout <target>`                    | Stop tracking an account and delete its data                  |
 | `pause` / `resume`                    | Stop or restart all reports                                   |
 | `rank-check <target> [--game <game>]` | Look up a tracked account's current rank                      |
+| `refresh <target>`                    | Recheck a signed-up account for games missing at signup       |
+| `report-mock [--game <game>]`         | Post a mock match report embed to the notification channel    |
 
 `<target>` is a Discord user ID, a Discord name, or a Riot ID — whichever you
 have. Leave an argument off and the command asks for it. `--json` prints the

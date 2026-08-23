@@ -1,10 +1,11 @@
 import { Discord, Ix } from "dfx";
 import { Effect, Option, Schema } from "effect";
-import type { MatchDetails } from "../game/index.ts";
+import type { GameId, MatchDetails } from "../game/index.ts";
 import { LolMatch } from "../game/game-api/lol/match-schema.ts";
 import { ValRawMatch } from "../game/game-api/val/match-schema.ts";
 import { lolMatchToDetails } from "../game/game-adapters/lol.ts";
 import { valMatchToDetails } from "../game/game-adapters/valorant.ts";
+import type { MatchReport } from "./embed.ts";
 import {
   deferredReply,
   registerAccount,
@@ -187,6 +188,37 @@ export const valMockResponse = () => {
   };
 };
 
+export const buildMockMatchReport = (game: GameId) =>
+  Effect.gen(function* () {
+    const match =
+      game === "lol"
+        ? withMockLolRanks(
+            lolMatchToDetails(
+              yield* Schema.decodeUnknownEffect(LolMatch)(lolMockResponse()),
+            ),
+          )
+        : valMatchToDetails(
+            yield* Schema.decodeUnknownEffect(ValRawMatch)(valMockResponse()),
+          );
+    const rankUnit = match.game === "lol" ? "LP" : "RR";
+
+    return {
+      discordNames: ["VerifyAgent", "VerifyTeammate"],
+      trackedPuuids: match.players.slice(0, 2).map((player) => player.puuid),
+      match,
+      rankUpdates: new Map(
+        match.players.slice(0, 2).map((player, index) => [
+          player.puuid,
+          {
+            delta: index === 0 ? 18 : -21,
+            ...(player.rank ? { current: player.rank } : {}),
+            unit: rankUnit,
+          },
+        ]),
+      ),
+    } satisfies MatchReport;
+  });
+
 const devClear = ({ database }: CommandDeps) =>
   Ix.global(
     {
@@ -229,42 +261,9 @@ const devReport = (deps: CommandDeps) =>
     },
     (i) =>
       Effect.gen(function* () {
-        const user = i.interaction.member?.user ?? i.interaction.user;
-
-        const match =
-          i.optionValue("game") === "lol"
-            ? withMockLolRanks(
-                lolMatchToDetails(
-                  yield* Schema.decodeUnknownEffect(LolMatch)(
-                    lolMockResponse(),
-                  ),
-                ),
-              )
-            : valMatchToDetails(
-                yield* Schema.decodeUnknownEffect(ValRawMatch)(
-                  valMockResponse(),
-                ),
-              );
-        const rankUnit = match.game === "lol" ? "LP" : "RR";
-
-        // claim two mock players as tracked so the multi-user report renders
-        yield* deps.notifyMatch({
-          discordNames: [user?.username ?? "DevUser", "DevTeammate"],
-          trackedPuuids: match.players
-            .slice(0, 2)
-            .map((player) => player.puuid),
-          match,
-          rankUpdates: new Map(
-            match.players.slice(0, 2).map((player, index) => [
-              player.puuid,
-              {
-                delta: index === 0 ? 18 : -21,
-                ...(player.rank ? { current: player.rank } : {}),
-                unit: rankUnit,
-              },
-            ]),
-          ),
-        });
+        const game = i.optionValue("game") as GameId;
+        const report = yield* buildMockMatchReport(game);
+        yield* deps.notifyMatch(report);
         return reply("Mock match report sent.");
       }).pipe(
         Effect.catch((error) =>
