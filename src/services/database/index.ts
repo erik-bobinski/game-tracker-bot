@@ -51,6 +51,11 @@ export class Database extends Context.Service<
     readonly addAccount: (
       account: Account,
     ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    readonly addGame: (input: {
+      readonly discordUserId: string;
+      readonly game: GameId;
+      readonly state: GameState;
+    }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
     readonly getAccounts: () => Effect.Effect<
       ReadonlyArray<Account>,
       SqlError | Schema.SchemaError
@@ -391,6 +396,21 @@ const makeDatabase = Effect.gen(function* () {
     }
   }, sql.withTransaction);
 
+  const addGame = Effect.fn("Database.addGame")(function* (input: {
+    readonly discordUserId: string;
+    readonly game: GameId;
+    readonly state: GameState;
+  }) {
+    yield* insertGameRow({
+      discordUserId: input.discordUserId,
+      game: input.game,
+      puuid: input.state.puuid,
+      reportedMatches: input.state.reportedMatches,
+      region: input.state.region ?? null,
+      rankSnapshots: input.state.rankSnapshots,
+    });
+  });
+
   const accountRowsQuery = SqlSchema.findAll({
     Request: Schema.Struct({}),
     Result: AccountRow,
@@ -592,6 +612,7 @@ const makeDatabase = Effect.gen(function* () {
 
   return Database.of({
     addAccount,
+    addGame,
     getAccounts,
     getAccount,
     hasAccount,

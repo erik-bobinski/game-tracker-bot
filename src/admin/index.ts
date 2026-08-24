@@ -15,7 +15,10 @@ import {
   Schema,
 } from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
-import { registerAccount } from "../services/discord/commands.ts";
+import { DiscordConfig, DiscordREST, DiscordRESTLive, MemoryRateLimitStoreLive } from "dfx";
+import { registerAccount, refreshAccount, formatRefreshResult } from "../services/discord/commands.ts";
+import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
+import { matchEmbed } from "../services/discord/embed.ts";
 import {
   Database,
   DatabaseLive,
@@ -121,14 +124,21 @@ const resolveAccount = (
     return match;
   });
 
-// Built per command rather than up front, so `status` and `pause` still work
-// somewhere the riot api keys aren't set. Provide GameLive around the whole
-// use: the Undici agent is scoped and dies when the provided effect ends.
 const GameLive = GameAdaptersLive.pipe(
   Layer.provide(
     Layer.mergeAll(RiotApiLive, HenrikApiClientLive).pipe(
       Layer.provide(NodeHttpClient.layerUndici),
     ),
+  ),
+);
+
+const DiscordRestLive = DiscordRESTLive.pipe(
+  Layer.provide(MemoryRateLimitStoreLive),
+  Layer.provide(NodeHttpClient.layerUndici),
+  Layer.provide(
+    DiscordConfig.layerConfig({
+      token: Config.redacted("DISCORD_BOT_TOKEN"),
+    }),
   ),
 );
 
@@ -147,6 +157,29 @@ const withGameAdapters = <A, E>(
         ? cause
         : new AdminError({
             message: `This command needs RIOT_API_KEY and HENRIK_API_KEY${
+              cause instanceof Error && cause.message
+                ? `: ${cause.message}`
+                : ""
+            }`,
+          }),
+    ),
+  );
+
+const withDiscordRest = <A, E>(
+  run: (
+    rest: Effect.Success<typeof DiscordREST>,
+  ) => Effect.Effect<A, E | AdminError>,
+) =>
+  Effect.gen(function* () {
+    const rest = yield* DiscordREST;
+    return yield* run(rest);
+  }).pipe(
+    Effect.provide(DiscordRestLive),
+    Effect.mapError((cause) =>
+      cause instanceof AdminError
+        ? cause
+        : new AdminError({
+            message: `This command needs DISCORD_BOT_TOKEN and NOTIFICATION_CHANNEL_ID${
               cause instanceof Error && cause.message
                 ? `: ${cause.message}`
                 : ""
@@ -487,8 +520,100 @@ const rankCheck = Command.make(
   Command.withAlias("rank"),
 );
 
+const refresh = Command.make(
+  "refresh",
+  {
+    target: Argument.string("target").pipe(
+      Argument.withDescription("discord id, discord name, or riot id"),
+      Argument.optional,
+    ),
+  },
+  Effect.fn(function* ({ target }) {
+    const { json } = yield* admin;
+    const database = yield* Database;
+    const list = yield* accounts;
+    const account = yield* resolveAccount(
+      json,
+      list,
+      target,
+      "Refresh which account?",
+    );
+
+    const result = yield* withGameAdapters((adapters) =>
+      refreshAccount({ database, gameAdapters: adapters }, account).pipe(
+        orFail("Refresh failed"),
+      ),
+    );
+
+    yield* emit(
+      json,
+      {
+        discordUserId: account.discordUserId,
+        riotId: riotId(account),
+        added: result.added,
+        tracked: result.tracked,
+        missing: result.missing,
+      },
+      [
+        `Refreshed ${account.discordName} (${riotId(account)}).`,
+        formatRefreshResult(result),
+      ],
+    );
+  }),
+).pipe(
+  Command.withDescription(
+    "Recheck a signed-up account for games that weren't found at signup",
+  ),
+);
+
+const reportMock = Command.make(
+  "report-mock",
+  {
+    game: Flag.choice("game", ["lol", "valorant"]).pipe(
+      Flag.withDescription("which game's mock match to post"),
+      Flag.withDefault("lol"),
+    ),
+  },
+  Effect.fn(function* ({ game }) {
+    const { json } = yield* admin;
+    const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
+    const report = yield* buildMockMatchReport(game).pipe(
+      orFail("Could not build mock match report"),
+    );
+
+    yield* withDiscordRest((rest) =>
+      rest
+        .createMessage(channelId, {
+          embeds: [matchEmbed(report, {})],
+        })
+        .pipe(orFail("Could not post mock match report")),
+    );
+
+    yield* emit(
+      json,
+      { game, channelId, matchId: report.match.matchId },
+      [
+        `Posted a mock ${gameNames[game]} match report to channel ${channelId}.`,
+      ],
+    );
+  }),
+).pipe(
+  Command.withDescription(
+    "Post a mock match report embed to the notification channel",
+  ),
+);
+
 const cli = admin.pipe(
-  Command.withSubcommands([status, signup, signout, pause, resume, rankCheck]),
+  Command.withSubcommands([
+    status,
+    signup,
+    signout,
+    pause,
+    resume,
+    rankCheck,
+    refresh,
+    reportMock,
+  ]),
   Command.run({ version: "1.0.0" }),
 );
 

@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "log-watcher": "tsx src/log-watcher/index.ts",
-    "admin": "tsx src/admin/index.ts"
+    "admin": "tsx src/admin/index.ts",
+    "verify": "tsx src/verify/index.ts"
   },
   "type": "module",
   "keywords": [],

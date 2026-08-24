@@ -66,6 +66,39 @@ const makeDiscord = Effect.gen(function* () {
   const devMode = yield* Config.boolean("DEV_MODE").pipe(
     Config.withDefault(false),
   );
+
+  const setPresence = (paused: boolean) =>
+    gateway.send(
+      SendEvent.presenceUpdate({
+        status: paused
+          ? DiscordApi.PresenceUpdateStatus.Idle
+          : DiscordApi.PresenceUpdateStatus.Online,
+        since: paused ? Date.now() : null,
+        activities: [],
+        afk: paused,
+      }),
+    );
+
+  yield* SubscriptionRef.changes(pollingState.paused).pipe(
+    Stream.changes,
+    Stream.runForEach(setPresence),
+    Effect.forkScoped,
+  );
+
+  // Subscribe before rank-emoji / command REST so the first READY is not missed.
+  const gatewayReady = yield* Ref.make(false);
+  yield* gateway
+    .handleDispatch("READY", () =>
+      Effect.gen(function* () {
+        const reconnected = yield* Ref.getAndSet(gatewayReady, true);
+        yield* Effect.logInfo(
+          reconnected ? "discord gateway reconnected" : "discord gateway ready",
+        );
+        yield* setPresence(yield* SubscriptionRef.get(pollingState.paused));
+      }),
+    )
+    .pipe(Effect.forkScoped);
+
   const rankEmojis = yield* provisionRankEmojis(gameAdapters.all).pipe(
     Effect.catch((error) =>
       Effect.logWarning(
@@ -111,38 +144,6 @@ const makeDiscord = Effect.gen(function* () {
         }),
       );
     })
-    .pipe(Effect.forkScoped);
-
-  const setPresence = (paused: boolean) =>
-    gateway.send(
-      SendEvent.presenceUpdate({
-        status: paused
-          ? DiscordApi.PresenceUpdateStatus.Idle
-          : DiscordApi.PresenceUpdateStatus.Online,
-        since: paused ? Date.now() : null,
-        activities: [],
-        afk: false,
-      }),
-    );
-
-  yield* SubscriptionRef.changes(pollingState.paused).pipe(
-    Stream.changes,
-    Stream.runForEach(setPresence),
-    Effect.forkScoped,
-  );
-
-  // presence is per-connection state that discord drops on reconnect
-  const gatewayReady = yield* Ref.make(false);
-  yield* gateway
-    .handleDispatch("READY", () =>
-      Effect.gen(function* () {
-        const reconnected = yield* Ref.getAndSet(gatewayReady, true);
-        yield* Effect.logInfo(
-          reconnected ? "discord gateway reconnected" : "discord gateway ready",
-        );
-        yield* setPresence(yield* SubscriptionRef.get(pollingState.paused));
-      }),
-    )
     .pipe(Effect.forkScoped);
 
   return Discord.of({ notifyMatch });

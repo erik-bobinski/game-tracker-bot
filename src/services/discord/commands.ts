@@ -4,6 +4,7 @@ import type { Account, Database } from "../database/index.ts";
 import {
   logApiError,
   logApiWarning,
+  resolveGameState,
   type GameAdapters,
 } from "../game/game-adapters/index.ts";
 import { gameNames, type GameId } from "../game/index.ts";
@@ -45,30 +46,8 @@ export const registerAccount = (
     const resolved = yield* Effect.forEach(
       gameAdapters.all,
       (adapter) =>
-        adapter.resolveAccount(input.riotName, input.riotTag).pipe(
-          Effect.flatMap(({ puuid, region }) =>
-            adapter.getRecentMatches(puuid, region).pipe(
-              Effect.catchTag("GameApiError", (error) =>
-                logApiWarning("baseline match fetch failed", error).pipe(
-                  Effect.as([]),
-                ),
-              ),
-              Effect.map((matches) => ({
-                game: adapter.game,
-                state: {
-                  puuid,
-                  reportedMatches: matches.map((match) => ({
-                    matchId: match.matchId,
-                    date: match.date,
-                  })),
-                  // matches carry the platformId they were played on, which
-                  // covers accounts the region lookup couldn't resolve
-                  region: region ?? matches[0]?.routingRegion,
-                  rankSnapshots: {},
-                },
-              })),
-            ),
-          ),
+        resolveGameState(adapter, input.riotName, input.riotTag).pipe(
+          Effect.map((state) => ({ game: adapter.game, state })),
           // a failed lookup is not the same as "no such account", but
           // both leave this game untracked
           Effect.catch((error) =>
@@ -91,6 +70,76 @@ export const registerAccount = (
     yield* database.addAccount({ ...input, games });
     return "ok" as const;
   });
+
+const listGameNames = (games: ReadonlyArray<GameId>) =>
+  games.map((game) => gameNames[game]).join(", ");
+
+// Rechecks every adapter for a signed-up user. Already-tracked games
+// keep their reported matches; only newly found games are inserted.
+export const refreshAccount = (
+  { database, gameAdapters }: Pick<CommandDeps, "database" | "gameAdapters">,
+  account: Account,
+) =>
+  Effect.gen(function* () {
+    const tracked = gameAdapters.all
+      .filter((adapter) => account.games[adapter.game] !== undefined)
+      .map((adapter) => adapter.game);
+
+    const unresolved = gameAdapters.all.filter(
+      (adapter) => account.games[adapter.game] === undefined,
+    );
+
+    const resolved = yield* Effect.forEach(
+      unresolved,
+      (adapter) =>
+        resolveGameState(adapter, account.riotName, account.riotTag).pipe(
+          Effect.map((state) => ({ game: adapter.game, state })),
+          Effect.catch((error) =>
+            logApiWarning("refreshAccount failed", error).pipe(
+              Effect.annotateLogs({ game: adapter.game }),
+              Effect.as({ game: adapter.game, state: undefined }),
+            ),
+          ),
+        ),
+      { concurrency: "unbounded" },
+    );
+
+    const added: Array<GameId> = [];
+    const missing: Array<GameId> = [];
+    for (const { game, state } of resolved) {
+      if (!state) {
+        missing.push(game);
+        continue;
+      }
+      yield* database.addGame({
+        discordUserId: account.discordUserId,
+        game,
+        state,
+      });
+      added.push(game);
+    }
+
+    return { added, missing, tracked };
+  });
+
+export const formatRefreshResult = (result: {
+  readonly added: ReadonlyArray<GameId>;
+  readonly missing: ReadonlyArray<GameId>;
+  readonly tracked: ReadonlyArray<GameId>;
+}) => {
+  const lines = [
+    result.added.length > 0
+      ? `Added: ${listGameNames(result.added)}`
+      : "No new games found.",
+  ];
+  if (result.tracked.length > 0) {
+    lines.push(`Already tracking: ${listGameNames(result.tracked)}`);
+  }
+  if (result.missing.length > 0) {
+    lines.push(`Still missing: ${listGameNames(result.missing)}`);
+  }
+  return lines.join("\n");
+};
 
 const signup = (deps: CommandDeps) =>
   Ix.global(
@@ -230,6 +279,52 @@ const resume = ({ pollingState }: CommandDeps) =>
       ),
   );
 
+const refresh = (deps: CommandDeps) =>
+  Ix.global(
+    {
+      name: "refresh",
+      description:
+        "Recheck your Riot ID for games that weren't found at signup",
+    },
+    (i) =>
+      Effect.gen(function* () {
+        const user = i.interaction.member?.user ?? i.interaction.user;
+        if (!user) return reply("Couldn't tell who ran that command :(");
+
+        const account = yield* deps.database.getAccount(user.id);
+        if (!account) return reply("You're not signed up.");
+
+        const followUp = (content: string) =>
+          deps.rest.updateOriginalWebhookMessage(
+            i.interaction.application_id,
+            i.interaction.token,
+            { payload: { content } },
+          );
+
+        const run = refreshAccount(deps, account).pipe(
+          Effect.flatMap((result) => followUp(formatRefreshResult(result))),
+          Effect.catch((error) =>
+            Effect.logError("refresh failed", error).pipe(
+              Effect.andThen(followUp("Refresh failed, try again in a bit :(")),
+              Effect.ignore({
+                log: "Error",
+                message: "refresh follow-up failed",
+              }),
+            ),
+          ),
+        );
+
+        yield* Effect.forkDetach(run);
+        return deferredReply;
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logError("refresh lookup failed", error).pipe(
+            Effect.as(reply("Refresh failed, try again in a bit :(")),
+          ),
+        ),
+      ),
+  );
+
 const rankCheck = (deps: CommandDeps) =>
   Ix.global(
     {
@@ -334,6 +429,7 @@ export const commands = (deps: CommandDeps, devMode: boolean) => {
     .add(signout(deps))
     .add(pause(deps))
     .add(resume(deps))
+    .add(refresh(deps))
     .add(rankCheck(deps));
 
   return (devMode ? base.concat(devCommands(deps)) : base).catchAllCause(
