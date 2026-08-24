@@ -1,6 +1,6 @@
 # Refresh
 
-Rechecks a signed-up account for games that were missing at signup. On-demand only (`/refresh` and `pnpm admin refresh`). There is no hourly missing-game loop.
+Rechecks a signed-up account for games that were missing at signup (`/refresh` and `pnpm admin refresh`).
 
 ## Sub-features
 
@@ -9,7 +9,7 @@ Rechecks a signed-up account for games that were missing at signup. On-demand on
 
 ## How to get to it (user POV)
 
-`pnpm admin refresh <target> --json` where target is a discord id, name, or riot id.
+Discord: `/refresh`. Operator: `pnpm admin refresh <target> --json` where target is a discord id, name, or riot id.
 
 ## Driving it with admin CLI
 
@@ -22,4 +22,3 @@ Preconditions: account already signed up in the same `DB_PATH`.
 
 - Mirrors `/refresh` slash command logic via the same `refreshAccount` function.
 - Failed API lookups land in `missing`, not a hard error. Valorant Henrik 404 is a missing game, not a failed refresh.
-- Do not expect polling to backfill missing games. Recheck is the slash command and the admin CLI only.

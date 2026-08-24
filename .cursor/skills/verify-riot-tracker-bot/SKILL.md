@@ -21,6 +21,8 @@ Isolation uses `DB_PATH=/tmp/riot-verify-<run-id>.sqlite` so production data is 
 
 Do not set `VERIFY_RIOT_ID` when a Railway token is available. The harness resolves a production Riot ID itself.
 
+Cloud-agent traps (Railway project tokens, ssh keys, READY race, Henrik 404) are in [references/cloud-agent-lessons.md](references/cloud-agent-lessons.md).
+
 ## Doctor
 
 Before driving features manually:
@@ -30,7 +32,7 @@ pnpm typecheck
 pnpm admin status --json
 ```
 
-For the live bot, confirm the process log contains `slash commands registered` and either `discord gateway ready` or `application started`. READY can fire before the handler is attached; slash-command registration plus application start still means the bot is up.
+For the live bot, confirm the process log contains `slash commands registered` and either `discord gateway ready` or `application started`. dfx can emit READY before `makeDiscord` subscribes; slash-command registration plus application start still means the bot is up. The Discord service now subscribes to READY before rank-emoji REST so the first READY is less often missed.
 
 ## Riot ID resolution
 
