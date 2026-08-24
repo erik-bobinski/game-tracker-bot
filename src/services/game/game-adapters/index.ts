@@ -113,6 +113,36 @@ export const emptyEnrichment = (match: MatchDetails) => ({
   updatedRankSnapshots: new Map<Puuid, RankSnapshots>(),
 });
 
+// Used at signup and by /refresh. Failed recent-match fetches still
+// return the account so we can start tracking it.
+export const resolveGameState = (
+  adapter: GameAdapter,
+  riotName: string,
+  riotTag: string,
+) =>
+  adapter.resolveAccount(riotName, riotTag).pipe(
+    Effect.flatMap(({ puuid, region }) =>
+      adapter.getRecentMatches(puuid, region).pipe(
+        Effect.catchTag("GameApiError", (error) =>
+          logApiWarning("baseline match fetch failed", error).pipe(
+            Effect.as([]),
+          ),
+        ),
+        Effect.map((matches) => ({
+          puuid,
+          reportedMatches: matches.map((match) => ({
+            matchId: match.matchId,
+            date: match.date,
+          })),
+          // matches carry the platformId they were played on, which covers
+          // accounts the region lookup couldn't resolve
+          region: region ?? matches[0]?.routingRegion,
+          rankSnapshots: {},
+        })),
+      ),
+    ),
+  );
+
 export class GameAdapters extends Context.Service<
   GameAdapters,
   {
