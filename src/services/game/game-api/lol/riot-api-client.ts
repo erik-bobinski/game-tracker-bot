@@ -1,4 +1,12 @@
-import { Config, Context, Effect, Layer, Redacted, Schema } from "effect";
+import {
+  Config,
+  Context,
+  Effect,
+  Layer,
+  Redacted,
+  Schedule,
+  Schema,
+} from "effect";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
@@ -82,7 +90,11 @@ export const RiotApiLive = Layer.effect(
         HttpClientRequest.setHeader("X-Riot-Token", Redacted.value(apiKey)),
       ),
       HttpClient.filterStatusOk,
-      HttpClient.retryTransient({ times: 3 }),
+      // without a delay, 429 retries fire immediately and still skip the account
+      HttpClient.retryTransient({
+        times: 3,
+        schedule: Schedule.exponential("1 second"),
+      }),
     );
 
     const getAccountByRiotId = Effect.fn("RiotApi.getAccountByRiotId")(
