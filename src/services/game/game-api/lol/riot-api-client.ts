@@ -90,7 +90,6 @@ export const RiotApiLive = Layer.effect(
         HttpClientRequest.setHeader("X-Riot-Token", Redacted.value(apiKey)),
       ),
       HttpClient.filterStatusOk,
-      // without a delay, 429 retries fire immediately and still skip the account
       HttpClient.retryTransient({
         times: 3,
         schedule: Schedule.exponential("1 second"),
