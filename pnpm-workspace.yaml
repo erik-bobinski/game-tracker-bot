@@ -1,5 +1,4 @@
 allowBuilds:
-  '@anthropic-ai/claude-code': true
   '@railway/cli': true
   esbuild: true
   msgpackr-extract: true

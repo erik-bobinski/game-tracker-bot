@@ -8,7 +8,6 @@
     "dev": "tsx --env-file=.env src/index.ts",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
-    "log-watcher": "tsx src/log-watcher/index.ts",
     "admin": "tsx src/admin/index.ts",
     "verify": "tsx src/verify/index.ts"
   },
@@ -23,7 +22,6 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.220",
     "@effect/platform-node": "4.0.0-beta.105",
     "@effect/sql-sqlite-node": "4.0.0-beta.105",
     "@railway/cli": "5.30.1",
