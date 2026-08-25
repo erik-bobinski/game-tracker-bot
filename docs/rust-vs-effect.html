@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Rust to Effect, week one</title>
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600;6..72,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap");
+  :root {
+    --bg: #070707;
+    --fg: #f4f1ea;
+    --muted: #8b867a;
+    --mint: #7dffc3;
+    --mint-dim: rgba(125,255,195,0.12);
+    --line: #1c1c1c;
+    --card: #101010;
+    --rust: #c4b8a1;
+    --bad: #ff8a7a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); }
+  body {
+    font-family: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+    font-size: 18px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 48px 28px 96px; }
+  .kicker {
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mint);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .kicker .dot { width: 7px; height: 7px; border-radius: 99px; background: var(--mint); }
+  h1 {
+    font-size: clamp(42px, 8vw, 84px);
+    line-height: 0.95;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    margin: 18px 0 10px;
+  }
+  .deck { color: var(--muted); font-size: 20px; max-width: 38em; margin: 0; }
+  header.top { display: grid; grid-template-columns: 1.5fr 0.9fr; gap: 40px; align-items: end; }
+  .verdict {
+    border-left: 1px solid var(--line);
+    padding-left: 24px;
+  }
+  .verdict .label {
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted);
+  }
+  .verdict h2 { font-size: 22px; margin: 8px 0 8px; line-height: 1.2; }
+  .verdict p { margin: 0; color: var(--muted); font-size: 15px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 40px 0; }
+  .windows {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px;
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 13px; color: var(--muted);
+  }
+  .windows strong { display: block; color: var(--fg); font-size: 14px; margin-bottom: 4px; font-weight: 600; }
+  .section-label {
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--mint);
+    margin-bottom: 8px;
+  }
+  h3 { font-size: 32px; margin: 0 0 12px; letter-spacing: -0.02em; }
+  p { max-width: 46em; }
+  table { width: 100%; border-collapse: collapse; font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; font-size: 14px; }
+  th { text-align: left; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding: 10px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 11px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    background: var(--mint-dim); color: var(--mint); font-size: 12px; font-weight: 600;
+  }
+  .pill.down { background: var(--mint-dim); color: var(--mint); }
+  .pill.up { background: rgba(255,138,122,0.12); color: var(--bad); }
+  .pill.flat { background: #191919; color: var(--muted); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .card { background: var(--card); border: 1px solid var(--line); padding: 18px 18px 10px; border-radius: 6px; }
+  .card h4 { margin: 0 0 4px; font-size: 15px; font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; font-weight: 500; }
+  .card .range { color: var(--muted); font-size: 12px; font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; margin-bottom: 8px; }
+  svg.spark { width: 100%; height: 90px; display: block; }
+  .qa { margin: 22px 0 28px; }
+  .qa h4 { margin: 0 0 6px; font-size: 20px; }
+  .note { color: var(--muted); font-size: 15px; }
+  .stars { color: var(--mint); letter-spacing: 0.2em; font-size: 13px; }
+  footer { margin-top: 56px; color: var(--muted); font-size: 13px; font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; }
+  @media (max-width: 800px) {
+    header.top, .windows, .grid2 { grid-template-columns: 1fr; }
+    .verdict { border-left: 0; border-top: 1px solid var(--line); padding: 18px 0 0; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker"><span class="dot"></span> Production field note · Aug 25, 2026</div>
+  <header class="top">
+    <div>
+      <h1>Rust → Effect, week one</h1>
+      <p class="deck">The first look measured 43 minutes of a boot. This one measures two quiet weeks on the same Railway box, then asks whether the rewrite was worth it.</p>
+    </div>
+    <aside class="verdict">
+      <div class="label">Week-one verdict</div>
+      <h2>The bill is a wash. The process is fatter. The API is quieter.</h2>
+      <p>Effect still uses 76% less egress, but that is mostly because it stopped downloading 20 League matches a minute. Memory is +41% and sawtoothed. CPU is 4% lower once you stop measuring a cold start. Hobby monthly run-rate: $3.57 Rust vs $3.63 Effect.</p>
+    </aside>
+  </header>
+
+  <hr/>
+  <div class="windows">
+    <div>
+      <strong>Rust, final 7 days</strong>
+      Aug 3 01:22 to Aug 10 01:22 UTC<br/>
+      Monday through Sunday, 0 deploys, 8 vCPU / 8 GB ceiling
+    </div>
+    <div>
+      <strong>Effect, matched quiet week</strong>
+      Aug 16 02:22 to Aug 23 02:22 UTC<br/>
+      Same weekdays, 0 deploys, same replica and region (us-east4)
+    </div>
+    <div>
+      <strong>Cutover</strong>
+      Aug 10 01:28 UTC · 9:28 PM ET Aug 9<br/>
+      Original 43-min slices still reproduce: 246 vs 300 MB, egress −74%
+    </div>
+  </div>
+
+  <hr/>
+  <div class="section-label">Runtime profile</div>
+  <h3>The tradeoff, after a week</h3>
+  <p>Same service, environment, region, replica count, and 8 vCPU / 8 GB ceiling. Primary comparison uses the last quiet Rust week against a later quiet Effect week so deploys do not pose as runtime. Five-minute Railway samples, 2,017 points each, zeros kept because neither gauge actually sat at zero.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th class="num">Rust</th>
+        <th class="num">Effect TS</th>
+        <th class="num">Change</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Memory, mean working set</td><td class="num">234 MB</td><td class="num">329 MB</td><td class="num"><span class="pill up">+41%</span></td></tr>
+      <tr><td>Memory p50 / p95 / p99</td><td class="num">239 / 250 / 250</td><td class="num">320 / 417 / 437</td><td class="num"><span class="pill up">p95 +67%</span></td></tr>
+      <tr><td>Memory peak</td><td class="num">252 MB</td><td class="num">492 MB quiet, 716 MB on deploy</td><td class="num"><span class="pill up">+95% quiet</span></td></tr>
+      <tr><td>Memory variability (CV)</td><td class="num">0.07</td><td class="num">0.09, sawtooth ~100 MB</td><td class="num"><span class="pill up">GC-shaped</span></td></tr>
+      <tr><td>CPU mean, matched hour-of-week</td><td class="num">0.00674 vCPU</td><td class="num">0.00644 vCPU</td><td class="num"><span class="pill down">−4.4%</span></td></tr>
+      <tr><td>CPU p50 / p95 / p99</td><td class="num">0.00674 / 0.00810 / 0.00868</td><td class="num">0.00636 / 0.00777 / 0.00830</td><td class="num"><span class="pill down">−4 to −6%</span></td></tr>
+      <tr><td>CPU peak</td><td class="num">0.0097 vCPU</td><td class="num">0.034 vCPU</td><td class="num"><span class="pill up">+247%</span></td></tr>
+      <tr><td>Public egress, 7-day total</td><td class="num">5.25 GB</td><td class="num">1.25 GB</td><td class="num"><span class="pill down">−76%</span></td></tr>
+      <tr><td>Public ingress, 7-day total</td><td class="num">272 GB</td><td class="num">79 GB</td><td class="num"><span class="pill down">−71%</span></td></tr>
+      <tr><td>Volume /data</td><td class="num">107 MB JSON-era</td><td class="num">82 MB SQLite</td><td class="num"><span class="pill down">−24%</span></td></tr>
+      <tr><td>Poll cadence</td><td class="num">60s wall clock</td><td class="num">~70s spaced after finish</td><td class="num"><span class="pill up">~14% fewer ticks</span></td></tr>
+      <tr><td>League matches pulled per poll</td><td class="num">20 (API default)</td><td class="num">3, then hydrate those 3</td><td class="num"><span class="pill down">−85% LoL calls</span></td></tr>
+      <tr><td>Deploys in window</td><td class="num">0</td><td class="num">0 quiet / 7 in the latest week</td><td class="num"><span class="pill flat">agents ship TS</span></td></tr>
+      <tr><td>Crashes / failed deploys</td><td class="num">0 / 0 that week</td><td class="num">0 / 0</td><td class="num"><span class="pill flat">both boring</span></td></tr>
+    </tbody>
+  </table>
+
+  <hr/>
+  <div class="section-label">Memory</div>
+  <h3>Effect's extra RAM is stable-ish, and it is GC. Not a leak.</h3>
+  <p>Rust climbed slowly from 183 MB to 249 MB over the week, then sat there. No spikes. p99 is 250 MB. It looks like a process that found a pile of memory and kept it.</p>
+  <p>Effect's quiet week mean is 329 MB. p50 320, p95 417, max 492. That 100 MB gap between typical and p95 is the Node sawtooth. Linear slope is +9.6 MB/day, but the week ended at 331 MB after starting at 310, so the slope is the teeth, not a leak running away. Deploy nights are a different animal: 630 to 716 MB while Railpack is still wiping its hands.</p>
+  <p>The first-night report said +22% (240 vs 293). A week of GC later, the honest number is +41% on the mean and +67% on p95. The original Effect window started fourteen minutes after <code>Merge effect/rewrite into production</code>. It measured a boot.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Rust memory, 7 days</h4>
+      <div class="range">183 -> 250 MB. Flat after the first climb.</div>
+      <svg viewBox="0 0 720 90" preserveAspectRatio="none" class="spark">
+  <path d="M 4.0,86.0 L 8.3,85.3 L 12.5,85.2 L 16.8,84.4 L 21.1,84.4 L 25.3,84.4 L 29.6,85.0 L 33.8,84.9 L 38.1,84.9 L 42.4,84.9 L 46.6,84.9 L 50.9,84.7 L 55.2,85.1 L 59.4,83.0 L 63.7,82.7 L 68.0,82.7 L 72.2,82.7 L 76.5,31.5 L 80.7,31.2 L 85.0,31.1 L 89.3,32.3 L 93.5,32.2 L 97.8,32.8 L 102.1,32.9 L 106.3,30.3 L 110.6,30.3 L 114.9,30.7 L 119.1,28.7 L 123.4,28.7 L 127.6,28.7 L 131.9,28.8 L 136.2,28.8 L 140.4,28.7 L 144.7,28.8 L 149.0,28.6 L 153.2,28.0 L 157.5,28.0 L 161.7,28.0 L 166.0,26.8 L 170.3,8.2 L 174.5,5.3 L 178.8,4.0 L 183.1,4.0 L 187.3,4.5 L 191.6,4.5 L 195.9,4.5 L 200.1,4.4 L 204.4,4.4 L 208.6,4.4 L 212.9,4.9 L 217.2,4.9 L 221.4,11.7 L 225.7,11.7 L 230.0,11.8 L 234.2,11.7 L 238.5,11.7 L 242.8,11.7 L 247.0,11.7 L 251.3,11.7 L 255.5,12.1 L 259.8,12.1 L 264.1,12.1 L 268.3,13.6 L 272.6,14.0 L 276.9,14.4 L 281.1,14.3 L 285.4,14.2 L 289.7,14.3 L 293.9,14.1 L 298.2,14.0 L 302.4,14.0 L 306.7,14.0 L 311.0,13.9 L 315.2,14.0 L 319.5,13.8 L 323.8,14.0 L 328.0,14.0 L 332.3,14.6 L 336.6,14.6 L 340.8,14.7 L 345.1,14.6 L 349.3,12.0 L 353.6,15.8 L 357.9,16.6 L 362.1,11.7 L 366.4,16.1 L 370.7,11.9 L 374.9,18.2 L 379.2,18.2 L 383.4,13.5 L 387.7,12.0 L 392.0,11.5 L 396.2,12.1 L 400.5,10.7 L 404.8,10.8 L 409.0,10.6 L 413.3,10.6 L 417.6,9.2 L 421.8,11.8 L 426.1,12.6 L 430.3,15.2 L 434.6,14.0 L 438.9,16.7 L 443.1,16.1 L 447.4,14.1 L 451.7,10.3 L 455.9,11.4 L 460.2,13.2 L 464.5,11.4 L 468.7,16.5 L 473.0,14.6 L 477.2,10.5 L 481.5,17.3 L 485.8,14.9 L 490.0,23.8 L 494.3,18.7 L 498.6,22.0 L 502.8,24.6 L 507.1,26.3 L 511.4,23.6 L 515.6,34.8 L 519.9,23.3 L 524.1,23.7 L 528.4,22.7 L 532.7,30.9 L 536.9,19.3 L 541.2,20.4 L 545.5,22.3 L 549.7,19.5 L 554.0,19.4 L 558.3,21.1 L 562.5,21.8 L 566.8,20.5 L 571.0,21.9 L 575.3,20.8 L 579.6,19.4 L 583.8,21.1 L 588.1,19.4 L 592.4,19.4 L 596.6,23.5 L 600.9,27.8 L 605.1,34.3 L 609.4,27.3 L 613.7,37.8 L 617.9,25.5 L 622.2,33.1 L 626.5,28.1 L 630.7,25.7 L 635.0,26.7 L 639.3,25.1 L 643.5,26.5 L 647.8,35.0 L 652.0,22.8 L 656.3,30.5 L 660.6,23.4 L 664.8,8.8 L 669.1,5.7 L 673.4,6.5 L 677.6,7.6 L 681.9,8.9 L 686.2,17.4 L 690.4,10.3 L 694.7,15.7 L 698.9,7.8 L 703.2,7.9 L 707.5,6.3 L 711.7,6.7 L 716.0,8.1" fill="none" stroke="#8f8a7a" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>
+    </div>
+    <div class="card">
+      <h4>Effect memory, quiet 7 days</h4>
+      <div class="range">305 -> 451 MB in this downsample. Teeth, then a jump.</div>
+      <svg viewBox="0 0 720 90" preserveAspectRatio="none" class="spark">
+  <path d="M 4.0,83.3 L 8.3,83.5 L 12.5,84.7 L 16.8,81.6 L 21.1,83.8 L 25.3,82.6 L 29.6,84.0 L 33.8,83.7 L 38.1,83.5 L 42.4,84.7 L 46.6,84.2 L 50.9,84.1 L 55.2,83.7 L 59.4,82.5 L 63.7,82.4 L 68.0,85.4 L 72.2,82.4 L 76.5,85.6 L 80.7,83.2 L 85.0,85.5 L 89.3,84.3 L 93.5,82.0 L 97.8,85.5 L 102.1,82.7 L 106.3,82.5 L 110.6,83.4 L 114.9,85.6 L 119.1,84.8 L 123.4,81.3 L 127.6,82.7 L 131.9,81.8 L 136.2,83.0 L 140.4,82.5 L 144.7,82.6 L 149.0,83.0 L 153.2,81.0 L 157.5,82.1 L 161.7,82.0 L 166.0,86.0 L 170.3,82.3 L 174.5,79.9 L 178.8,79.9 L 183.1,79.1 L 187.3,79.0 L 191.6,79.8 L 195.9,79.9 L 200.1,79.2 L 204.4,79.2 L 208.6,79.3 L 212.9,79.3 L 217.2,79.3 L 221.4,79.3 L 225.7,79.2 L 230.0,79.2 L 234.2,79.2 L 238.5,79.0 L 242.8,78.9 L 247.0,78.8 L 251.3,78.7 L 255.5,77.2 L 259.8,77.1 L 264.1,77.7 L 268.3,77.7 L 272.6,77.9 L 276.9,77.8 L 281.1,77.8 L 285.4,78.1 L 289.7,78.1 L 293.9,77.9 L 298.2,78.1 L 302.4,78.0 L 306.7,77.8 L 311.0,77.9 L 315.2,77.9 L 319.5,77.8 L 323.8,79.8 L 328.0,79.8 L 332.3,79.7 L 336.6,79.8 L 340.8,79.7 L 345.1,79.6 L 349.3,79.7 L 353.6,79.7 L 357.9,79.7 L 362.1,79.8 L 366.4,79.8 L 370.7,79.6 L 374.9,78.3 L 379.2,78.2 L 383.4,78.0 L 387.7,77.0 L 392.0,76.7 L 396.2,76.8 L 400.5,76.7 L 404.8,76.6 L 409.0,76.7 L 413.3,76.7 L 417.6,76.5 L 421.8,75.8 L 426.1,75.8 L 430.3,75.7 L 434.6,75.9 L 438.9,75.8 L 443.1,75.3 L 447.4,75.1 L 451.7,75.2 L 455.9,75.1 L 460.2,75.5 L 464.5,75.4 L 468.7,75.4 L 473.0,75.4 L 477.2,75.5 L 481.5,75.8 L 485.8,75.6 L 490.0,75.6 L 494.3,76.5 L 498.6,76.6 L 502.8,76.6 L 507.1,76.4 L 511.4,76.6 L 515.6,76.5 L 519.9,76.6 L 524.1,76.5 L 528.4,76.5 L 532.7,76.5 L 536.9,75.6 L 541.2,75.6 L 545.5,75.6 L 549.7,75.6 L 554.0,75.5 L 558.3,75.6 L 562.5,75.5 L 566.8,75.5 L 571.0,75.7 L 575.3,75.6 L 579.6,74.9 L 583.8,17.1 L 588.1,17.0 L 592.4,34.7 L 596.6,34.7 L 600.9,34.7 L 605.1,4.0 L 609.4,11.4 L 613.7,11.4 L 617.9,12.6 L 622.2,12.4 L 626.5,12.2 L 630.7,12.5 L 635.0,37.1 L 639.3,37.3 L 643.5,68.6 L 647.8,60.1 L 652.0,60.1 L 656.3,60.0 L 660.6,60.2 L 664.8,60.2 L 669.1,60.0 L 673.4,59.8 L 677.6,59.4 L 681.9,59.3 L 686.2,59.5 L 690.4,59.2 L 694.7,59.4 L 698.9,59.4 L 703.2,59.3 L 707.5,59.5 L 711.7,59.5 L 716.0,58.8" fill="none" stroke="#7dffc3" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>
+    </div>
+  </div>
+
+  <hr/>
+  <div class="section-label">CPU</div>
+  <h3>The +21% CPU tax was a cold start. Steady state is a rounding error the other way.</h3>
+  <p>Matched weekday and clock-time buckets (168 hour-of-week cells, Eastern): Rust 0.00674 vCPU, Effect 0.00644. Evening 8 to 11 PM ET is the same story. Overnight 2 to 7 AM ET is the same story. Effect's peak is 3.5x Rust because of deploys and one 0.034 vCPU burst, not because polling is heavier.</p>
+  <p>Effect's coefficient of variation is 0.20 vs Rust's 0.12. Rust is the flatter line. Effect is the flatter average with the occasional snort.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Rust CPU, 7 days</h4>
+      <div class="range">mean 0.00674 · max 0.0090 in this downsample</div>
+      <svg viewBox="0 0 720 90" preserveAspectRatio="none" class="spark">
+  <path d="M 4.0,86.0 L 8.3,47.6 L 12.5,52.7 L 16.8,56.0 L 21.1,46.1 L 25.3,66.2 L 29.6,49.4 L 33.8,45.4 L 38.1,49.7 L 42.4,45.9 L 46.6,34.5 L 50.9,29.6 L 55.2,43.0 L 59.4,43.3 L 63.7,42.1 L 68.0,24.0 L 72.2,36.3 L 76.5,40.0 L 80.7,37.8 L 85.0,34.4 L 89.3,37.9 L 93.5,40.1 L 97.8,35.6 L 102.1,40.1 L 106.3,39.4 L 110.6,38.1 L 114.9,39.1 L 119.1,42.1 L 123.4,15.8 L 127.6,42.3 L 131.9,46.9 L 136.2,45.0 L 140.4,46.5 L 144.7,40.4 L 149.0,41.7 L 153.2,28.8 L 157.5,35.6 L 161.7,33.5 L 166.0,33.2 L 170.3,54.8 L 174.5,55.9 L 178.8,54.7 L 183.1,34.3 L 187.3,36.3 L 191.6,37.2 L 195.9,37.5 L 200.1,31.5 L 204.4,60.4 L 208.6,36.7 L 212.9,38.2 L 217.2,38.4 L 221.4,31.9 L 225.7,43.0 L 230.0,46.3 L 234.2,35.8 L 238.5,44.3 L 242.8,40.7 L 247.0,36.7 L 251.3,33.4 L 255.5,18.3 L 259.8,4.0 L 264.1,7.2 L 268.3,28.9 L 272.6,26.5 L 276.9,25.7 L 281.1,16.5 L 285.4,8.1 L 289.7,40.9 L 293.9,32.3 L 298.2,30.9 L 302.4,24.6 L 306.7,46.3 L 311.0,39.1 L 315.2,36.1 L 319.5,27.2 L 323.8,39.3 L 328.0,40.6 L 332.3,43.4 L 336.6,41.6 L 340.8,39.4 L 345.1,42.7 L 349.3,36.4 L 353.6,38.5 L 357.9,14.3 L 362.1,38.4 L 366.4,17.6 L 370.7,35.3 L 374.9,59.6 L 379.2,49.8 L 383.4,57.1 L 387.7,39.0 L 392.0,20.6 L 396.2,41.7 L 400.5,36.7 L 404.8,37.7 L 409.0,34.0 L 413.3,43.2 L 417.6,27.9 L 421.8,41.1 L 426.1,40.1 L 430.3,47.2 L 434.6,63.3 L 438.9,42.3 L 443.1,67.0 L 447.4,43.5 L 451.7,41.8 L 455.9,27.2 L 460.2,42.8 L 464.5,19.2 L 468.7,58.6 L 473.0,53.9 L 477.2,28.0 L 481.5,52.8 L 485.8,9.0 L 490.0,25.9 L 494.3,23.5 L 498.6,20.9 L 502.8,32.8 L 507.1,44.8 L 511.4,24.1 L 515.6,38.2 L 519.9,21.2 L 524.1,39.7 L 528.4,58.2 L 532.7,59.1 L 536.9,34.5 L 541.2,40.0 L 545.5,18.0 L 549.7,47.3 L 554.0,47.8 L 558.3,29.2 L 562.5,67.9 L 566.8,64.5 L 571.0,29.8 L 575.3,24.0 L 579.6,37.7 L 583.8,38.5 L 588.1,42.9 L 592.4,45.0 L 596.6,64.6 L 600.9,67.7 L 605.1,42.4 L 609.4,44.2 L 613.7,21.4 L 617.9,59.2 L 622.2,46.0 L 626.5,36.2 L 630.7,63.4 L 635.0,44.0 L 639.3,39.1 L 643.5,44.9 L 647.8,44.6 L 652.0,40.9 L 656.3,28.5 L 660.6,30.5 L 664.8,58.5 L 669.1,25.1 L 673.4,25.8 L 677.6,22.4 L 681.9,63.9 L 686.2,24.6 L 690.4,65.3 L 694.7,56.6 L 698.9,38.1 L 703.2,44.6 L 707.5,41.7 L 711.7,27.3 L 716.0,21.6" fill="none" stroke="#8f8a7a" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>
+    </div>
+    <div class="card">
+      <h4>Effect CPU, quiet 7 days</h4>
+      <div class="range">mean 0.00644 · one 0.027 spike in this downsample</div>
+      <svg viewBox="0 0 720 90" preserveAspectRatio="none" class="spark">
+  <path d="M 4.0,80.3 L 8.3,66.1 L 12.5,74.4 L 16.8,69.5 L 21.1,70.0 L 25.3,69.5 L 29.6,70.6 L 33.8,67.7 L 38.1,69.1 L 42.4,73.6 L 46.6,74.1 L 50.9,72.8 L 55.2,72.2 L 59.4,67.6 L 63.7,73.9 L 68.0,72.1 L 72.2,74.2 L 76.5,73.6 L 80.7,74.0 L 85.0,72.7 L 89.3,68.0 L 93.5,74.3 L 97.8,69.5 L 102.1,74.7 L 106.3,74.2 L 110.6,72.9 L 114.9,73.7 L 119.1,73.6 L 123.4,78.8 L 127.6,72.4 L 131.9,69.0 L 136.2,70.0 L 140.4,70.0 L 144.7,70.0 L 149.0,67.0 L 153.2,68.6 L 157.5,68.8 L 161.7,69.0 L 166.0,72.2 L 170.3,71.5 L 174.5,72.9 L 178.8,72.6 L 183.1,69.8 L 187.3,77.0 L 191.6,73.2 L 195.9,73.6 L 200.1,72.8 L 204.4,72.5 L 208.6,68.7 L 212.9,70.7 L 217.2,68.4 L 221.4,70.2 L 225.7,73.8 L 230.0,74.2 L 234.2,73.6 L 238.5,71.6 L 242.8,72.6 L 247.0,74.3 L 251.3,73.9 L 255.5,85.3 L 259.8,86.0 L 264.1,68.1 L 268.3,72.7 L 272.6,71.3 L 276.9,68.5 L 281.1,66.5 L 285.4,68.6 L 289.7,67.3 L 293.9,70.9 L 298.2,73.7 L 302.4,69.4 L 306.7,73.5 L 311.0,72.6 L 315.2,74.5 L 319.5,74.1 L 323.8,74.2 L 328.0,73.0 L 332.3,74.0 L 336.6,74.7 L 340.8,72.5 L 345.1,74.4 L 349.3,73.1 L 353.6,69.5 L 357.9,71.8 L 362.1,67.8 L 366.4,68.6 L 370.7,72.9 L 374.9,74.4 L 379.2,72.8 L 383.4,72.3 L 387.7,73.6 L 392.0,73.3 L 396.2,73.6 L 400.5,71.7 L 404.8,70.1 L 409.0,69.4 L 413.3,69.3 L 417.6,68.4 L 421.8,68.9 L 426.1,71.1 L 430.3,73.6 L 434.6,69.5 L 438.9,70.9 L 443.1,72.1 L 447.4,68.9 L 451.7,69.3 L 455.9,73.7 L 460.2,72.8 L 464.5,72.2 L 468.7,74.0 L 473.0,75.1 L 477.2,74.3 L 481.5,78.8 L 485.8,74.1 L 490.0,69.6 L 494.3,69.6 L 498.6,74.1 L 502.8,69.1 L 507.1,73.2 L 511.4,72.5 L 515.6,73.3 L 519.9,74.6 L 524.1,70.0 L 528.4,72.5 L 532.7,75.2 L 536.9,74.2 L 541.2,72.0 L 545.5,74.5 L 549.7,73.5 L 554.0,72.6 L 558.3,72.7 L 562.5,72.9 L 566.8,72.7 L 571.0,69.4 L 575.3,71.9 L 579.6,73.9 L 583.8,71.7 L 588.1,75.1 L 592.4,75.4 L 596.6,75.5 L 600.9,69.9 L 605.1,4.0 L 609.4,74.7 L 613.7,76.0 L 617.9,74.0 L 622.2,76.8 L 626.5,77.6 L 630.7,73.6 L 635.0,78.2 L 639.3,77.9 L 643.5,75.2 L 647.8,73.5 L 652.0,76.8 L 656.3,76.2 L 660.6,73.6 L 664.8,77.3 L 669.1,74.6 L 673.4,75.5 L 677.6,71.8 L 681.9,71.0 L 686.2,76.1 L 690.4,73.6 L 694.7,74.3 L 698.9,76.0 L 703.2,76.0 L 707.5,76.5 L 711.7,77.4 L 716.0,76.3" fill="none" stroke="#7dffc3" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>
+    </div>
+  </div>
+
+  <hr/>
+  <div class="section-label">Network</div>
+  <h3>The 74% egress drop survived the week. Credit the rewrite's API diet, not Tokio vs libuv.</h3>
+  <p>Hourly Railway <code>NETWORK_TX_GB</code> summed over seven days: Rust 5.25 GB out, Effect 1.25 GB out (−76%). Ingress 272 GB vs 79 GB (−71%). Ratios match the 43-minute first look (egress −74%, ingress −69% on that night). Absolute ingress looks insane until you watch one poll: a single Cloudflare 443 flow dumped 967 KB + 717 KB in two seconds. Do that for eight League accounts pulling full match JSON, every minute, and the week writes itself.</p>
+  <p>Rust's LoL client requested <code>/match/v5/.../ids</code> with no <code>count</code>, so Riot's default 20, then downloaded all 20 match bodies every poll. Effect asks for 3 and hydrates those 3. Cadence shifted too. Rust used a 60s <code>tokio::interval</code>. Effect uses <code>Schedule.spaced("1 minute")</code>, which waits a minute after the previous poll finishes. Observed gaps: ~70s. About 14% fewer ticks, and ~85% fewer League match bodies. That is the network story. The runtime is along for the ride.</p>
+  <p>Flow logs for the current deploy, 30 minutes of sample: 98% of bytes are internet TCP/443, the rest is local DNS. No private-service peers. Dropped packets exist (49 in six hours) and they are <code>TCP_INVALID_SYN</code> / <code>TCP_CLOSE</code> noise from the internet, not the bot falling over. DNS in that slice: Riot, Henrik, two lookups for discord.com, all <code>NOERROR</code>.</p>
+
+  <hr/>
+  <div class="section-label">Work, failures, cost</div>
+  <h3>Useful work is tiny. 429s are not.</h3>
+  <p>Live status via Railway SSH: 8 Discord accounts, 14 game bindings (6 play both, 2 League only), polling not paused, DB at <code>/data/riot-tracker.sqlite</code>. From 4,000 poll-finished lines covering Aug 22 to 25: 7 to 8 accounts scanned, ~11 to 17 match reports per day, never more than one report in a tick. Polls do not fail closed. They skip.</p>
+  <p>Hobby keeps 7 days of logs, so the entire Rust era is gone. What we have for Effect is loud. One 8-hour slice on Aug 20 produced 500 warnings, every one <code>skipping account this poll</code>, every one HTTP 429 on League match-v5 <code>?count=3</code>, "server rate limit exceeded," spread evenly across all eight Riot IDs. Typed failures did the job. The poll continued. The accounts got holes. Immediate retries with no backoff (fixed today in production) made it worse. Structured concurrency did not invent a smaller Riot rate limit.</p>
+  <p>Deploy count is the other operational tell. Rust's final week: 0 deploys. Effect's quiet week: 0 deploys. Effect's most recent week: 7, because Cursor agents can actually ship TypeScript. Zero Effect-era FAILED deploys. Two historical Rust FAILED deploys, both in July, both toolchain/build. Latest Effect Railpack build: 71 seconds, Node 24.19.0, pnpm 11.16.0. A Rust <code>cargo build --release</code> log from Aug 1 still exists; the pin-the-toolchain saga around July 3 is sitting right there in deployment history. Image size is not in Railway's API. The start command still says <code>if [ -f package.json ]; then pnpm start; else /app/bin/riot-tracker-bot; fi</code>, which is the rewrite leaving a ghost in production.</p>
+
+  <table>
+    <thead>
+      <tr><th>Monthly Railway run-rate</th><th class="num">Rust</th><th class="num">Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>CPU @ $20 / vCPU</td><td class="num">$0.135</td><td class="num">$0.129</td></tr>
+      <tr><td>Memory @ $10 / GB</td><td class="num">$2.28</td><td class="num">$3.22</td></tr>
+      <tr><td>Egress @ $0.05 / GB</td><td class="num">$1.14</td><td class="num">$0.27</td></tr>
+      <tr><td>Volume @ $0.15 / GB</td><td class="num">$0.016</td><td class="num">$0.012</td></tr>
+      <tr><td>Total metered</td><td class="num">$3.57</td><td class="num">$3.63</td></tr>
+    </tbody>
+  </table>
+  <p class="note">Hobby is $5 and includes $5 of usage. Neither runtime is a billing event. Separate from deploy/startup: the quiet Effect week above. The first Effect week (Aug 10 to 17) had 9 deploys, memory mean 336 MB, max 710 MB. Recent week (Aug 18 to 25) had 7 deploys, memory mean 342 MB, max 716 MB, CPU max 0.034.</p>
+
+  <hr/>
+  <div class="section-label">Questions</div>
+
+  <div class="qa">
+    <h4>Is Effect's extra memory stable, growing, or GC-driven?</h4>
+    <p>GC-driven, with a higher floor. Quiet-week p95 sits ~100 MB above p50. Deploy spikes to 700 MB. Not an unbounded leak over seven days.</p>
+  </div>
+  <div class="qa">
+    <h4>Does the lower network usage persist under comparable workload?</h4>
+    <p>Yes, −76% egress and −71% ingress on matched quiet weeks, same 7 to 8 accounts. Persistently unfair, because the rewrite also changed how much Riot JSON a poll buys.</p>
+  </div>
+  <div class="qa">
+    <h4>Did the rewrite change polling cadence or API call volume?</h4>
+    <p>Both. 60s wall vs ~70s spaced. League 20-match default vs <code>count=3</code>. Henrik v3 default vs v4 <code>size=3</code>. Effect still hydrates every ID it asks for, just fewer of them.</p>
+  </div>
+  <div class="qa">
+    <h4>Any measurable operational benefit from structured concurrency and typed failures?</h4>
+    <p>Yes, in the logs we still have. A 429 skips one account for one tick instead of taking down the poll. Aug 20 would have been a worse night in a language that treated that as fatal. It did not prevent the 429s. A backoff landed in production today.</p>
+  </div>
+  <div class="qa">
+    <h4>What does Rust still do embarrassingly better?</h4>
+    <p>The working set. 234 MB mean, 252 MB peak, no sawtooth, no 700 MB boot. CPU variance. A native binary that does not care about Node 24 or Corepack. Build cache that is a compiler, not a pnpm store. If this bot tracked 10,000 accounts, this paragraph would be the whole report.</p>
+  </div>
+  <div class="qa">
+    <h4>What does Effect make easier enough to justify the runtime tax?</h4>
+    <p>Shipping. Game adapters, JSON logs, an admin CLI that opens the same SQLite file instead of a Unix socket, agents that can typecheck and PR. The last two weeks of Effect history are a feature factory. The last two weeks of Rust were one admin CLI and a long nap. At 8 accounts the bottleneck is Riot's match-v5 limit and your patience, not vCPU.</p>
+  </div>
+  <div class="qa">
+    <h4>Strange, cool, or funny production details</h4>
+    <p>The start command still knows how to launch <code>/app/bin/riot-tracker-bot</code> if <code>package.json</code> disappears. One tracked Riot ID is <code>adderall abuser#candy</code>, last reported 21:48 UTC today. Hobby's 7-day log window ate every Rust line, so this report can quote Effect 429s in high definition and Rust errors not at all. Discord snowflakes got rounded once during the JSON->SQLite migration and had to be surgically put back. <code>accountsScanned</code> flickers between 7 and 8 because someone keeps hopping on and off. Ingress is almost all Cloudflare. The original Effect 43 minutes began at the exact second of a docs deploy.</p>
+  </div>
+
+  <hr/>
+  <div class="section-label">Conclusion</div>
+  <h3>Was the rewrite worth it?</h3>
+  <p>For this bot, yes, with the skepticism the first night skipped. You did not save money. You spent ~95 MB of always-on RAM and a GC sawtooth to get a codebase people actually change, failures that skip instead of crater, and 5x fewer League match bodies per tick. The last of those is an application choice you could have made in Rust. The first two are why you did not.</p>
+  <p>If the goal was a thinner process, Rust still wins and it is not close. If the goal was a game-agnostic Discord bot that eight friends use and agents can patch on a Tuesday, Effect is doing the job, and the Hobby bill cannot tell the difference.</p>
+  <p class="stars">Confidence: gauges high · network totals high · attributing network to the runtime low · Rust-era logs gone</p>
+
+  <footer>
+    Source: Railway GraphQL metrics at 5-minute resolution, CLI hourly series, bounded logs from deployments a17f6816 (Aug 14 to 23), 4774f1e8 (Aug 24 to 25), and 6eb1034a (current), network/DNS flow logs, <code>pnpm admin status --json</code> over Railway SSH, and the rust-deprecated vs master clients. Rates: CPU $20/vCPU-mo, RAM $10/GB-mo, egress $0.05/GB, volume $0.15/GB-mo (docs.railway.com/pricing, Aug 2026). Plan: Hobby. Baseline: riot-runtime-comparison.ebobinski0.chatgpt.site, Aug 9.
+  </footer>
+</div>
+</body>
+</html>
