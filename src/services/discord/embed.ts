@@ -75,16 +75,18 @@ const playerExtras = (
   player: MatchPlayerIdentity,
   icon: string,
   rankUpdates: ReadonlyMap<Puuid, RankUpdate>,
-) =>
-  [
+) => {
+  const update = rankUpdates.get(player.puuid);
+  return [
     player.stat,
-    formatRankUpdate(rankUpdates.get(player.puuid)),
-    icon ? undefined : player.rank,
+    formatRankUpdate(update),
+    icon || update?.current ? undefined : player.rank,
     player.flair,
   ]
     .filter((value): value is string => Boolean(value))
     .map((value) => ` · ${value}`)
     .join("");
+};
 
 const leaderboard = (
   players: ReadonlyArray<VersusPlayer>,
