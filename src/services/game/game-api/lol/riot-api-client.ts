@@ -79,7 +79,7 @@ export class RiotApiClient extends Context.Service<
       ReadonlyArray<TftMatch>,
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
-    getLolLeagueEntries: (
+    getLeagueEntries: (
       puuid: Puuid,
       platformId: string,
     ) => Effect.Effect<
@@ -237,7 +237,7 @@ export const RiotApiLive = Layer.effect(
       },
     );
 
-    const getLolLeagueEntries = Effect.fn("RiotApi.getLolLeagueEntries")(
+    const getLeagueEntries = Effect.fn("RiotApi.getLeagueEntries")(
       function* (puuid: Puuid, platformId: string) {
         const shardClient = client.pipe(
           HttpClient.mapRequest(
@@ -274,7 +274,7 @@ export const RiotApiLive = Layer.effect(
       getPlatformId,
       getLolRecentMatches,
       getTftRecentMatches,
-      getLolLeagueEntries,
+      getLeagueEntries,
       getTftLeagueEntries,
     });
   }),

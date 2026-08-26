@@ -153,7 +153,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
       yield* Effect.forEach(
         match.players,
         (player) =>
-          riotClient.getLolLeagueEntries(player.puuid, platformId).pipe(
+          riotClient.getLeagueEntries(player.puuid, platformId).pipe(
             Effect.map((entries) => {
               const entry = entries.find(
                 (candidate) => candidate.queueType === queueType,
@@ -220,7 +220,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
           return undefined;
         }
 
-        const entries = yield* riotClient.getLolLeagueEntries(puuid, region);
+        const entries = yield* riotClient.getLeagueEntries(puuid, region);
         const entry =
           entries.find((e) => e.queueType === "RANKED_SOLO_5x5") ??
           entries.find((e) => e.queueType === "RANKED_FLEX_SR");
