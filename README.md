@@ -5,9 +5,9 @@ up with their Riot ID, and when they finish a game the bot posts a scoreboard
 embed to a channel. If several signed-up users played the same match, it posts
 once and names all of them.
 
-The goal is to be **game agnostic**: League of Legends and Valorant are the two
-implementations, but supporting another game should mean writing one adapter,
-not touching the rest of the app.
+The goal is to be **game agnostic**: League of Legends, Valorant, and Teamfight
+Tactics are the current implementations, but supporting another game should mean
+writing one adapter, not touching the rest of the app.
 
 ## Commands
 
@@ -72,21 +72,22 @@ it as reported.
 
 ### Adding a game
 
-1. Add the game ID to `GameId` in `src/services/game/index.ts`, along with its
-   display name in `gameNames` just below it.
+1. Add the game to `gameIds` and `games` in `src/services/game/index.ts`. Display
+   names and Discord/admin choices are derived from that registry.
 2. Add an API client and decode schemas under `src/services/game/game-api/`.
 3. Implement `GameAdapter` in `src/services/game/game-adapters/`: resolve an
    account, fetch recent matches, map them to `MatchDetails`, optionally enrich
-   them, and fetch rank data.
+   them, and fetch rank data. Set `requiresMatchHistory` if an empty baseline
+   should not persist the game.
 4. Register the adapter in `GameAdaptersLive` and provide its API-client layer
    from `src/index.ts`.
-5. Add the game to the `/rank_check` choices, the admin CLI's `--game` choices,
-   and the development report mocks, then run `pnpm typecheck` and test
+5. Add a development report mock, then run `pnpm typecheck` and test
    `/dev_report`.
 
 Keep game-specific API shapes inside the client and adapter. Once they produce
 the shared types, polling, deduplication, storage, and Discord reporting should
-not need game-specific branches.
+not need game-specific branches. Match reports are a versus scoreboard or a
+placement board, switched on `match.kind`.
 
 **Failures degrade rather than crash.** One undecodable match is skipped, not
 fatal. A failed rank lookup drops the icon but still posts the report. A failed
@@ -107,7 +108,7 @@ Fill in `.env`:
 | ------------------------- | ---------------------------------------------------------------------------------------- |
 | `DISCORD_BOT_TOKEN`       | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot |
 | `NOTIFICATION_CHANNEL_ID` | Right-click the target channel → Copy Channel ID (needs Developer Mode on)               |
-| `RIOT_API_KEY`            | [developer.riotgames.com](https://developer.riotgames.com)                               |
+| `RIOT_API_KEY`            | [developer.riotgames.com](https://developer.riotgames.com). Riot must authorize or register the Teamfight Tactics product for TFT API access. |
 | `HENRIK_API_KEY`          | [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN)                               |
 
 `RIOT_REGION`, `VAL_REGION` and `VAL_PLATFORM` are optional. Each account's

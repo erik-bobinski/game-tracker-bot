@@ -11,6 +11,7 @@ import {
   type ResolvedAccount,
 } from "../index.ts";
 import { makeLolGameAdapter } from "./lol.ts";
+import { makeTftGameAdapter } from "./tft.ts";
 import { makeValorantGameAdapter } from "./valorant.ts";
 
 // Cap per-poll fetches; we poll every minute so 3 is plenty.
@@ -62,6 +63,7 @@ export const logApiError = (message: string, error: unknown) =>
 
 export interface GameAdapter {
   readonly game: GameId;
+  readonly requiresMatchHistory: boolean;
   readonly rankIcons: ReadonlyArray<RankIcon>;
 
   readonly resolveAccount: (
@@ -113,34 +115,50 @@ export const emptyEnrichment = (match: MatchDetails) => ({
   updatedRankSnapshots: new Map<Puuid, RankSnapshots>(),
 });
 
-// Used at signup and by /refresh. Failed recent-match fetches still
-// return the account so we can start tracking it.
+const toGameState = (
+  puuid: Puuid,
+  region: Region | undefined,
+  matches: ReadonlyArray<MatchDetails>,
+) => ({
+  puuid,
+  reportedMatches: matches.map((match) => ({
+    matchId: match.matchId,
+    date: match.date,
+  })),
+  // matches carry the platformId they were played on, which covers
+  // accounts the region lookup couldn't resolve
+  region: region ?? matches[0]?.routingRegion,
+  rankSnapshots: {},
+});
+
+// Used at signup and by /refresh.
 export const resolveGameState = (
   adapter: GameAdapter,
   riotName: string,
   riotTag: string,
 ) =>
   adapter.resolveAccount(riotName, riotTag).pipe(
-    Effect.flatMap(({ puuid, region }) =>
-      adapter.getRecentMatches(puuid, region).pipe(
-        Effect.catchTag("GameApiError", (error) =>
-          logApiWarning("baseline match fetch failed", error).pipe(
-            Effect.as([]),
+    Effect.flatMap(({ puuid, region }) => {
+      const recent = adapter.getRecentMatches(puuid, region);
+      if (!adapter.requiresMatchHistory) {
+        return recent.pipe(
+          Effect.catchTag("GameApiError", (error) =>
+            logApiWarning("baseline match fetch failed", error).pipe(
+              Effect.as([]),
+            ),
           ),
+          Effect.map((matches) => toGameState(puuid, region, matches)),
+        );
+      }
+
+      return recent.pipe(
+        Effect.map((matches) =>
+          matches.length === 0
+            ? undefined
+            : toGameState(puuid, region, matches),
         ),
-        Effect.map((matches) => ({
-          puuid,
-          reportedMatches: matches.map((match) => ({
-            matchId: match.matchId,
-            date: match.date,
-          })),
-          // matches carry the platformId they were played on, which covers
-          // accounts the region lookup couldn't resolve
-          region: region ?? matches[0]?.routingRegion,
-          rankSnapshots: {},
-        })),
-      ),
-    ),
+      );
+    }),
   );
 
 export class GameAdapters extends Context.Service<
@@ -156,6 +174,7 @@ export const GameAdaptersLive = Layer.effect(
     const all: ReadonlyArray<GameAdapter> = [
       yield* makeLolGameAdapter,
       yield* makeValorantGameAdapter,
+      yield* makeTftGameAdapter,
     ];
 
     return GameAdapters.of({ all });
