@@ -1,32 +1,54 @@
 import { Schema } from "effect";
 
-export const GameId = Schema.Literals(["lol", "valorant"]);
+export const gameIds = ["lol", "valorant", "tft"] as const;
+export const GameId = Schema.Literals(gameIds);
 export type GameId = typeof GameId.Type;
 
-// how a game is named to a human, in discord or in the admin cli
-export const gameNames: Record<GameId, string> = {
-  lol: "League of Legends",
-  valorant: "Valorant",
-};
+export const games = {
+  lol: { displayName: "League of Legends", choiceName: "lol" },
+  valorant: { displayName: "Valorant", choiceName: "val" },
+  tft: { displayName: "Teamfight Tactics", choiceName: "tft" },
+} as const satisfies Record<
+  GameId,
+  { readonly displayName: string; readonly choiceName: string }
+>;
+
+export const gameNames = {
+  lol: games.lol.displayName,
+  valorant: games.valorant.displayName,
+  tft: games.tft.displayName,
+} as const satisfies Record<GameId, string>;
+
+export const discordGameChoices = gameIds.map((id) => ({
+  name: games[id].choiceName,
+  value: id,
+}));
 
 export const EpochMillis = Schema.Number.pipe(Schema.brand("EpochMillis"));
 export type EpochMillis = typeof EpochMillis.Type;
 
-export interface MatchPlayer {
+export interface MatchPlayerIdentity {
   readonly puuid: Puuid;
-  readonly team: string;
   readonly riotName: string;
   readonly riotTag: string;
-  readonly character: string;
-  readonly kills: number;
-  readonly deaths: number;
-  readonly assists: number;
   readonly stat: string;
-  readonly sortKey: number;
   readonly rank?: string;
   readonly rankIconKey?: string;
   readonly rankDivision?: string;
   readonly flair?: string;
+}
+
+export interface VersusPlayer extends MatchPlayerIdentity {
+  readonly team: string;
+  readonly character: string;
+  readonly kills: number;
+  readonly deaths: number;
+  readonly assists: number;
+  readonly sortKey: number;
+}
+
+export interface PlacementPlayer extends MatchPlayerIdentity {
+  readonly placement: number;
 }
 
 export interface MatchTeam {
@@ -35,7 +57,7 @@ export interface MatchTeam {
   readonly score?: readonly [number, number];
 }
 
-export interface MatchDetails {
+interface MatchBase {
   readonly matchId: MatchId;
   readonly game: GameId;
   readonly date: EpochMillis;
@@ -43,13 +65,24 @@ export interface MatchDetails {
   readonly routingRegion?: string;
   readonly map?: string;
   readonly durationSeconds: number;
+}
+
+export interface VersusMatch extends MatchBase {
+  readonly kind: "versus";
   readonly surrendered: boolean;
-  readonly players: ReadonlyArray<MatchPlayer>;
+  readonly players: ReadonlyArray<VersusPlayer>;
   readonly teams: ReadonlyArray<MatchTeam>;
 }
 
+export interface PlacementMatch extends MatchBase {
+  readonly kind: "placement";
+  readonly players: ReadonlyArray<PlacementPlayer>;
+}
+
+export type MatchDetails = VersusMatch | PlacementMatch;
+
 // Where an account plays, in whatever form that game's api wants: a riot
-// platformId for lol ("na1", "euw1"), a henrik region for val ("na", "eu")
+// platformId for lol and tft ("na1", "euw1"), a henrik region for val ("na")
 export type Region = string;
 
 export interface ResolvedAccount {

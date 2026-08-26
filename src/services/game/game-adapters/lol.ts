@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
+import { riotRankDisplay, riotRankIcons } from "../game-api/riot/ranks.ts";
 import {
   GameApiError,
   RECENT_MATCH_COUNT,
@@ -8,14 +9,13 @@ import {
   type GameAdapter,
 } from "./index.ts";
 import type {
-  MatchDetails,
-  MatchPlayer,
-  MatchTeam,
   Puuid,
   RankInfo,
   RankSnapshots,
   RankUpdate,
   Region,
+  VersusMatch,
+  VersusPlayer,
 } from "../index.ts";
 import type { LolLeagueEntry, LolMatch } from "../game-api/lol/match-schema.ts";
 
@@ -37,56 +37,13 @@ const queue = (queueId: number, gameMode: string) =>
     [1900, "URF"],
   ]).get(queueId) ?? gameMode;
 
-const titleCase = (value: string) =>
-  value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
-
 const lolStanding = (entry: LolLeagueEntry) => `${entry.tier} ${entry.rank}`;
-
-// the apex tiers only ever sit in division I, which riot's own client omits
-const APEX_TIERS = new Set(["master", "grandmaster", "challenger"]);
-
-const lolRank = (entry: LolLeagueEntry) => {
-  const iconKey = entry.tier.toLowerCase();
-  const division = APEX_TIERS.has(iconKey) ? undefined : entry.rank;
-  return {
-    iconKey,
-    division,
-    label: division
-      ? `${titleCase(entry.tier)} ${division}`
-      : titleCase(entry.tier),
-  };
-};
 
 const compact = (value: number) =>
   value >= 1_000 ? `${(value / 1_000).toFixed(1)}k` : String(value);
 
-const STATIC_ASSETS =
-  "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default";
-
-const rankIcons = [
-  "iron",
-  "bronze",
-  "silver",
-  "gold",
-  "platinum",
-  "emerald",
-  "diamond",
-  "master",
-  "grandmaster",
-  "challenger",
-].map((key) => ({
-  key,
-  // the winged emblems shrink to an unreadable smudge at emoji size, so use
-  // the mini crests; riot ships emerald's as svg only, so it is rasterized
-  url:
-    key === "emerald"
-      ? new URL("../../../../assets/rank-lol-emerald.png", import.meta.url).href
-      : `${STATIC_ASSETS}/images/ranked-mini-crests/${key}.png`,
-  largeUrl: `${STATIC_ASSETS}/ranked-emblem/emblem-${key}.png`,
-}));
-
-export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
-  const players: Array<MatchPlayer> = match.info.participants.map(
+export const lolMatchToDetails = (match: LolMatch): VersusMatch => {
+  const players: Array<VersusPlayer> = match.info.participants.map(
     (participant) => {
       const multiKill =
         participant.largestMultiKill >= 5
@@ -112,7 +69,7 @@ export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
     },
   );
 
-  const teams: Array<MatchTeam> = [100, 200].map((teamId) => ({
+  const teams = [100, 200].map((teamId) => ({
     id: String(teamId),
     won:
       match.info.participants.find(
@@ -121,6 +78,7 @@ export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
   }));
 
   return {
+    kind: "versus",
     matchId: match.metadata.matchId,
     game: "lol",
     date: match.info.gameStartTimestamp,
@@ -140,7 +98,8 @@ export const makeLolGameAdapter = Effect.gen(function* () {
 
   const adapter: GameAdapter = {
     game: "lol",
-    rankIcons,
+    requiresMatchHistory: false,
+    rankIcons: riotRankIcons,
     resolveAccount: Effect.fn("GameAdapter.lol.resolveAccount")(function* (
       name: string,
       tag: string,
@@ -148,7 +107,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
       const puuid = yield* riotClient.getAccountByRiotId(name, tag);
       // the account resolves fine without a shard; only rank lookups need it
       const region = yield* riotClient
-        .getPlatformId(puuid)
+        .getPlatformId("lol", puuid)
         .pipe(
           Effect.catch((error) =>
             logApiWarning("lol platformId lookup failed", error).pipe(
@@ -160,7 +119,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
     }),
     getRecentMatches: Effect.fn("GameAdapter.lol.getRecentMatches")(
       function* (puuid: Puuid, region: Region | undefined) {
-        const matches = yield* riotClient.getRecentMatches(
+        const matches = yield* riotClient.getLolRecentMatches(
           puuid,
           region,
           RECENT_MATCH_COUNT,
@@ -180,6 +139,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
       match,
       trackedPlayers,
     }) {
+      if (match.kind !== "versus") return emptyEnrichment(match);
       const queueType =
         match.mode === "Ranked Solo/Duo"
           ? "RANKED_SOLO_5x5"
@@ -215,7 +175,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
         const entry = ranks.get(tracked.puuid);
         if (!entry) continue;
         const standing = lolStanding(entry);
-        const { label } = lolRank(entry);
+        const { label } = riotRankDisplay(entry);
         // a delta only means anything within the same tier and division
         const previous = tracked.previousRankSnapshots[queueType];
         const comparable = previous?.standing === standing;
@@ -239,7 +199,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
           players: match.players.map((player) => {
             const entry = ranks.get(player.puuid);
             if (!entry) return player;
-            const { iconKey, division, label } = lolRank(entry);
+            const { iconKey, division, label } = riotRankDisplay(entry);
             return {
               ...player,
               rank: label,
@@ -268,7 +228,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
 
         const queue =
           entry.queueType === "RANKED_SOLO_5x5" ? "Solo/Duo" : "Flex";
-        const { iconKey, label } = lolRank(entry);
+        const { iconKey, label } = riotRankDisplay(entry);
         return {
           tier: label,
           detail: `${entry.leaguePoints} LP · ${entry.wins}W ${entry.losses}L (${queue})`,

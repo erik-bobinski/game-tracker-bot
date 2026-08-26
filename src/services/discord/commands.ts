@@ -1,5 +1,5 @@
 import { Discord, DiscordREST, Ix } from "dfx";
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 import type { Account, Database } from "../database/index.ts";
 import {
   logApiError,
@@ -7,7 +7,7 @@ import {
   resolveGameState,
   type GameAdapters,
 } from "../game/game-adapters/index.ts";
-import { gameNames, type GameId } from "../game/index.ts";
+import { discordGameChoices, GameId, gameNames } from "../game/index.ts";
 import type { PollingState } from "../polling/state.ts";
 import type { DiscordError } from "./index.ts";
 import { rankEmbed, type MatchReport } from "./embed.ts";
@@ -47,7 +47,9 @@ export const registerAccount = (
       gameAdapters.all,
       (adapter) =>
         resolveGameState(adapter, input.riotName, input.riotTag).pipe(
-          Effect.map((state) => ({ game: adapter.game, state })),
+          Effect.map((state) =>
+            state ? { game: adapter.game, state } : undefined,
+          ),
           // a failed lookup is not the same as "no such account", but
           // both leave this game untracked
           Effect.catch((error) =>
@@ -329,7 +331,7 @@ const rankCheck = (deps: CommandDeps) =>
   Ix.global(
     {
       name: "rank_check",
-      description: "Check a signed-up user's Valorant or League rank",
+      description: "Check a signed-up user's rank",
       options: [
         {
           type: Discord.ApplicationCommandOptionType.USER,
@@ -342,17 +344,16 @@ const rankCheck = (deps: CommandDeps) =>
           name: "game",
           description: "which game's rank to check",
           required: true,
-          choices: [
-            { name: "val", value: "valorant" },
-            { name: "lol", value: "lol" },
-          ],
+          choices: discordGameChoices,
         },
       ],
     },
     (i) =>
       Effect.gen(function* () {
         const userId = i.optionValue("user");
-        const game = i.optionValue("game") as GameId;
+        const game = yield* Schema.decodeUnknownEffect(GameId)(
+          i.optionValue("game"),
+        );
         // the username rather than a <@id> mention, which would ping them
         const target = Option.getOrElse(
           i.resolve("user", (id, data) => data.users?.[id]?.username),

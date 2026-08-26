@@ -1,9 +1,16 @@
 import { Discord, Ix } from "dfx";
 import { Effect, Option, Schema } from "effect";
-import type { GameId, MatchDetails } from "../game/index.ts";
+import {
+  discordGameChoices,
+  GameId,
+  type MatchDetails,
+  type MatchPlayerIdentity,
+} from "../game/index.ts";
 import { LolMatch } from "../game/game-api/lol/match-schema.ts";
+import { TftMatch } from "../game/game-api/tft/match-schema.ts";
 import { ValRawMatch } from "../game/game-api/val/match-schema.ts";
 import { lolMatchToDetails } from "../game/game-adapters/lol.ts";
+import { tftMatchToDetails } from "../game/game-adapters/tft.ts";
 import { valMatchToDetails } from "../game/game-adapters/valorant.ts";
 import type { MatchReport } from "./embed.ts";
 import {
@@ -92,20 +99,29 @@ const lolMockRanks: ReadonlyArray<readonly [tier: string, division: string]> = [
   ["Iron", "III"],
 ];
 
-export const withMockLolRanks = (match: MatchDetails): MatchDetails => ({
-  ...match,
-  players: match.players.map((player, index) => {
-    const entry = lolMockRanks[index % lolMockRanks.length];
-    if (!entry) return player;
-    const [tier, division] = entry;
-    return {
-      ...player,
-      rank: division ? `${tier} ${division}` : tier,
-      rankIconKey: tier.toLowerCase(),
-      ...(division ? { rankDivision: division } : {}),
-    };
-  }),
-});
+const decorateMockRank = <P extends MatchPlayerIdentity>(
+  player: P,
+  index: number,
+): P => {
+  const entry = lolMockRanks[index % lolMockRanks.length];
+  if (!entry) return player;
+  const [tier, division] = entry;
+  return {
+    ...player,
+    rank: division ? `${tier} ${division}` : tier,
+    rankIconKey: tier.toLowerCase(),
+    ...(division ? { rankDivision: division } : {}),
+  };
+};
+
+export const withMockRiotRanks = (match: MatchDetails): MatchDetails => {
+  switch (match.kind) {
+    case "versus":
+      return { ...match, players: match.players.map(decorateMockRank) };
+    case "placement":
+      return { ...match, players: match.players.map(decorateMockRank) };
+  }
+};
 
 const valAgents = {
   Jett: "add6443a-41bd-e414-f6ad-e58d267f4e95",
@@ -188,19 +204,81 @@ export const valMockResponse = () => {
   };
 };
 
+const tftParticipant = (
+  slot: number,
+  placement: number,
+  level: number | null,
+  damage: number | null,
+) => ({
+  puuid: `dev-tft-${slot}`,
+  riotIdGameName: slot === 8 ? null : `DevPlayer${slot}`,
+  riotIdTagline: slot === 8 ? null : "DEV",
+  placement,
+  level,
+  total_damage_to_players: damage,
+});
+
+export const tftMockResponse = () => {
+  const now = Date.now();
+  const durationSeconds = 1_842.6;
+  const participants = (
+    [
+      [1, 9, 48],
+      [2, 8, 42],
+      [3, 8, 37],
+      [4, 7, 29],
+      [5, 7, 21],
+      [6, 6, 16],
+      [7, 5, 11],
+      [8, null, null],
+    ] as const
+  ).map(([placement, level, damage], index) =>
+    tftParticipant(index + 1, placement, level, damage),
+  );
+
+  return {
+    metadata: {
+      match_id: `NA1_DEV_TFT_${now}`,
+      participants: participants.map((participant) => participant.puuid),
+    },
+    info: {
+      game_datetime: now - durationSeconds * 1_000,
+      game_length: durationSeconds,
+      queue_id: 1100,
+      queueId: 1100,
+      tft_game_type: "standard",
+      participants,
+    },
+  };
+};
+
 export const buildMockMatchReport = (game: GameId) =>
   Effect.gen(function* () {
-    const match =
-      game === "lol"
-        ? withMockLolRanks(
+    const match = yield* Effect.gen(function* () {
+      switch (game) {
+        case "lol":
+          return withMockRiotRanks(
             lolMatchToDetails(
               yield* Schema.decodeUnknownEffect(LolMatch)(lolMockResponse()),
             ),
-          )
-        : valMatchToDetails(
+          );
+        case "valorant":
+          return valMatchToDetails(
             yield* Schema.decodeUnknownEffect(ValRawMatch)(valMockResponse()),
           );
-    const rankUnit = match.game === "lol" ? "LP" : "RR";
+        case "tft":
+          return withMockRiotRanks(
+            tftMatchToDetails(
+              yield* Schema.decodeUnknownEffect(TftMatch)(tftMockResponse()),
+            ),
+          );
+        default: {
+          const _exhaustive: never = game;
+          return _exhaustive;
+        }
+      }
+    });
+    const rankUnit = game === "valorant" ? "RR" : "LP";
 
     return {
       discordNames: ["VerifyAgent", "VerifyTeammate"],
@@ -252,16 +330,15 @@ const devReport = (deps: CommandDeps) =>
           name: "game",
           description: "which game's mock match to report",
           required: true,
-          choices: [
-            { name: "val", value: "valorant" },
-            { name: "lol", value: "lol" },
-          ],
+          choices: discordGameChoices,
         },
       ],
     },
     (i) =>
       Effect.gen(function* () {
-        const game = i.optionValue("game") as GameId;
+        const game = yield* Schema.decodeUnknownEffect(GameId)(
+          i.optionValue("game"),
+        );
         const report = yield* buildMockMatchReport(game);
         yield* deps.notifyMatch(report);
         return reply("Mock match report sent.");
