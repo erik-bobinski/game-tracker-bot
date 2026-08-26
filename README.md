@@ -104,12 +104,12 @@ cp .env.example .env
 
 Fill in `.env`:
 
-| Variable                  | How to get it                                                                            |
-| ------------------------- | ---------------------------------------------------------------------------------------- |
-| `DISCORD_BOT_TOKEN`       | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot |
-| `NOTIFICATION_CHANNEL_ID` | Right-click the target channel → Copy Channel ID (needs Developer Mode on)               |
+| Variable                  | How to get it                                                                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DISCORD_BOT_TOKEN`       | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot                                                      |
+| `NOTIFICATION_CHANNEL_ID` | Right-click the target channel → Copy Channel ID (needs Developer Mode on)                                                                    |
 | `RIOT_API_KEY`            | [developer.riotgames.com](https://developer.riotgames.com). Riot must authorize or register the Teamfight Tactics product for TFT API access. |
-| `HENRIK_API_KEY`          | [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN)                               |
+| `HENRIK_API_KEY`          | [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN)                                                                                    |
 
 `RIOT_REGION`, `VAL_REGION` and `VAL_PLATFORM` are optional. Each account's
 region is resolved and stored at signup; these are only fallbacks.
