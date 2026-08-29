@@ -172,7 +172,8 @@ export const makeTftGameAdapter = Effect.gen(function* () {
               ),
             ),
           ),
-        { concurrency: 3 },
+        // same league-v4 lockstep as LoL: one lookup at a time
+        { concurrency: 1 },
       );
 
       const rankUpdates = new Map<Puuid, RankUpdate>();
