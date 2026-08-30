@@ -1,8 +1,10 @@
 import {
   Config,
   Context,
+  Duration,
   Effect,
   Layer,
+  Option,
   Redacted,
   Schedule,
   Schema,
@@ -10,6 +12,7 @@ import {
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
+import * as Headers from "effect/unstable/http/Headers";
 import { Puuid } from "../../index.ts";
 import {
   LolLeagueEntries,
@@ -116,8 +119,25 @@ export const RiotApiLive = Layer.effect(
       ),
       HttpClient.filterStatusOk,
       HttpClient.retryTransient({
-        times: 3,
-        schedule: Schedule.exponential("1 second"),
+        times: 5,
+        schedule: Schedule.exponential("1 second").pipe(
+          Schedule.modifyDelay(({ duration, input }) => {
+            const header =
+              HttpClientError.isHttpClientError(input) &&
+              input.response !== undefined
+                ? Option.getOrUndefined(
+                    Headers.get(input.response.headers, "retry-after"),
+                  )
+                : undefined;
+            const seconds = Number(header);
+            const wait =
+              Number.isFinite(seconds) && seconds > 0
+                ? Duration.min(Duration.seconds(seconds), Duration.seconds(15))
+                : Duration.zero;
+            return Effect.succeed(Duration.max(duration, wait));
+          }),
+          Schedule.jittered,
+        ),
       }),
     );
 
@@ -237,21 +257,22 @@ export const RiotApiLive = Layer.effect(
       },
     );
 
-    const getLeagueEntries = Effect.fn("RiotApi.getLeagueEntries")(
-      function* (puuid: Puuid, platformId: string) {
-        const shardClient = client.pipe(
-          HttpClient.mapRequest(
-            HttpClientRequest.setUrl(
-              `https://${platformId}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(puuid)}`,
-            ),
+    const getLeagueEntries = Effect.fn("RiotApi.getLeagueEntries")(function* (
+      puuid: Puuid,
+      platformId: string,
+    ) {
+      const shardClient = client.pipe(
+        HttpClient.mapRequest(
+          HttpClientRequest.setUrl(
+            `https://${platformId}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(puuid)}`,
           ),
-        );
-        const res = yield* shardClient.get("");
-        return yield* Schema.decodeUnknownEffect(LolLeagueEntries)(
-          yield* res.json,
-        );
-      },
-    );
+        ),
+      );
+      const res = yield* shardClient.get("");
+      return yield* Schema.decodeUnknownEffect(LolLeagueEntries)(
+        yield* res.json,
+      );
+    });
 
     const getTftLeagueEntries = Effect.fn("RiotApi.getTftLeagueEntries")(
       function* (puuid: Puuid, platformId: string) {

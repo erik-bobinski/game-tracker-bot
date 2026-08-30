@@ -166,7 +166,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
               ),
             ),
           ),
-        { concurrency: 3 },
+        { concurrency: 1 },
       );
 
       const rankUpdates = new Map<Puuid, RankUpdate>();
