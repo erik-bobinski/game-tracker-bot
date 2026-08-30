@@ -172,7 +172,6 @@ export const makeTftGameAdapter = Effect.gen(function* () {
               ),
             ),
           ),
-        // same league-v4 lockstep as LoL: one lookup at a time
         { concurrency: 1 },
       );
 
