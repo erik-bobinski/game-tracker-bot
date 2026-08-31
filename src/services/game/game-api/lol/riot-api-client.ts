@@ -40,30 +40,6 @@ const CLUSTERS: Record<string, string> = {
   vn2: "sea",
 };
 
-const retryAfterFromError = (error: unknown) => {
-  if (
-    !HttpClientError.isHttpClientError(error) ||
-    error.response === undefined
-  ) {
-    return undefined;
-  }
-  const header = Option.getOrUndefined(
-    Headers.get(error.response.headers, "retry-after"),
-  );
-  const seconds = header === undefined ? Number.NaN : Number(header);
-  if (!Number.isFinite(seconds) || seconds <= 0) return undefined;
-  return Duration.min(Duration.seconds(seconds), Duration.seconds(15));
-};
-
-const riotRetrySchedule = Schedule.exponential("1 second").pipe(
-  Schedule.modifyDelay(({ duration, input }) =>
-    Effect.succeed(
-      Duration.max(duration, retryAfterFromError(input) ?? Duration.zero),
-    ),
-  ),
-  Schedule.jittered,
-);
-
 export class RiotApiClient extends Context.Service<
   RiotApiClient,
   {
@@ -119,7 +95,24 @@ export const RiotApiLive = Layer.effect(
       HttpClient.filterStatusOk,
       HttpClient.retryTransient({
         times: 5,
-        schedule: riotRetrySchedule,
+        schedule: Schedule.exponential("1 second").pipe(
+          Schedule.modifyDelay(({ duration, input }) => {
+            const header =
+              HttpClientError.isHttpClientError(input) &&
+              input.response !== undefined
+                ? Option.getOrUndefined(
+                    Headers.get(input.response.headers, "retry-after"),
+                  )
+                : undefined;
+            const seconds = Number(header);
+            const wait =
+              Number.isFinite(seconds) && seconds > 0
+                ? Duration.min(Duration.seconds(seconds), Duration.seconds(15))
+                : Duration.zero;
+            return Effect.succeed(Duration.max(duration, wait));
+          }),
+          Schedule.jittered,
+        ),
       }),
     );
 

@@ -206,7 +206,6 @@ export const makeLolGameAdapter = Effect.gen(function* () {
               ),
             ),
           ),
-        // parallel 429s retry in lockstep and still miss ranks on the report
         { concurrency: 1 },
       );
 
