@@ -1,8 +1,10 @@
 import {
   Config,
   Context,
+  Duration,
   Effect,
   Layer,
+  Option,
   Redacted,
   Schedule,
   Schema,
@@ -10,6 +12,7 @@ import {
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
+import * as Headers from "effect/unstable/http/Headers";
 import { Puuid } from "../../index.ts";
 import { LolLeagueEntries, LolMatch, LolMatchIds } from "./match-schema.ts";
 
@@ -91,8 +94,25 @@ export const RiotApiLive = Layer.effect(
       ),
       HttpClient.filterStatusOk,
       HttpClient.retryTransient({
-        times: 3,
-        schedule: Schedule.exponential("1 second"),
+        times: 5,
+        schedule: Schedule.exponential("1 second").pipe(
+          Schedule.modifyDelay(({ duration, input }) => {
+            const header =
+              HttpClientError.isHttpClientError(input) &&
+              input.response !== undefined
+                ? Option.getOrUndefined(
+                    Headers.get(input.response.headers, "retry-after"),
+                  )
+                : undefined;
+            const seconds = Number(header);
+            const wait =
+              Number.isFinite(seconds) && seconds > 0
+                ? Duration.min(Duration.seconds(seconds), Duration.seconds(15))
+                : Duration.zero;
+            return Effect.succeed(Duration.max(duration, wait));
+          }),
+          Schedule.jittered,
+        ),
       }),
     );
 

@@ -13,6 +13,7 @@ This a repo for a discord bot that reports newly completed matches of video game
 
 - Re-use the Effect pieces as much as possible
 - Inferred types over annotations. `any` is the enemy
+- Don't spam helper functions to be used once
 - Comments describe how a thing is used, and move when the code moves. To be used mostly to describe functions, not to annotate every line of behavior
 - If a rule here fights the task in front of you, say so loudly and get a human sign-off before breaking it
 
