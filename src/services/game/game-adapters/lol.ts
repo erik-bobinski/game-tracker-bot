@@ -206,7 +206,8 @@ export const makeLolGameAdapter = Effect.gen(function* () {
               ),
             ),
           ),
-        { concurrency: 3 },
+        // parallel 429s retry in lockstep and still miss ranks on the report
+        { concurrency: 1 },
       );
 
       const rankUpdates = new Map<Puuid, RankUpdate>();
