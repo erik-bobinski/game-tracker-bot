@@ -1,0 +1,30 @@
+steps:
+  - label: ":railway: Deploy dev"
+    command: |-
+      rm -f CLAUDE.md
+      npx -y @railway/cli@5.23.3 up \
+        --project b7c45da2-61ef-4c9b-8d46-9a64baaf1f22 \
+        --environment dev \
+        --service riot-tracker-bot \
+        --ci \
+        -m "Origin dev $BUILDKITE_COMMIT"
+    branches: "dev"
+    agents:
+      queue: linux-small
+    secrets:
+      RAILWAY_TOKEN: RIOT_TRACKER_RAILWAY_DEV_TOKEN
+
+  - label: ":railway: Deploy production"
+    command: |-
+      rm -f CLAUDE.md
+      npx -y @railway/cli@5.23.3 up \
+        --project b7c45da2-61ef-4c9b-8d46-9a64baaf1f22 \
+        --environment production \
+        --service riot-tracker-bot \
+        --ci \
+        -m "Origin main $BUILDKITE_COMMIT"
+    branches: "main"
+    agents:
+      queue: linux-small
+    secrets:
+      RAILWAY_TOKEN: RIOT_TRACKER_RAILWAY_PRODUCTION_TOKEN
