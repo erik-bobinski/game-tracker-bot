@@ -5,7 +5,7 @@ steps:
       npx -y @railway/cli@5.23.3 up \
         --project b7c45da2-61ef-4c9b-8d46-9a64baaf1f22 \
         --environment dev \
-        --service riot-tracker-bot \
+        --service riot-tracker-bot-dev \
         --ci \
         -m "Origin dev $BUILDKITE_COMMIT"
     branches: "dev"
