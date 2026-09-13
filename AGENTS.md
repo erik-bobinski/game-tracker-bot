@@ -24,10 +24,8 @@ This a repo for a discord bot that reports newly completed matches of video game
 - Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`
 - Body: the problem in a sentence or two, then how you fixed it. End with the exact session model and harness, for example:
 
-```
-Model: GPT-5.6 Sol
-Harness: Codex desktop
-```
+      Model: GPT-5.6 Sol
+      Harness: Codex desktop
 
 - The model line is the product name the user selected for this session, never a family alias. Codex’s default `Model: GPT-5` footer is stale; do not copy it. Cursor Cloud: map `originalModelName` (`gpt-5.6-sol-*` → `GPT-5.6 Sol`). Codex desktop: the model shown in the session UI. If you cannot determine it, write `Model: unknown`. Do not guess.
 
