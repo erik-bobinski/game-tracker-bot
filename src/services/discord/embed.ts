@@ -162,12 +162,12 @@ const versusEmbed = (
     .filter((players) => players.length > 0);
   const info = [
     `Started <t:${Math.floor(report.match.date / 1000)}:t>`,
-    `lasted ${formatDuration(report.match.durationSeconds)}`,
+    `Lasted ${formatDuration(report.match.durationSeconds)}`,
     trackedTeam?.score?.join("–"),
   ].filter((value): value is string => Boolean(value));
   return {
     author: {
-      name: `${verdict}${report.match.surrendered ? " (surrender)" : ""} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
+      name: `${verdict}${report.match.surrendered ? " (Surrender)" : ""} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
       icon_url: gameIconUrls[report.match.game],
     },
     description: [
@@ -229,7 +229,7 @@ const placementEmbed = (
         : 0xed4245;
   const info = [
     `Started <t:${Math.floor(report.match.date / 1000)}:t>`,
-    `lasted ${formatDuration(report.match.durationSeconds)}`,
+    `Lasted ${formatDuration(report.match.durationSeconds)}`,
   ];
   return {
     author: {
