@@ -19,6 +19,13 @@ export const gameNames = {
   tft: games.tft.displayName,
 } as const satisfies Record<GameId, string>;
 
+export const gameIconUrls = {
+  lol: "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/lol_icon.png",
+  valorant:
+    "https://cmsassets.rgpub.io/sanity/images/dsfx7636/news/cbf4460132cdfeb2a97fad5f9dd25ba0bc058f76-128x128.png?accountingTag=VAL",
+  tft: "https://cmsassets.rgpub.io/sanity/images/dsfx7636/news/dd3cb71804eae400eb69fa6560254878beb1417f-2105x2190.png?accountingTag=TFT",
+} as const satisfies Record<GameId, string>;
+
 export const discordGameChoices = gameIds.map((id) => ({
   name: games[id].choiceName,
   value: id,

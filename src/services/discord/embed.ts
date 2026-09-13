@@ -1,5 +1,5 @@
 import type { Discord } from "dfx";
-import { gameNames } from "../game/index.ts";
+import { gameIconUrls, gameNames } from "../game/index.ts";
 import type {
   GameId,
   MatchDetails,
@@ -162,13 +162,17 @@ const versusEmbed = (
     .filter((players) => players.length > 0);
   const info = [
     `Started <t:${Math.floor(report.match.date / 1000)}:t>`,
-    `${formatDuration(report.match.durationSeconds)}${report.match.surrendered ? " (surrender)" : ""}`,
+    `lasted ${formatDuration(report.match.durationSeconds)}`,
     trackedTeam?.score?.join("–"),
   ].filter((value): value is string => Boolean(value));
   return {
-    title: `${verdict} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
+    author: {
+      name: `${verdict}${report.match.surrendered ? " (surrender)" : ""} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
+      icon_url: gameIconUrls[report.match.game],
+    },
     description: [
-      `${nameList(report.discordNames)} just finished a **${gameNames[report.match.game]}** game`,
+      nameList(report.discordNames),
+      `**${gameNames[report.match.game]}**`,
       info.join(" · "),
       "",
       teams
@@ -225,12 +229,16 @@ const placementEmbed = (
         : 0xed4245;
   const info = [
     `Started <t:${Math.floor(report.match.date / 1000)}:t>`,
-    formatDuration(report.match.durationSeconds),
+    `lasted ${formatDuration(report.match.durationSeconds)}`,
   ];
   return {
-    title: `${verdict} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
+    author: {
+      name: `${verdict} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
+      icon_url: gameIconUrls[report.match.game],
+    },
     description: [
-      `${nameList(report.discordNames)} just finished a **${gameNames[report.match.game]}** game`,
+      nameList(report.discordNames),
+      `**${gameNames[report.match.game]}**`,
       info.join(" · "),
       "",
       placementBoard(
