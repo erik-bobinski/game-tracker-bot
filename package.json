@@ -26,6 +26,7 @@
     "@effect/sql-sqlite-node": "4.0.0-beta.105",
     "@railway/cli": "5.30.1",
     "dfx": "1.0.15",
-    "effect": "4.0.0-beta.105"
+    "effect": "4.0.0-beta.105",
+    "sharp": "0.35.4"
   }
 }

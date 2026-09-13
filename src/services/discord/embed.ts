@@ -135,6 +135,7 @@ export const rankEmbed = (report: RankReport): Discord.RichEmbed => ({
 const versusEmbed = (
   report: MatchReport & { match: VersusMatch },
   rankEmojis: RankEmojis,
+  imageUrl: string | undefined,
 ): Discord.RichEmbed => {
   const trackedPuuids = new Set(report.trackedPuuids);
   const trackedPlayer = report.match.players.find((player) =>
@@ -174,20 +175,32 @@ const versusEmbed = (
       nameList(report.discordNames),
       `**${gameNames[report.match.game]}**`,
       info.join(" · "),
-      "",
-      teams
-        .map((players) =>
-          leaderboard(
-            players,
-            trackedPuuids,
-            report.match.game,
-            rankEmojis,
-            report.rankUpdates,
-          ),
-        )
-        .join("\n\n"),
+      ...(imageUrl
+        ? []
+        : [
+            "",
+            teams
+              .map((players) =>
+                leaderboard(
+                  players,
+                  trackedPuuids,
+                  report.match.game,
+                  rankEmojis,
+                  report.rankUpdates,
+                ),
+              )
+              .join("\n\n"),
+          ]),
     ].join("\n"),
     color,
+    ...(imageUrl
+      ? {
+          image: {
+            url: imageUrl,
+            description: `${gameNames[report.match.game]} match leaderboard for ${report.discordNames.join(", ")}`,
+          },
+        }
+      : {}),
   };
 };
 
@@ -209,6 +222,7 @@ const placementBoard = (
 const placementEmbed = (
   report: MatchReport & { match: PlacementMatch },
   rankEmojis: RankEmojis,
+  imageUrl: string | undefined,
 ): Discord.RichEmbed => {
   const trackedPuuids = new Set(report.trackedPuuids);
   const tracked = report.match.players.filter((player) =>
@@ -240,28 +254,49 @@ const placementEmbed = (
       nameList(report.discordNames),
       `**${gameNames[report.match.game]}**`,
       info.join(" · "),
-      "",
-      placementBoard(
-        report.match.players,
-        trackedPuuids,
-        report.match.game,
-        rankEmojis,
-        report.rankUpdates,
-      ),
+      ...(imageUrl
+        ? []
+        : [
+            "",
+            placementBoard(
+              report.match.players,
+              trackedPuuids,
+              report.match.game,
+              rankEmojis,
+              report.rankUpdates,
+            ),
+          ]),
     ].join("\n"),
     color,
+    ...(imageUrl
+      ? {
+          image: {
+            url: imageUrl,
+            description: `${gameNames[report.match.game]} match leaderboard for ${report.discordNames.join(", ")}`,
+          },
+        }
+      : {}),
   };
 };
 
 export const matchEmbed = (
   report: MatchReport,
   rankEmojis: RankEmojis,
+  imageUrl?: string,
 ): Discord.RichEmbed => {
   switch (report.match.kind) {
     case "versus":
-      return versusEmbed({ ...report, match: report.match }, rankEmojis);
+      return versusEmbed(
+        { ...report, match: report.match },
+        rankEmojis,
+        imageUrl,
+      );
     case "placement":
-      return placementEmbed({ ...report, match: report.match }, rankEmojis);
+      return placementEmbed(
+        { ...report, match: report.match },
+        rankEmojis,
+        imageUrl,
+      );
     default: {
       const _exhaustive: never = report.match;
       throw new Error(`unhandled match kind: ${_exhaustive}`);

@@ -27,7 +27,7 @@ import {
   formatRefreshResult,
 } from "../services/discord/commands.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
-import { matchEmbed } from "../services/discord/embed.ts";
+import { postMatchReport } from "../services/discord/match-report.ts";
 import {
   Database,
   DatabaseLive,
@@ -143,7 +143,7 @@ const GameLive = GameAdaptersLive.pipe(
 
 const DiscordRestLive = DiscordRESTLive.pipe(
   Layer.provide(MemoryRateLimitStoreLive),
-  Layer.provide(NodeHttpClient.layerUndici),
+  Layer.provide(NodeHttpClient.layerFetch),
   Layer.provide(
     DiscordConfig.layerConfig({
       token: Config.redacted("DISCORD_BOT_TOKEN"),
@@ -589,11 +589,9 @@ const reportMock = Command.make(
     );
 
     yield* withDiscordRest((rest) =>
-      rest
-        .createMessage(channelId, {
-          embeds: [matchEmbed(report, {})],
-        })
-        .pipe(orFail("Could not post mock match report")),
+      postMatchReport(rest, channelId, report, {}).pipe(
+        orFail("Could not post mock match report"),
+      ),
     );
 
     yield* emit(json, { game, channelId, matchId: report.match.matchId }, [

@@ -25,7 +25,8 @@ import { Database } from "../database/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import { PollingState } from "../polling/state.ts";
 import { commands } from "./commands.ts";
-import { matchEmbed, type MatchReport } from "./embed.ts";
+import type { MatchReport } from "./embed.ts";
+import { postMatchReport } from "./match-report.ts";
 import { provisionRankEmojis } from "./rank-emojis.ts";
 
 export class DiscordError extends Schema.TaggedError<DiscordError>()(
@@ -43,7 +44,7 @@ export class Discord extends Context.Service<
 >()("app/Discord") {}
 
 const DiscordApiLive = DiscordIxLive.pipe(
-  Layer.provide(NodeHttpClient.layerUndici),
+  Layer.provide(NodeHttpClient.layerFetch),
   Layer.provide(NodeSocket.layerWebSocketConstructor),
   Layer.provide(
     DiscordConfig.layerConfig({
@@ -110,9 +111,7 @@ const makeDiscord = Effect.gen(function* () {
 
   const notifyMatch = Effect.fn("Discord.notifyMatch")(
     function* (report: MatchReport) {
-      yield* rest.createMessage(channelId, {
-        embeds: [matchEmbed(report, rankEmojis)],
-      });
+      yield* postMatchReport(rest, channelId, report, rankEmojis);
     },
     Effect.mapError(
       (cause) => new DiscordError({ operation: "notifyMatch", cause }),
