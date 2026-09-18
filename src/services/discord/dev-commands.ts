@@ -17,6 +17,7 @@ const lolParticipant = (
   slot: number,
   team: 100 | 200,
   championName: string,
+  championId: number,
   [kills, deaths, assists]: readonly [number, number, number],
   win: boolean,
 ) => ({
@@ -25,6 +26,7 @@ const lolParticipant = (
   riotIdTagline: "DEV",
   teamId: team,
   championName,
+  championId,
   kills,
   deaths,
   assists,
@@ -41,25 +43,25 @@ export const lolMockResponse = () => {
   const durationSeconds = 1_961;
   const blue = (
     [
-      ["Ahri", [12, 3, 9]],
-      ["Jinx", [9, 4, 11]],
-      ["Thresh", [1, 5, 22]],
-      ["LeeSin", [7, 6, 8]],
-      ["Garen", [5, 4, 6]],
+      ["Ahri", 103, [12, 3, 9]],
+      ["Jinx", 222, [9, 4, 11]],
+      ["Thresh", 412, [1, 5, 22]],
+      ["LeeSin", 64, [7, 6, 8]],
+      ["Garen", 86, [5, 4, 6]],
     ] as const
-  ).map(([champion, kda], index) =>
-    lolParticipant(index + 1, 100, champion, kda, true),
+  ).map(([champion, championId, kda], index) =>
+    lolParticipant(index + 1, 100, champion, championId, kda, true),
   );
   const red = (
     [
-      ["Lux", [8, 7, 5]],
-      ["Darius", [6, 8, 3]],
-      ["Lulu", [0, 6, 14]],
-      ["Ezreal", [5, 7, 6]],
-      ["Morgana", [3, 8, 9]],
+      ["Lux", 99, [8, 7, 5]],
+      ["Darius", 122, [6, 8, 3]],
+      ["Lulu", 117, [0, 6, 14]],
+      ["Ezreal", 81, [5, 7, 6]],
+      ["Morgana", 25, [3, 8, 9]],
     ] as const
-  ).map(([champion, kda], index) =>
-    lolParticipant(index + 6, 200, champion, kda, false),
+  ).map(([champion, championId, kda], index) =>
+    lolParticipant(index + 6, 200, champion, championId, kda, false),
   );
   const participants = [...blue, ...red];
 

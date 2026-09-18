@@ -92,6 +92,18 @@ export const rankEmbed = (report: RankReport): Discord.RichEmbed => ({
 const httpUrl = (url: string) =>
   url.startsWith("https:") || url.startsWith("http:") ? url : "";
 
+// Discord's media proxy needs a real image file. Renderers without an
+// extension (cdn.communitydragon.org/.../square) become a broken blur tile.
+const renderableImageUrl = (url: string) => {
+  const href = httpUrl(url);
+  if (!href) return "";
+  try {
+    return /\.(png|jpe?g|webp|gif)$/i.test(new URL(href).pathname) ? href : "";
+  } catch {
+    return "";
+  }
+};
+
 export const rankImagesFrom = (
   adapters: ReadonlyArray<{
     readonly game: GameId;
@@ -105,7 +117,7 @@ export const rankImagesFrom = (
   Object.fromEntries(
     adapters.flatMap((adapter) =>
       adapter.rankIcons.flatMap((icon) => {
-        const url = httpUrl(icon.largeUrl ?? icon.url);
+        const url = renderableImageUrl(icon.largeUrl ?? icon.url);
         return url ? [[`${adapter.game}.${icon.key}`, url] as const] : [];
       }),
     ),
@@ -155,7 +167,9 @@ export const matchReportMessage = (
     .filter((value): value is string => Boolean(value))
     .join(" · ");
   const thumbnailUrl = trackedPlayer
-    ? httpUrl(rankAsset(trackedPlayer, report.match.game, rankImages))
+    ? renderableImageUrl(
+        rankAsset(trackedPlayer, report.match.game, rankImages),
+      )
     : "";
   const header = thumbnailUrl
     ? [
@@ -197,16 +211,19 @@ export const matchReportMessage = (
     .flatMap((players) =>
       [...players]
         .sort((a, b) => b.sortKey - a.sortKey)
-        .flatMap((player) =>
-          player.portraitUrl
+        .flatMap((player) => {
+          const url = player.portraitUrl
+            ? renderableImageUrl(player.portraitUrl)
+            : "";
+          return url
             ? [
                 {
-                  media: { url: player.portraitUrl },
+                  media: { url },
                   description: player.character,
                 },
               ]
-            : [],
-        ),
+            : [];
+        }),
     )
     .slice(0, 10);
 

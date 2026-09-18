@@ -27,7 +27,8 @@ export interface MatchPlayer {
   readonly rankIconKey?: string;
   readonly rankDivision?: string;
   readonly flair?: string;
-  // HTTPS portrait used as a Components V2 gallery item
+  // HTTPS image file (.png/.jpg) for the Components V2 gallery. Omit if the
+  // URL is not a real file Discord's media proxy can fetch.
   readonly portraitUrl?: string;
 }
 
