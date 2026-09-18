@@ -20,6 +20,5 @@ Preconditions: `RIOT_API_KEY`, `HENRIK_API_KEY`, isolated `DB_PATH`, real riot i
 ## Gotchas
 
 - Signup calls live Riot/Henrik APIs; a bad riot id fails the step.
-- Prefer a production Riot ID from `railway ssh -- pnpm admin status --json`. Do not hardcode `VERIFY_RIOT_ID` when Railway works.
+- Use the designated non-production test account from `VERIFY_RIOT_ID`.
 - A Henrik 404 on Valorant (`play a game` / account payload missing) is expected for some Riot IDs. League can still be in `games`; Valorant stays untracked until they play.
-- `railway whoami` Unauthorized does not mean signup cannot get a production id. See the parent skill's Railway section.

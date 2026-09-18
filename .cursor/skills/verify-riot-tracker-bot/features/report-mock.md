@@ -24,7 +24,7 @@ is ignored by verify because it often points at Wise Fellas.
 - Action: `pnpm admin report-mock --game lol --json`
 - Observable: exit 0, JSON includes `channelId`, `matchId`, and `flags` with
   `IS_COMPONENTS_V2` (`32768`) set. The report appears in riot-tracker-testing.
-  `channelId` must not be the Wise Fellas production channel.
+  `channelId` must equal `1523432733785722940`.
 
 ## Gotchas
 
@@ -36,7 +36,7 @@ is ignored by verify because it often points at Wise Fellas.
   lines are text. Rank thumbnails use square HTTPS crests, not a Media Gallery.
   `/dev_report` on a running bot also inlines application emojis in the player
   list.
-- Refuses known Wise Fellas channel and guild IDs. Isolated sqlite does not
-  make a production Discord destination safe.
+- Refuses every destination outside riot-tracker-testing guild
+  `1523432684691525802`, channel `1523432733785722940`.
 - If testing Discord credentials are missing, `pnpm verify` skips this send
   instead of posting to production.

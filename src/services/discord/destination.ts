@@ -3,25 +3,28 @@ export const PRODUCTION_NOTIFICATION_CHANNEL_IDS = new Set([
   "1525711779865432135",
 ]);
 
-export const PRODUCTION_DISCORD_GUILD_IDS = new Set(["858439993756614656"]);
+// riot-tracker-testing. Development and verification may post only here.
+export const TESTING_NOTIFICATION_CHANNEL_IDS = new Set([
+  "1523432733785722940",
+]);
 
-const snowflake = /^\d{17,20}$/;
+export const TESTING_DISCORD_GUILD_IDS = new Set(["1523432684691525802"]);
 
-export const isProductionDiscordChannel = (channelId: string) =>
-  PRODUCTION_NOTIFICATION_CHANNEL_IDS.has(channelId);
+export const isTestingDiscordChannel = (channelId: string) =>
+  TESTING_NOTIFICATION_CHANNEL_IDS.has(channelId);
 
-export const isProductionDiscordGuild = (guildId: string) =>
-  PRODUCTION_DISCORD_GUILD_IDS.has(guildId);
+export const isTestingDiscordGuild = (guildId: string) =>
+  TESTING_DISCORD_GUILD_IDS.has(guildId);
 
-export const isProductionDiscordDestination = (
+export const isTestingDiscordDestination = (
   channelId: string,
   guildId?: string,
 ) =>
-  isProductionDiscordChannel(channelId) ||
-  (guildId !== undefined && isProductionDiscordGuild(guildId));
+  isTestingDiscordChannel(channelId) &&
+  (guildId === undefined || isTestingDiscordGuild(guildId));
 
-export const productionDiscordRefusal = (channelId: string) =>
-  `Refusing to post to production Discord (Wise Fellas) channel ${channelId}. Mock reports and verify must use riot-tracker-testing via VERIFY_NOTIFICATION_CHANNEL_ID, TESTING_NOTIFICATION_CHANNEL_ID, or DISCORD_TEST_CHANNEL_URL. Isolated sqlite is not enough.`;
+export const testingDiscordRefusal = (channelId: string) =>
+  `Refusing testing Discord destination ${channelId}. Mock reports, DEV_MODE, and verify may post only to riot-tracker-testing channel 1523432733785722940.`;
 
 const channelFromTestUrl = (url: string) => {
   const match = url
@@ -33,12 +36,12 @@ const channelFromTestUrl = (url: string) => {
   const guildId = match[1];
   const channelId = match[2];
   if (!guildId || !channelId) return undefined;
-  if (isProductionDiscordDestination(channelId, guildId)) return undefined;
-  return channelId;
+  return isTestingDiscordDestination(channelId, guildId)
+    ? channelId
+    : undefined;
 };
 
-// Testing-only destination. Ambient / Railway NOTIFICATION_CHANNEL_ID is ignored
-// because Cursor Cloud and production printenv often point at Wise Fellas.
+// Testing-only destination. Ambient NOTIFICATION_CHANNEL_ID is ignored.
 export const testingNotificationChannelId = (
   env: Record<string, string | undefined>,
 ) => {
@@ -47,11 +50,7 @@ export const testingNotificationChannelId = (
     env.TESTING_NOTIFICATION_CHANNEL_ID,
   ]) {
     const channelId = value?.trim();
-    if (
-      channelId &&
-      snowflake.test(channelId) &&
-      !isProductionDiscordChannel(channelId)
-    ) {
+    if (channelId && isTestingDiscordChannel(channelId)) {
       return channelId;
     }
   }

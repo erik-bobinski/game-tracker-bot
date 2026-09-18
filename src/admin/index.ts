@@ -28,8 +28,8 @@ import {
 } from "../services/discord/commands.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
 import {
-  isProductionDiscordDestination,
-  productionDiscordRefusal,
+  isTestingDiscordDestination,
+  testingDiscordRefusal,
 } from "../services/discord/destination.ts";
 import {
   matchReportMessage,
@@ -593,8 +593,8 @@ const reportMock = Command.make(
   Effect.fn(function* ({ game }) {
     const { json } = yield* admin;
     const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
-    if (isProductionDiscordDestination(channelId)) {
-      return yield* fail(productionDiscordRefusal(channelId));
+    if (!isTestingDiscordDestination(channelId)) {
+      return yield* fail(testingDiscordRefusal(channelId));
     }
     const report = yield* buildMockMatchReport(game).pipe(
       orFail("Could not build mock match report"),
@@ -606,8 +606,8 @@ const reportMock = Command.make(
           .getChannel(channelId)
           .pipe(orFail("Could not read the notification channel"));
         const guildId = "guild_id" in channel ? channel.guild_id : undefined;
-        if (isProductionDiscordDestination(channelId, guildId)) {
-          return yield* fail(productionDiscordRefusal(channelId));
+        if (!isTestingDiscordDestination(channelId, guildId)) {
+          return yield* fail(testingDiscordRefusal(channelId));
         }
         return yield* rest
           .createMessage(
@@ -640,9 +640,7 @@ const reportMock = Command.make(
     );
   }),
 ).pipe(
-  Command.withDescription(
-    "Post a mock match report to the notification channel (never Wise Fellas)",
-  ),
+  Command.withDescription("Post a mock match report to riot-tracker-testing"),
 );
 
 const cli = admin.pipe(

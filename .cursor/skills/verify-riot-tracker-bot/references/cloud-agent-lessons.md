@@ -1,6 +1,6 @@
 # Cloud agent lessons
 
-Lessons from running `pnpm verify` on Cursor Cloud against Railway production.
+Lessons from running `pnpm verify` on Cursor Cloud.
 
 ## NEVER post verify or mock reports to Wise Fellas
 
@@ -12,53 +12,10 @@ Rules:
 - Connect that local bot only to **riot-tracker-testing**.
 - Never use Wise Fellas / production `NOTIFICATION_CHANNEL_ID` for verify or mock reports.
 - Isolated sqlite is not enough. Discord destination must be isolated too.
-- Never `railway ssh -- printenv` (or otherwise copy production Discord env) into the VM. ssh is for `pnpm admin status --json` to read a Riot ID.
+- Do not give the cloud environment a Railway credential or production database.
 - `pnpm verify` ignores ambient `NOTIFICATION_CHANNEL_ID`. It needs `VERIFY_NOTIFICATION_CHANNEL_ID`, `TESTING_NOTIFICATION_CHANNEL_ID`, or `DISCORD_TEST_CHANNEL_URL` pointing at riot-tracker-testing.
-- If those testing values are missing, skip Discord send. Do not fall back to production. `report-mock` and `DEV_MODE` refuse known Wise Fellas channel and guild IDs.
-
-## Railway tokens on Cursor Cloud
-
-`RAILWAY_API_TOKEN` is often a project or workspace UUID, not a personal account token.
-
-- `railway whoami`, `railway list`, and `railway link` return `Unauthorized` (`me` is not allowed). That is not a dead end.
-- GraphQL `projects` and `railway ssh` still work once project, service, and environment are named.
-
-Discover IDs:
-
-```bash
-pnpm exec railway api 'query { projects { edges { node { id name } } } }'
-```
-
-Production in this repo has been:
-
-- project name `riot-tracker-bot`
-- service name `riot-tracker-bot`
-- environment name `production`
-
-Export before ssh (names or ids):
-
-```bash
-export RAILWAY_PROJECT_ID=<project-id>
-export RAILWAY_SERVICE=riot-tracker-bot
-export RAILWAY_ENVIRONMENT=production
-```
-
-The CLI reads `RAILWAY_API_TOKEN`. Cursor Cloud may inject `RAILWAY_API_KEY` or `RAILWAY_TOKEN`; `src/verify/production-riot-id.ts` copies those onto `RAILWAY_API_TOKEN`.
-
-## SSH
-
-`railway ssh` needs a key Railway knows and a host key in `known_hosts`:
-
-```bash
-ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
-pnpm exec railway ssh keys add -k ~/.ssh/id_ed25519.pub -n cursor-cloud-verify
-ssh-keyscan -t ed25519 ssh.railway.com >> ~/.ssh/known_hosts
-pnpm exec railway ssh --service riot-tracker-bot -- pnpm admin status --json
-```
-
-Banners go to stderr. JSON is on stdout; slice from the first `{`.
-
-Do not set `VERIFY_RIOT_ID` when ssh works. The harness picks the first production account that already has tracked games.
+- If those testing values are missing or do not match the allowlist, skip Discord send. Do not fall back. `report-mock` and `DEV_MODE` allow only guild `1523432684691525802`, channel `1523432733785722940`.
+- Supply a designated test account through `VERIFY_RIOT_ID`; never resolve one from production.
 
 ## Bot boot race
 

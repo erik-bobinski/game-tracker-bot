@@ -6,8 +6,7 @@ import { Effect } from "effect";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
 import {
   PRODUCTION_NOTIFICATION_CHANNEL_IDS,
-  isProductionDiscordChannel,
-  productionDiscordRefusal,
+  testingDiscordRefusal,
   testingNotificationChannelId,
 } from "../services/discord/destination.ts";
 import {
@@ -59,7 +58,7 @@ const sharedEnv = () => {
   env.DB_PATH = dbPath;
   env.DEV_MODE = "true";
   env.LOG_LEVEL = "Warn";
-  // Never inherit ambient / Railway Wise Fellas. Isolated sqlite is not enough.
+  // Never inherit an ambient destination. Only the testing allowlist is valid.
   delete env.NOTIFICATION_CHANNEL_ID;
   if (testingChannelId) env.NOTIFICATION_CHANNEL_ID = testingChannelId;
   return env;
@@ -261,11 +260,11 @@ const inspectLolMockReport = () => {
   } satisfies StepResult;
 };
 
-const reportMockRefusesProduction = () => {
+const reportMockRefusesNonTesting = () => {
   const [prodChannelId] = PRODUCTION_NOTIFICATION_CHANNEL_IDS;
   if (!prodChannelId) {
     return {
-      step: "report-mock refuses Wise Fellas",
+      step: "report-mock refuses non-testing Discord",
       ok: false,
       detail: "production channel denylist is empty",
     } satisfies StepResult;
@@ -275,15 +274,15 @@ const reportMockRefusesProduction = () => {
     NOTIFICATION_CHANNEL_ID: prodChannelId,
   });
   const text = `${result.stdout}\n${result.stderr}\n${result.detail ?? ""}`;
-  const refused = !result.ok && /Wise Fellas/.test(text);
+  const refused = !result.ok && /riot-tracker-testing/.test(text);
   return {
-    step: "report-mock refuses Wise Fellas",
+    step: "report-mock refuses non-testing Discord",
     ok: refused,
     stdout: result.stdout,
     stderr: result.stderr,
     detail: refused
-      ? productionDiscordRefusal(prodChannelId)
-      : "report-mock did not refuse the Wise Fellas channel",
+      ? testingDiscordRefusal(prodChannelId)
+      : "report-mock did not refuse a non-testing channel",
   } satisfies StepResult;
 };
 
@@ -291,13 +290,9 @@ const main = () => {
   mkdirSync(artifactDir, { recursive: true });
   if (exists(dbPath)) rmSync(dbPath);
 
-  if (isProductionDiscordChannel(sharedEnv().NOTIFICATION_CHANNEL_ID ?? "")) {
-    fail(productionDiscordRefusal(sharedEnv().NOTIFICATION_CHANNEL_ID ?? ""));
-  }
-
   let riotId = "";
   try {
-    riotId = resolveVerifyRiotId(workspace);
+    riotId = resolveVerifyRiotId();
     console.log(`[verify] using riot id ${riotId}`);
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
@@ -308,7 +303,7 @@ const main = () => {
     ok: true,
     detail: testingChannelId
       ? `riot-tracker-testing channel ${testingChannelId}`
-      : "no testing Discord destination; skipping Discord send (refusing Wise Fellas)",
+      : "no allowlisted testing Discord destination; skipping Discord send",
   });
 
   record(run(["typecheck"]));
@@ -317,9 +312,9 @@ const main = () => {
   record(inspectLolMockReport());
   if (!results.at(-1)?.ok) fail("lol mock payload is not postable", riotId);
 
-  record(reportMockRefusesProduction());
+  record(reportMockRefusesNonTesting());
   if (!results.at(-1)?.ok) {
-    fail("report-mock must refuse Wise Fellas", riotId);
+    fail("report-mock must refuse non-testing Discord", riotId);
   }
 
   if (testingChannelId) {
@@ -327,15 +322,12 @@ const main = () => {
     const ready = waitForBotReady();
     record(ready);
     if (!ready.ok) fail("bot did not become ready", riotId);
-    if (/Wise Fellas/.test(ready.stdout ?? "")) {
-      fail("bot boot targeted Wise Fellas", riotId);
-    }
   } else {
     record({
       step: "wait for discord gateway ready",
       ok: true,
       detail:
-        "skipped bot boot; no riot-tracker-testing destination and Wise Fellas is forbidden",
+        "skipped bot boot; no allowlisted riot-tracker-testing destination",
     });
   }
 
@@ -390,9 +382,6 @@ const main = () => {
         "report-mock posted somewhere other than riot-tracker-testing",
         riotId,
       );
-    }
-    if (isProductionDiscordChannel(String(reportPayload.channelId ?? ""))) {
-      fail(productionDiscordRefusal(String(reportPayload.channelId)), riotId);
     }
     if (
       typeof reportPayload.flags !== "number" ||

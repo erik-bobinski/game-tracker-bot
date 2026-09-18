@@ -26,8 +26,8 @@ import { GameAdapters } from "../game/game-adapters/index.ts";
 import { PollingState } from "../polling/state.ts";
 import { commands } from "./commands.ts";
 import {
-  isProductionDiscordDestination,
-  productionDiscordRefusal,
+  isTestingDiscordDestination,
+  testingDiscordRefusal,
 } from "./destination.ts";
 import {
   matchReportMessage,
@@ -76,10 +76,10 @@ const makeDiscord = Effect.gen(function* () {
   );
 
   if (devMode) {
-    if (isProductionDiscordDestination(channelId)) {
+    if (!isTestingDiscordDestination(channelId)) {
       return yield* new DiscordError({
         operation: "boot",
-        cause: productionDiscordRefusal(channelId),
+        cause: testingDiscordRefusal(channelId),
       });
     }
     const channel = yield* rest
@@ -90,10 +90,10 @@ const makeDiscord = Effect.gen(function* () {
         ),
       );
     const guildId = "guild_id" in channel ? channel.guild_id : undefined;
-    if (isProductionDiscordDestination(channelId, guildId)) {
+    if (!isTestingDiscordDestination(channelId, guildId)) {
       return yield* new DiscordError({
         operation: "boot",
-        cause: productionDiscordRefusal(channelId),
+        cause: testingDiscordRefusal(channelId),
       });
     }
   }

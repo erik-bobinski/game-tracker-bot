@@ -22,13 +22,11 @@ pnpm verify
 Isolation:
 
 - sqlite: `DB_PATH=/tmp/riot-verify-<run-id>.sqlite` so production data is never touched.
-- Discord: ambient `NOTIFICATION_CHANNEL_ID` is ignored. Set one of `VERIFY_NOTIFICATION_CHANNEL_ID`, `TESTING_NOTIFICATION_CHANNEL_ID`, or `DISCORD_TEST_CHANNEL_URL` (`https://discord.com/channels/<guildId>/<channelId>`) to a **riot-tracker-testing** channel. If none of those are set, verify skips Discord send instead of using Wise Fellas. `report-mock` and `DEV_MODE` boot refuse known production channel/guild IDs.
+- Discord: ambient `NOTIFICATION_CHANNEL_ID` is ignored. Set one of `VERIFY_NOTIFICATION_CHANNEL_ID`, `TESTING_NOTIFICATION_CHANNEL_ID`, or `DISCORD_TEST_CHANNEL_URL` to riot-tracker-testing guild `1523432684691525802`, channel `1523432733785722940`. If none match, verify skips Discord send. `report-mock` and `DEV_MODE` fail closed outside that allowlist.
+- Riot: set `VERIFY_RIOT_ID` to the designated non-production test account.
+- credentials: use only the `riot-tracker-dev` bot token. Do not expose a production Discord token, Railway credential, or production database to the cloud environment.
 
-Do not set `VERIFY_RIOT_ID` when a Railway token is available. The harness resolves a production Riot ID itself.
-
-Never copy Railway `printenv` into the VM. ssh is for `pnpm admin status --json` (Riot IDs) only.
-
-Cloud-agent traps (Railway project tokens, ssh keys, READY race, Henrik 404, Wise Fellas posts) are in [references/cloud-agent-lessons.md](references/cloud-agent-lessons.md).
+Cloud-agent traps (READY race, Henrik 404, Discord isolation) are in [references/cloud-agent-lessons.md](references/cloud-agent-lessons.md).
 
 ## Doctor
 
@@ -43,54 +41,13 @@ For the live bot, confirm the process log contains `slash commands registered` a
 
 ## Riot ID resolution
 
-Verification needs a real Riot account. Resolution order:
-
-1. `VERIFY_RIOT_ID=name#tag` — explicit override. Skip this when proving Railway lookup.
-2. `PRODUCTION_DB_PATH=/path/to/riot-tracker.sqlite` — read accounts via `pnpm admin status --json`
-3. Railway token (`RAILWAY_API_TOKEN`, `RAILWAY_API_KEY`, or `RAILWAY_TOKEN`) — `railway ssh --service riot-tracker-bot -- pnpm admin status --json`
-
-Pick the first account with tracked games when reading production status.
-
-### Railway tokens and ssh
-
-Cursor Cloud often injects a **project/workspace** token as `RAILWAY_API_TOKEN` (a UUID). That token:
-
-- Fails `railway whoami`, `railway list`, and `railway link` with `Unauthorized` (`me` is not allowed).
-- Still answers GraphQL `projects` and can `railway ssh` once a project/service/environment are named.
-
-Do not treat a whoami failure as "Railway is unusable." Discover IDs, then ssh:
-
-```bash
-pnpm exec railway api 'query { projects { edges { node { id name } } } }'
-pnpm exec railway api 'query { project(id: "<project-id>") { name services { edges { node { id name } } } environments { edges { node { id name } } } } }'
-```
-
-Export what ssh needs (names or ids work for `--service` / `--environment`):
-
-```bash
-export RAILWAY_PROJECT_ID=<project-id>
-export RAILWAY_SERVICE=riot-tracker-bot
-export RAILWAY_ENVIRONMENT=production   # or the environment id
-```
-
-`pnpm verify` already forwards those into `railway ssh --project --service --environment`.
-
-SSH also needs a key registered with Railway and `ssh.railway.com` in `known_hosts`:
-
-```bash
-ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
-pnpm exec railway ssh keys add -k ~/.ssh/id_ed25519.pub -n cursor-cloud-verify
-ssh-keyscan -t ed25519 ssh.railway.com >> ~/.ssh/known_hosts
-pnpm exec railway ssh --service riot-tracker-bot -- pnpm admin status --json
-```
-
-Banners from ssh go to stderr. JSON for `admin status` is on stdout; the harness slices from the first `{`.
+Verification needs a real Riot account supplied as `VERIFY_RIOT_ID=name#tag`. Keep it separate from production tracking data. The verifier has no Railway or production-database fallback.
 
 ## Drive
 
 Read `.cursor/skills/verify-riot-tracker-bot/features/README.md` before running individual recipes.
 
-The bundled verifier exercises: typecheck → inspect mock payload → refuse Wise Fellas → bot boot (testing dest only) → signup → refresh (twice, idempotent) → status → report-mock (testing dest only) → signout.
+The bundled verifier exercises: typecheck → inspect mock payload → refuse a non-testing destination → bot boot (testing dest only) → signup → refresh (twice, idempotent) → status → report-mock (testing dest only) → signout.
 
 Manual equivalents. Point `NOTIFICATION_CHANNEL_ID` at riot-tracker-testing, never Wise Fellas:
 
