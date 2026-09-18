@@ -92,6 +92,25 @@ export const rankEmbed = (report: RankReport): Discord.RichEmbed => ({
 const httpUrl = (url: string) =>
   url.startsWith("https:") || url.startsWith("http:") ? url : "";
 
+export const rankImagesFrom = (
+  adapters: ReadonlyArray<{
+    readonly game: GameId;
+    readonly rankIcons: ReadonlyArray<{
+      readonly key: string;
+      readonly url: string;
+      readonly largeUrl?: string;
+    }>;
+  }>,
+): RankImages =>
+  Object.fromEntries(
+    adapters.flatMap((adapter) =>
+      adapter.rankIcons.flatMap((icon) => {
+        const url = httpUrl(icon.largeUrl ?? icon.url);
+        return url ? [[`${adapter.game}.${icon.key}`, url] as const] : [];
+      }),
+    ),
+  );
+
 // posted by notifyMatch and admin report-mock. Components V2 so the
 // scoreboard can use layout and images instead of a classic embed.
 export const matchReportMessage = (

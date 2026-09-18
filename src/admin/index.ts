@@ -27,7 +27,12 @@ import {
   formatRefreshResult,
 } from "../services/discord/commands.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
-import { matchReportMessage } from "../services/discord/embed.ts";
+import {
+  matchReportMessage,
+  rankImagesFrom,
+} from "../services/discord/embed.ts";
+import { lolRankIcons } from "../services/game/game-adapters/lol.ts";
+import { valRankIcons } from "../services/game/game-adapters/valorant.ts";
 import {
   Database,
   DatabaseLive,
@@ -590,7 +595,17 @@ const reportMock = Command.make(
 
     const message = yield* withDiscordRest((rest) =>
       rest
-        .createMessage(channelId, matchReportMessage(report, {}))
+        .createMessage(
+          channelId,
+          matchReportMessage(
+            report,
+            {},
+            rankImagesFrom([
+              { game: "lol", rankIcons: lolRankIcons },
+              { game: "valorant", rankIcons: valRankIcons },
+            ]),
+          ),
+        )
         .pipe(orFail("Could not post mock match report")),
     );
 

@@ -27,7 +27,7 @@ const rankIconKey = (rank: string) => {
 };
 
 const valorantTierSet = "03621f52-342b-cf4e-4f86-9350a49c6d04";
-const rankIcons = [
+export const valRankIcons = [
   ["iron", 3],
   ["bronze", 6],
   ["silver", 9],
@@ -103,7 +103,7 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
 
   const adapter: GameAdapter = {
     game: "valorant",
-    rankIcons,
+    rankIcons: valRankIcons,
     resolveAccount: Effect.fn("GameAdapter.valorant.resolveAccount")(function* (
       name: string,
       tag: string,
