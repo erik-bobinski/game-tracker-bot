@@ -100,8 +100,6 @@ export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
         riotName: participant.riotIdGameName,
         riotTag: participant.riotIdTagline,
         character: participant.championName,
-        // raw PNG Discord can proxy. cdn.communitydragon.org/.../square is a
-        // renderer that shows up in Components V2 as a broken blur tile.
         portraitUrl: `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-icons/${participant.championId}.png`,
         kills: participant.kills,
         deaths: participant.deaths,

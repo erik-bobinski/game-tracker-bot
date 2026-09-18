@@ -33,8 +33,9 @@ is ignored by verify because it often points at Wise Fellas.
 - Cloud agents should not log into Discord web to confirm the message. REST
   success plus JSON `channelId` (testing server) and V2 `flags` is the proof.
 - Admin posts without boot-time rank emojis, so rank crests in the scoreboard
-  lines are text. Rank thumbnails still use the HTTPS emblem URLs. `/dev_report`
-  on a running bot also inlines application emojis in the player list.
+  lines are text. Rank thumbnails use square HTTPS crests, not a Media Gallery.
+  `/dev_report` on a running bot also inlines application emojis in the player
+  list.
 - Refuses known Wise Fellas channel and guild IDs. Isolated sqlite does not
   make a production Discord destination safe.
 - If testing Discord credentials are missing, `pnpm verify` skips this send

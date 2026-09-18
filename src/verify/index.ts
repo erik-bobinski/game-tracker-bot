@@ -205,6 +205,18 @@ const mediaUrlsFrom = (node: unknown): Array<string> => {
   return typeof record.url === "string" ? [record.url, ...nested] : nested;
 };
 
+const hasComponentType = (node: unknown, type: number): boolean => {
+  if (Array.isArray(node)) {
+    return node.some((item) => hasComponentType(item, type));
+  }
+  if (!node || typeof node !== "object") return false;
+  const record = node as Record<string, unknown>;
+  if (record.type === type) return true;
+  return [record.components, record.items, record.accessory].some((child) =>
+    hasComponentType(child, type),
+  );
+};
+
 const inspectLolMockReport = () => {
   const report = Effect.runSync(buildMockMatchReport("lol"));
   const message = matchReportMessage(
@@ -219,6 +231,7 @@ const inspectLolMockReport = () => {
   const bad = urls.filter(
     (url) => !/\.(png|jpe?g|webp|gif)(?:\?|$)/i.test(url),
   );
+  const hasGallery = hasComponentType(message.components, 12);
   if ((message.flags & 32768) === 0) {
     return {
       step: "inspect lol mock payload",
@@ -226,11 +239,11 @@ const inspectLolMockReport = () => {
       detail: "missing IS_COMPONENTS_V2",
     } satisfies StepResult;
   }
-  if (urls.length === 0) {
+  if (hasGallery) {
     return {
       step: "inspect lol mock payload",
       ok: false,
-      detail: "no renderable image urls; gallery would be omitted",
+      detail: "match reports must not include a Media Gallery",
     } satisfies StepResult;
   }
   if (bad.length > 0) {
@@ -243,8 +256,8 @@ const inspectLolMockReport = () => {
   return {
     step: "inspect lol mock payload",
     ok: true,
-    detail: `${urls.length} image urls`,
-    stdout: JSON.stringify({ flags: message.flags, urls }, null, 2),
+    detail: `${urls.length} image urls, no media gallery`,
+    stdout: JSON.stringify({ flags: message.flags, urls, hasGallery }, null, 2),
   } satisfies StepResult;
 };
 

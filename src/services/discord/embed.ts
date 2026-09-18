@@ -117,7 +117,9 @@ export const rankImagesFrom = (
   Object.fromEntries(
     adapters.flatMap((adapter) =>
       adapter.rankIcons.flatMap((icon) => {
-        const url = renderableImageUrl(icon.largeUrl ?? icon.url);
+        const url =
+          renderableImageUrl(icon.url) ||
+          renderableImageUrl(icon.largeUrl ?? "");
         return url ? [[`${adapter.game}.${icon.key}`, url] as const] : [];
       }),
     ),
@@ -207,26 +209,10 @@ export const matchReportMessage = (
           board,
         ],
   );
-  const galleryItems = teams
-    .flatMap((players) =>
-      [...players]
-        .sort((a, b) => b.sortKey - a.sortKey)
-        .flatMap((player) => {
-          const url = player.portraitUrl
-            ? renderableImageUrl(player.portraitUrl)
-            : "";
-          return url
-            ? [
-                {
-                  media: { url },
-                  description: player.character,
-                },
-              ]
-            : [];
-        }),
-    )
-    .slice(0, 10);
 
+  // No Media Gallery. Discord stores a blurhash placeholder per item, and a
+  // 10-image gallery (especially 1024px Valorant icons, or a forwarded V2
+  // message) paints as one large blue/purple blur block under the scoreboard.
   return UI.components([
     UI.container({
       accent_color: color,
@@ -239,9 +225,6 @@ export const matchReportMessage = (
           spacing: Discord.MessageComponentSeparatorSpacingSize.LARGE,
         }),
         ...teamBlocks,
-        ...(galleryItems.length > 0
-          ? [UI.mediaGallery({ items: galleryItems })]
-          : []),
       ],
     }),
   ]);
