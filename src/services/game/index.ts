@@ -27,6 +27,8 @@ export interface MatchPlayer {
   readonly rankIconKey?: string;
   readonly rankDivision?: string;
   readonly flair?: string;
+  // HTTPS portrait used as a Components V2 gallery item
+  readonly portraitUrl?: string;
 }
 
 export interface MatchTeam {

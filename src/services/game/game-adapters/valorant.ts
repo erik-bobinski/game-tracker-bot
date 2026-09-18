@@ -61,6 +61,7 @@ export const valMatchToDetails = (match: ValRawMatch): MatchDetails => {
       riotName: player.name,
       riotTag: player.tag,
       character: player.agent.name,
+      portraitUrl: `https://media.valorant-api.com/agents/${player.agent.id}/displayicon.png`,
       kills: player.stats.kills,
       deaths: player.stats.deaths,
       assists: player.stats.assists,

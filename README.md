@@ -2,7 +2,7 @@
 
 A Discord bot that reports finished matches for opted-in users. Someone signs
 up with their Riot ID, and when they finish a game the bot posts a scoreboard
-embed to a channel. If several signed-up users played the same match, it posts
+to a channel. If several signed-up users played the same match, it posts
 once and names all of them.
 
 The goal is to be **game agnostic**: League of Legends and Valorant are the two
@@ -37,7 +37,7 @@ pnpm admin <command>
 | `pause` / `resume`                    | Stop or restart all reports                                   |
 | `rank-check <target> [--game <game>]` | Look up a tracked account's current rank                      |
 | `refresh <target>`                    | Recheck a signed-up account for games missing at signup       |
-| `report-mock [--game <game>]`         | Post a mock match report embed to the notification channel    |
+| `report-mock [--game <game>]`         | Post a mock match report to the notification channel          |
 
 `<target>` is a Discord user ID, a Discord name, or a Riot ID — whichever you
 have. Leave an argument off and the command asks for it. `--json` prints the
@@ -60,7 +60,7 @@ src/
       index.ts                 game-agnostic domain types
       game-adapters/           one adapter per game, behind a shared interface
       game-api/                raw API clients and decode schemas
-    discord/                   gateway, slash commands, embeds
+    discord/                   gateway, slash commands, match reports
     database/                  SQLite, migrations, account storage
 ```
 

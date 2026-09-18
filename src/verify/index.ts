@@ -87,7 +87,17 @@ const stopBotSessions = () => {
 
 const startBot = () => {
   stopBotSessions();
-  tmux(["new-session", "-d", "-s", botSession, "-c", workspace, "--", "bash", "-l"]);
+  tmux([
+    "new-session",
+    "-d",
+    "-s",
+    botSession,
+    "-c",
+    workspace,
+    "--",
+    "bash",
+    "-l",
+  ]);
   const command = [
     'export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"',
     '. "$NVM_DIR/nvm.sh"',
@@ -201,8 +211,16 @@ const main = () => {
 
   record(run(["admin", "status", "--json"]));
 
-  record(run(["admin", "report-mock", "--game", "lol", "--json"]));
-  if (!results.at(-1)?.ok) fail("report-mock failed", riotId);
+  const reportMock = run(["admin", "report-mock", "--game", "lol", "--json"]);
+  record(reportMock);
+  if (!reportMock.ok) fail("report-mock failed", riotId);
+  const reportPayload = parseJsonStdout(reportMock.stdout);
+  if (
+    typeof reportPayload.flags !== "number" ||
+    (reportPayload.flags & 32768) === 0
+  ) {
+    fail("report-mock was not a Components V2 message", riotId);
+  }
 
   record(run(["admin", "signout", devDiscordId, "--yes", "--json"]));
 

@@ -100,6 +100,7 @@ export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
         riotName: participant.riotIdGameName,
         riotTag: participant.riotIdTagline,
         character: participant.championName,
+        portraitUrl: `https://cdn.communitydragon.org/latest/champion/${participant.championName}/square`,
         kills: participant.kills,
         deaths: participant.deaths,
         assists: participant.assists,

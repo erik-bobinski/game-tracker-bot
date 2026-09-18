@@ -25,7 +25,7 @@ import { Database } from "../database/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import { PollingState } from "../polling/state.ts";
 import { commands } from "./commands.ts";
-import { matchEmbed, type MatchReport } from "./embed.ts";
+import { matchReportMessage, type MatchReport } from "./embed.ts";
 import { provisionRankEmojis } from "./rank-emojis.ts";
 
 export class DiscordError extends Schema.TaggedError<DiscordError>()(
@@ -107,12 +107,23 @@ const makeDiscord = Effect.gen(function* () {
       ).pipe(Effect.as({})),
     ),
   );
+  const rankImages = Object.fromEntries(
+    gameAdapters.all.flatMap((adapter) =>
+      adapter.rankIcons.flatMap((icon) => {
+        const url = icon.largeUrl ?? icon.url;
+        return url.startsWith("http")
+          ? [[`${adapter.game}.${icon.key}`, url] as const]
+          : [];
+      }),
+    ),
+  );
 
   const notifyMatch = Effect.fn("Discord.notifyMatch")(
     function* (report: MatchReport) {
-      yield* rest.createMessage(channelId, {
-        embeds: [matchEmbed(report, rankEmojis)],
-      });
+      yield* rest.createMessage(
+        channelId,
+        matchReportMessage(report, rankEmojis, rankImages),
+      );
     },
     Effect.mapError(
       (cause) => new DiscordError({ operation: "notifyMatch", cause }),

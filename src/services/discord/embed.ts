@@ -1,4 +1,4 @@
-import type { Discord } from "dfx";
+import { Discord, UI } from "dfx";
 import { gameNames } from "../game/index.ts";
 import type {
   GameId,
@@ -17,6 +17,7 @@ export interface MatchReport {
 }
 
 export type RankEmojis = Readonly<Record<string, string>>;
+export type RankImages = Readonly<Record<string, string>>;
 
 const nameList = (names: ReadonlyArray<string>) => {
   const bolded = names.map((name) => `**${name}**`);
@@ -29,10 +30,14 @@ const nameList = (names: ReadonlyArray<string>) => {
 const formatDuration = (seconds: number) =>
   `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 
-const rankEmoji = (player: MatchPlayer, game: GameId, emojis: RankEmojis) => {
+const rankAsset = (
+  player: MatchPlayer,
+  game: GameId,
+  assets: Readonly<Record<string, string>>,
+) => {
   if (!player.rankIconKey) return "";
   return (
-    emojis[`${game}.${player.rankIconKey}`] ?? emojis[player.rankIconKey] ?? ""
+    assets[`${game}.${player.rankIconKey}`] ?? assets[player.rankIconKey] ?? ""
   );
 };
 
@@ -48,7 +53,7 @@ const leaderboard = (
     .map((player) => {
       const rawName = `${player.riotName}#${player.riotTag}`;
       const name = trackedPuuids.has(player.puuid) ? `**${rawName}**` : rawName;
-      const icon = rankEmoji(player, game, emojis);
+      const icon = rankAsset(player, game, emojis);
       const update = rankUpdates.get(player.puuid);
       const rankUpdate =
         update?.delta !== undefined
@@ -84,10 +89,16 @@ export const rankEmbed = (report: RankReport): Discord.RichEmbed => ({
   ...(report.iconUrl ? { image: { url: report.iconUrl } } : {}),
 });
 
-export const matchEmbed = (
+const httpUrl = (url: string) =>
+  url.startsWith("https:") || url.startsWith("http:") ? url : "";
+
+// posted by notifyMatch and admin report-mock. Components V2 so the
+// scoreboard can use layout and images instead of a classic embed.
+export const matchReportMessage = (
   report: MatchReport,
   rankEmojis: RankEmojis,
-): Discord.RichEmbed => {
+  rankImages: RankImages = {},
+) => {
   const trackedPuuids = new Set(report.trackedPuuids);
   const trackedPlayer = report.match.players.find((player) =>
     trackedPuuids.has(player.puuid),
@@ -117,24 +128,85 @@ export const matchEmbed = (
     `${formatDuration(report.match.durationSeconds)}${report.match.surrendered ? " (surrender)" : ""}`,
     trackedTeam?.score?.join("–"),
   ].filter((value): value is string => Boolean(value));
-  return {
-    title: `${verdict} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
-    description: [
-      `${nameList(report.discordNames)} just finished a **${gameNames[report.match.game]}** game`,
-      info.join(" · "),
-      "",
-      teams
-        .map((players) =>
-          leaderboard(
-            players,
-            trackedPuuids,
-            report.match.game,
-            rankEmojis,
-            report.rankUpdates,
-          ),
-        )
-        .join("\n\n"),
-    ].join("\n"),
-    color,
-  };
+  const subtitle = [
+    gameNames[report.match.game],
+    report.match.mode,
+    report.match.map,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
+  const thumbnailUrl = trackedPlayer
+    ? httpUrl(rankAsset(trackedPlayer, report.match.game, rankImages))
+    : "";
+  const header = thumbnailUrl
+    ? [
+        UI.section({
+          components: [
+            UI.textDisplay(`# ${verdict}`),
+            UI.textDisplay(`**${subtitle}**`),
+          ],
+          accessory: UI.thumbnail({
+            url: thumbnailUrl,
+            description: trackedPlayer?.rank ?? trackedPlayer?.character,
+          }),
+        }),
+      ]
+    : [UI.textDisplay(`# ${verdict}`), UI.textDisplay(`**${subtitle}**`)];
+  const boards = teams.map((players) =>
+    UI.textDisplay(
+      leaderboard(
+        players,
+        trackedPuuids,
+        report.match.game,
+        rankEmojis,
+        report.rankUpdates,
+      ),
+    ),
+  );
+  const teamBlocks = boards.flatMap((board, index) =>
+    index === 0
+      ? [board]
+      : [
+          UI.seperator({
+            divider: true,
+            spacing: Discord.MessageComponentSeparatorSpacingSize.SMALL,
+          }),
+          board,
+        ],
+  );
+  const galleryItems = teams
+    .flatMap((players) =>
+      [...players]
+        .sort((a, b) => b.sortKey - a.sortKey)
+        .flatMap((player) =>
+          player.portraitUrl
+            ? [
+                {
+                  media: { url: player.portraitUrl },
+                  description: player.character,
+                },
+              ]
+            : [],
+        ),
+    )
+    .slice(0, 10);
+
+  return UI.components([
+    UI.container({
+      accent_color: color,
+      components: [
+        ...header,
+        UI.textDisplay(`${nameList(report.discordNames)} just finished a game`),
+        ...(info.length > 0 ? [UI.textDisplay(info.join(" · "))] : []),
+        UI.seperator({
+          divider: true,
+          spacing: Discord.MessageComponentSeparatorSpacingSize.LARGE,
+        }),
+        ...teamBlocks,
+        ...(galleryItems.length > 0
+          ? [UI.mediaGallery({ items: galleryItems })]
+          : []),
+      ],
+    }),
+  ]);
 };

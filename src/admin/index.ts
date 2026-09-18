@@ -15,10 +15,19 @@ import {
   Schema,
 } from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
-import { DiscordConfig, DiscordREST, DiscordRESTLive, MemoryRateLimitStoreLive } from "dfx";
-import { registerAccount, refreshAccount, formatRefreshResult } from "../services/discord/commands.ts";
+import {
+  DiscordConfig,
+  DiscordREST,
+  DiscordRESTLive,
+  MemoryRateLimitStoreLive,
+} from "dfx";
+import {
+  registerAccount,
+  refreshAccount,
+  formatRefreshResult,
+} from "../services/discord/commands.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
-import { matchEmbed } from "../services/discord/embed.ts";
+import { matchReportMessage } from "../services/discord/embed.ts";
 import {
   Database,
   DatabaseLive,
@@ -143,9 +152,7 @@ const DiscordRestLive = DiscordRESTLive.pipe(
 );
 
 const withGameAdapters = <A, E>(
-  run: (
-    adapters: GameAdapters["Service"],
-  ) => Effect.Effect<A, E | AdminError>,
+  run: (adapters: GameAdapters["Service"]) => Effect.Effect<A, E | AdminError>,
 ) =>
   Effect.gen(function* () {
     const adapters = yield* GameAdapters;
@@ -581,17 +588,21 @@ const reportMock = Command.make(
       orFail("Could not build mock match report"),
     );
 
-    yield* withDiscordRest((rest) =>
+    const message = yield* withDiscordRest((rest) =>
       rest
-        .createMessage(channelId, {
-          embeds: [matchEmbed(report, {})],
-        })
+        .createMessage(channelId, matchReportMessage(report, {}))
         .pipe(orFail("Could not post mock match report")),
     );
 
     yield* emit(
       json,
-      { game, channelId, matchId: report.match.matchId },
+      {
+        game,
+        channelId,
+        matchId: report.match.matchId,
+        flags: message.flags,
+        components: message.components.length,
+      },
       [
         `Posted a mock ${gameNames[game]} match report to channel ${channelId}.`,
       ],
@@ -599,7 +610,7 @@ const reportMock = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Post a mock match report embed to the notification channel",
+    "Post a mock match report to the notification channel",
   ),
 );
 
