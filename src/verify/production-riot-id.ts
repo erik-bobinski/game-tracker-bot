@@ -11,13 +11,17 @@ interface AdminStatus {
 }
 
 const pickRiotId = (status: AdminStatus) => {
-  const withGames = status.accounts.filter((account) => account.games.length > 0);
+  const withGames = status.accounts.filter(
+    (account) => account.games.length > 0,
+  );
   return (withGames[0] ?? status.accounts[0])?.riotId;
 };
 
 const parseStatus = (stdout: string) => {
   const start = stdout.indexOf("{");
-  const status = JSON.parse(start >= 0 ? stdout.slice(start) : stdout) as AdminStatus;
+  const status = JSON.parse(
+    start >= 0 ? stdout.slice(start) : stdout,
+  ) as AdminStatus;
   const riotId = pickRiotId(status);
   if (!riotId) {
     throw new Error("production status returned no accounts");
@@ -78,6 +82,8 @@ const statusFromRailway = (workspace: string) => {
 
 // Picks a real riot id for verification: explicit env, a copied prod sqlite,
 // or live production via `railway ssh` when a Railway token is set.
+// ssh only runs `pnpm admin status --json`. Never copy production Discord
+// env (NOTIFICATION_CHANNEL_ID) into the verify VM.
 export const resolveVerifyRiotId = (workspace: string) => {
   if (process.env.VERIFY_RIOT_ID) {
     return process.env.VERIFY_RIOT_ID;

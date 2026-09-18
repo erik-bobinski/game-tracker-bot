@@ -7,6 +7,8 @@ description: Headless end-to-end verification for the riot-tracker Discord bot. 
 
 Cloud agents prove bot behavior by running the live app plus the admin CLI against an isolated sqlite file. No Discord web login is required.
 
+**Discord destination is isolated too.** Run the bot locally in the cloud VM (`pnpm start` / this harness). Connect it only to **riot-tracker-testing**. Never post match reports, mock reports, or verify output to Wise Fellas or any production channel. Isolated sqlite does not make a production `NOTIFICATION_CHANNEL_ID` safe.
+
 ## Launch
 
 ```bash
@@ -15,13 +17,18 @@ export PATH="$NVM_BIN:$PATH"
 pnpm verify
 ```
 
-`pnpm verify` typechecks, starts the bot (`pnpm start`, not `pnpm dev`), waits until the process is up, drives admin commands, writes JSON evidence to `/opt/cursor/artifacts/verify-<run-id>/`, and leaves the bot running.
+`pnpm verify` typechecks, starts the bot (`pnpm start`, not `pnpm dev`) only when a testing Discord destination is set, waits until the process is up, drives admin commands, writes JSON evidence to `/opt/cursor/artifacts/verify-<run-id>/`, and leaves the bot running.
 
-Isolation uses `DB_PATH=/tmp/riot-verify-<run-id>.sqlite` so production data is never touched.
+Isolation:
+
+- sqlite: `DB_PATH=/tmp/riot-verify-<run-id>.sqlite` so production data is never touched.
+- Discord: ambient `NOTIFICATION_CHANNEL_ID` is ignored. Set one of `VERIFY_NOTIFICATION_CHANNEL_ID`, `TESTING_NOTIFICATION_CHANNEL_ID`, or `DISCORD_TEST_CHANNEL_URL` (`https://discord.com/channels/<guildId>/<channelId>`) to a **riot-tracker-testing** channel. If none of those are set, verify skips Discord send instead of using Wise Fellas. `report-mock` and `DEV_MODE` boot refuse known production channel/guild IDs.
 
 Do not set `VERIFY_RIOT_ID` when a Railway token is available. The harness resolves a production Riot ID itself.
 
-Cloud-agent traps (Railway project tokens, ssh keys, READY race, Henrik 404) are in [references/cloud-agent-lessons.md](references/cloud-agent-lessons.md).
+Never copy Railway `printenv` into the VM. ssh is for `pnpm admin status --json` (Riot IDs) only.
+
+Cloud-agent traps (Railway project tokens, ssh keys, READY race, Henrik 404, Wise Fellas posts) are in [references/cloud-agent-lessons.md](references/cloud-agent-lessons.md).
 
 ## Doctor
 
@@ -83,12 +90,13 @@ Banners from ssh go to stderr. JSON for `admin status` is on stdout; the harness
 
 Read `.cursor/skills/verify-riot-tracker-bot/features/README.md` before running individual recipes.
 
-The bundled verifier exercises: typecheck → bot boot → signup → refresh (twice, idempotent) → status → report-mock → signout.
+The bundled verifier exercises: typecheck → inspect mock payload → refuse Wise Fellas → bot boot (testing dest only) → signup → refresh (twice, idempotent) → status → report-mock (testing dest only) → signout.
 
-Manual equivalents:
+Manual equivalents. Point `NOTIFICATION_CHANNEL_ID` at riot-tracker-testing, never Wise Fellas:
 
 ```bash
 export DB_PATH=/tmp/riot-verify-manual.sqlite
+export NOTIFICATION_CHANNEL_ID=<riot-tracker-testing-channel-id>
 pnpm start   # separate terminal
 pnpm admin signup <riot-id> --discord-id verify-agent-user --json
 pnpm admin refresh verify-agent-user --json
@@ -103,7 +111,7 @@ Capture under `/opt/cursor/artifacts/verify-<run-id>/`:
 - `results.json` — every step with stdout/stderr
 - `bot.log` — boot excerpt showing the process is up
 
-Proof standards: exercise real Riot/Henrik APIs, real sqlite writes, real Discord REST for `report-mock`. Do not log into Discord web.
+Proof standards: exercise real Riot/Henrik APIs, real sqlite writes, and real Discord REST for `report-mock` only when the destination is riot-tracker-testing. Do not log into Discord web. Do not post to Wise Fellas.
 
 A Henrik 404 on Valorant during signup/refresh is not a harness failure. That game stays in `missing`; League can still track. Second refresh must have `added: []`.
 

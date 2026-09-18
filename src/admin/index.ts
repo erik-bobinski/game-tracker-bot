@@ -28,6 +28,10 @@ import {
 } from "../services/discord/commands.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
 import {
+  isProductionDiscordDestination,
+  productionDiscordRefusal,
+} from "../services/discord/destination.ts";
+import {
   matchReportMessage,
   rankImagesFrom,
 } from "../services/discord/embed.ts";
@@ -589,24 +593,36 @@ const reportMock = Command.make(
   Effect.fn(function* ({ game }) {
     const { json } = yield* admin;
     const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
+    if (isProductionDiscordDestination(channelId)) {
+      return yield* fail(productionDiscordRefusal(channelId));
+    }
     const report = yield* buildMockMatchReport(game).pipe(
       orFail("Could not build mock match report"),
     );
 
     const message = yield* withDiscordRest((rest) =>
-      rest
-        .createMessage(
-          channelId,
-          matchReportMessage(
-            report,
-            {},
-            rankImagesFrom([
-              { game: "lol", rankIcons: lolRankIcons },
-              { game: "valorant", rankIcons: valRankIcons },
-            ]),
-          ),
-        )
-        .pipe(orFail("Could not post mock match report")),
+      Effect.gen(function* () {
+        const channel = yield* rest
+          .getChannel(channelId)
+          .pipe(orFail("Could not read the notification channel"));
+        const guildId = "guild_id" in channel ? channel.guild_id : undefined;
+        if (isProductionDiscordDestination(channelId, guildId)) {
+          return yield* fail(productionDiscordRefusal(channelId));
+        }
+        return yield* rest
+          .createMessage(
+            channelId,
+            matchReportMessage(
+              report,
+              {},
+              rankImagesFrom([
+                { game: "lol", rankIcons: lolRankIcons },
+                { game: "valorant", rankIcons: valRankIcons },
+              ]),
+            ),
+          )
+          .pipe(orFail("Could not post mock match report"));
+      }),
     );
 
     yield* emit(
@@ -625,7 +641,7 @@ const reportMock = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Post a mock match report to the notification channel",
+    "Post a mock match report to the notification channel (never Wise Fellas)",
   ),
 );
 

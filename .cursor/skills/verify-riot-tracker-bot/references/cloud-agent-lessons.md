@@ -2,6 +2,20 @@
 
 Lessons from running `pnpm verify` on Cursor Cloud against Railway production.
 
+## NEVER post verify or mock reports to Wise Fellas
+
+This already happened. A verify / `report-mock` run used ambient Cursor/Railway `NOTIFICATION_CHANNEL_ID` (`1525711779865432135`, Wise Fellas `#riot-tracker`) and posted a Components V2 mock into production. That is unacceptable.
+
+Rules:
+
+- Run the bot locally in the cloud VM (`pnpm start` / `pnpm verify`).
+- Connect that local bot only to **riot-tracker-testing**.
+- Never use Wise Fellas / production `NOTIFICATION_CHANNEL_ID` for verify or mock reports.
+- Isolated sqlite is not enough. Discord destination must be isolated too.
+- Never `railway ssh -- printenv` (or otherwise copy production Discord env) into the VM. ssh is for `pnpm admin status --json` to read a Riot ID.
+- `pnpm verify` ignores ambient `NOTIFICATION_CHANNEL_ID`. It needs `VERIFY_NOTIFICATION_CHANNEL_ID`, `TESTING_NOTIFICATION_CHANNEL_ID`, or `DISCORD_TEST_CHANNEL_URL` pointing at riot-tracker-testing.
+- If those testing values are missing, skip Discord send. Do not fall back to production. `report-mock` and `DEV_MODE` refuse known Wise Fellas channel and guild IDs.
+
 ## Railway tokens on Cursor Cloud
 
 `RAILWAY_API_TOKEN` is often a project or workspace UUID, not a personal account token.

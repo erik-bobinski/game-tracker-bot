@@ -26,6 +26,10 @@ import { GameAdapters } from "../game/game-adapters/index.ts";
 import { PollingState } from "../polling/state.ts";
 import { commands } from "./commands.ts";
 import {
+  isProductionDiscordDestination,
+  productionDiscordRefusal,
+} from "./destination.ts";
+import {
   matchReportMessage,
   rankImagesFrom,
   type MatchReport,
@@ -70,6 +74,29 @@ const makeDiscord = Effect.gen(function* () {
   const devMode = yield* Config.boolean("DEV_MODE").pipe(
     Config.withDefault(false),
   );
+
+  if (devMode) {
+    if (isProductionDiscordDestination(channelId)) {
+      return yield* new DiscordError({
+        operation: "boot",
+        cause: productionDiscordRefusal(channelId),
+      });
+    }
+    const channel = yield* rest
+      .getChannel(channelId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new DiscordError({ operation: "boot", cause }),
+        ),
+      );
+    const guildId = "guild_id" in channel ? channel.guild_id : undefined;
+    if (isProductionDiscordDestination(channelId, guildId)) {
+      return yield* new DiscordError({
+        operation: "boot",
+        cause: productionDiscordRefusal(channelId),
+      });
+    }
+  }
 
   const setPresence = (paused: boolean) =>
     gateway.send(

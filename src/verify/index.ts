@@ -2,6 +2,20 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect } from "effect";
+import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
+import {
+  PRODUCTION_NOTIFICATION_CHANNEL_IDS,
+  isProductionDiscordChannel,
+  productionDiscordRefusal,
+  testingNotificationChannelId,
+} from "../services/discord/destination.ts";
+import {
+  matchReportMessage,
+  rankImagesFrom,
+} from "../services/discord/embed.ts";
+import { lolRankIcons } from "../services/game/game-adapters/lol.ts";
+import { valRankIcons } from "../services/game/game-adapters/valorant.ts";
 import { resolveVerifyRiotId } from "./production-riot-id.ts";
 
 const workspace = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -38,12 +52,18 @@ const tmux = (args: ReadonlyArray<string>) =>
     encoding: "utf-8",
   });
 
-const sharedEnv = () => ({
-  ...process.env,
-  DB_PATH: dbPath,
-  DEV_MODE: "true",
-  LOG_LEVEL: "Warn",
-});
+const testingChannelId = testingNotificationChannelId(process.env);
+
+const sharedEnv = () => {
+  const env: Record<string, string | undefined> = { ...process.env };
+  env.DB_PATH = dbPath;
+  env.DEV_MODE = "true";
+  env.LOG_LEVEL = "Warn";
+  // Never inherit ambient / Railway Wise Fellas. Isolated sqlite is not enough.
+  delete env.NOTIFICATION_CHANNEL_ID;
+  if (testingChannelId) env.NOTIFICATION_CHANNEL_ID = testingChannelId;
+  return env;
+};
 
 const run = (args: ReadonlyArray<string>, env = sharedEnv()) => {
   const result = spawnSync("pnpm", args, {
@@ -98,12 +118,17 @@ const startBot = () => {
     "bash",
     "-l",
   ]);
+  const discordDest = testingChannelId
+    ? `export NOTIFICATION_CHANNEL_ID="${testingChannelId}"`
+    : "unset NOTIFICATION_CHANNEL_ID";
   const command = [
     'export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"',
     '. "$NVM_DIR/nvm.sh"',
     "nvm use 24",
     'export PATH="$NVM_BIN:$PATH"',
     `export DB_PATH="${dbPath}" DEV_MODE=true LOG_LEVEL=Info`,
+    "unset NOTIFICATION_CHANNEL_ID",
+    discordDest,
     `cd "${workspace}"`,
     "pnpm start",
   ].join(" && ");
@@ -143,7 +168,17 @@ const writeArtifacts = (riotId: string) => {
   mkdirSync(artifactDir, { recursive: true });
   writeFileSync(
     join(artifactDir, "results.json"),
-    JSON.stringify({ runId, dbPath, riotId, results }, null, 2),
+    JSON.stringify(
+      {
+        runId,
+        dbPath,
+        riotId,
+        testingChannelId: testingChannelId ?? null,
+        results,
+      },
+      null,
+      2,
+    ),
   );
   const botLog = results.find((entry) => entry.step === "bot log tail");
   if (botLog?.stdout) {
@@ -157,9 +192,95 @@ const fail = (message: string, riotId = "unknown"): never => {
   process.exit(1);
 };
 
+const mediaUrlsFrom = (node: unknown): Array<string> => {
+  if (Array.isArray(node)) return node.flatMap(mediaUrlsFrom);
+  if (!node || typeof node !== "object") return [];
+  const record = node as Record<string, unknown>;
+  const nested = [
+    record.components,
+    record.items,
+    record.accessory,
+    record.media,
+  ].flatMap(mediaUrlsFrom);
+  return typeof record.url === "string" ? [record.url, ...nested] : nested;
+};
+
+const inspectLolMockReport = () => {
+  const report = Effect.runSync(buildMockMatchReport("lol"));
+  const message = matchReportMessage(
+    report,
+    {},
+    rankImagesFrom([
+      { game: "lol", rankIcons: lolRankIcons },
+      { game: "valorant", rankIcons: valRankIcons },
+    ]),
+  );
+  const urls = mediaUrlsFrom(message.components);
+  const bad = urls.filter(
+    (url) => !/\.(png|jpe?g|webp|gif)(?:\?|$)/i.test(url),
+  );
+  if ((message.flags & 32768) === 0) {
+    return {
+      step: "inspect lol mock payload",
+      ok: false,
+      detail: "missing IS_COMPONENTS_V2",
+    } satisfies StepResult;
+  }
+  if (urls.length === 0) {
+    return {
+      step: "inspect lol mock payload",
+      ok: false,
+      detail: "no renderable image urls; gallery would be omitted",
+    } satisfies StepResult;
+  }
+  if (bad.length > 0) {
+    return {
+      step: "inspect lol mock payload",
+      ok: false,
+      detail: `non-file image urls: ${bad.join(", ")}`,
+    } satisfies StepResult;
+  }
+  return {
+    step: "inspect lol mock payload",
+    ok: true,
+    detail: `${urls.length} image urls`,
+    stdout: JSON.stringify({ flags: message.flags, urls }, null, 2),
+  } satisfies StepResult;
+};
+
+const reportMockRefusesProduction = () => {
+  const [prodChannelId] = PRODUCTION_NOTIFICATION_CHANNEL_IDS;
+  if (!prodChannelId) {
+    return {
+      step: "report-mock refuses Wise Fellas",
+      ok: false,
+      detail: "production channel denylist is empty",
+    } satisfies StepResult;
+  }
+  const result = run(["admin", "report-mock", "--game", "lol", "--json"], {
+    ...sharedEnv(),
+    NOTIFICATION_CHANNEL_ID: prodChannelId,
+  });
+  const text = `${result.stdout}\n${result.stderr}\n${result.detail ?? ""}`;
+  const refused = !result.ok && /Wise Fellas/.test(text);
+  return {
+    step: "report-mock refuses Wise Fellas",
+    ok: refused,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    detail: refused
+      ? productionDiscordRefusal(prodChannelId)
+      : "report-mock did not refuse the Wise Fellas channel",
+  } satisfies StepResult;
+};
+
 const main = () => {
   mkdirSync(artifactDir, { recursive: true });
   if (exists(dbPath)) rmSync(dbPath);
+
+  if (isProductionDiscordChannel(sharedEnv().NOTIFICATION_CHANNEL_ID ?? "")) {
+    fail(productionDiscordRefusal(sharedEnv().NOTIFICATION_CHANNEL_ID ?? ""));
+  }
 
   let riotId = "";
   try {
@@ -169,13 +290,41 @@ const main = () => {
     fail(error instanceof Error ? error.message : String(error));
   }
 
+  record({
+    step: "discord destination",
+    ok: true,
+    detail: testingChannelId
+      ? `riot-tracker-testing channel ${testingChannelId}`
+      : "no testing Discord destination; skipping Discord send (refusing Wise Fellas)",
+  });
+
   record(run(["typecheck"]));
   if (!results.at(-1)?.ok) fail("typecheck failed", riotId);
 
-  startBot();
-  const ready = waitForBotReady();
-  record(ready);
-  if (!ready.ok) fail("bot did not become ready", riotId);
+  record(inspectLolMockReport());
+  if (!results.at(-1)?.ok) fail("lol mock payload is not postable", riotId);
+
+  record(reportMockRefusesProduction());
+  if (!results.at(-1)?.ok) {
+    fail("report-mock must refuse Wise Fellas", riotId);
+  }
+
+  if (testingChannelId) {
+    startBot();
+    const ready = waitForBotReady();
+    record(ready);
+    if (!ready.ok) fail("bot did not become ready", riotId);
+    if (/Wise Fellas/.test(ready.stdout ?? "")) {
+      fail("bot boot targeted Wise Fellas", riotId);
+    }
+  } else {
+    record({
+      step: "wait for discord gateway ready",
+      ok: true,
+      detail:
+        "skipped bot boot; no riot-tracker-testing destination and Wise Fellas is forbidden",
+    });
+  }
 
   const [riotName, riotTag] = riotId.split("#");
   if (!riotName || !riotTag) {
@@ -211,15 +360,33 @@ const main = () => {
 
   record(run(["admin", "status", "--json"]));
 
-  const reportMock = run(["admin", "report-mock", "--game", "lol", "--json"]);
-  record(reportMock);
-  if (!reportMock.ok) fail("report-mock failed", riotId);
-  const reportPayload = parseJsonStdout(reportMock.stdout);
-  if (
-    typeof reportPayload.flags !== "number" ||
-    (reportPayload.flags & 32768) === 0
-  ) {
-    fail("report-mock was not a Components V2 message", riotId);
+  if (!testingChannelId) {
+    record({
+      step: "pnpm admin report-mock --game lol --json",
+      ok: true,
+      detail:
+        "skipped Discord send; set VERIFY_NOTIFICATION_CHANNEL_ID or DISCORD_TEST_CHANNEL_URL to riot-tracker-testing",
+    });
+  } else {
+    const reportMock = run(["admin", "report-mock", "--game", "lol", "--json"]);
+    record(reportMock);
+    if (!reportMock.ok) fail("report-mock failed", riotId);
+    const reportPayload = parseJsonStdout(reportMock.stdout);
+    if (reportPayload.channelId !== testingChannelId) {
+      fail(
+        "report-mock posted somewhere other than riot-tracker-testing",
+        riotId,
+      );
+    }
+    if (isProductionDiscordChannel(String(reportPayload.channelId ?? ""))) {
+      fail(productionDiscordRefusal(String(reportPayload.channelId)), riotId);
+    }
+    if (
+      typeof reportPayload.flags !== "number" ||
+      (reportPayload.flags & 32768) === 0
+    ) {
+      fail("report-mock was not a Components V2 message", riotId);
+    }
   }
 
   record(run(["admin", "signout", devDiscordId, "--yes", "--json"]));
@@ -227,12 +394,19 @@ const main = () => {
   record({
     step: "bot log tail",
     ok: true,
-    stdout: captureBotLog(),
+    stdout: testingChannelId ? captureBotLog() : "",
+    detail: testingChannelId ? undefined : "bot was not started",
   });
 
   writeArtifacts(riotId);
   console.log(`[verify] passed; artifacts in ${artifactDir}`);
-  console.log(`[verify] bot left running in tmux session ${botSession}`);
+  if (testingChannelId) {
+    console.log(`[verify] bot left running in tmux session ${botSession}`);
+  } else {
+    console.log(
+      "[verify] Discord send skipped; bot was not started without riot-tracker-testing",
+    );
+  }
 };
 
 function exists(path: string) {

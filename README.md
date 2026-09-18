@@ -29,15 +29,15 @@ railway ssh --service riot-tracker-bot
 pnpm admin <command>
 ```
 
-| Command                               | What it does                                                  |
-| ------------------------------------- | ------------------------------------------------------------- |
-| `status`                              | Polling state, the database in use, and every tracked account |
-| `signup <riot-id> --discord-id <id>`  | Track a Riot account on someone's behalf                      |
-| `signout <target>`                    | Stop tracking an account and delete its data                  |
-| `pause` / `resume`                    | Stop or restart all reports                                   |
-| `rank-check <target> [--game <game>]` | Look up a tracked account's current rank                      |
-| `refresh <target>`                    | Recheck a signed-up account for games missing at signup       |
-| `report-mock [--game <game>]`         | Post a mock match report to the notification channel          |
+| Command                               | What it does                                                               |
+| ------------------------------------- | -------------------------------------------------------------------------- |
+| `status`                              | Polling state, the database in use, and every tracked account              |
+| `signup <riot-id> --discord-id <id>`  | Track a Riot account on someone's behalf                                   |
+| `signout <target>`                    | Stop tracking an account and delete its data                               |
+| `pause` / `resume`                    | Stop or restart all reports                                                |
+| `rank-check <target> [--game <game>]` | Look up a tracked account's current rank                                   |
+| `refresh <target>`                    | Recheck a signed-up account for games missing at signup                    |
+| `report-mock [--game <game>]`         | Post a mock match report to the notification channel (refuses Wise Fellas) |
 
 `<target>` is a Discord user ID, a Discord name, or a Riot ID — whichever you
 have. Leave an argument off and the command asks for it. `--json` prints the
