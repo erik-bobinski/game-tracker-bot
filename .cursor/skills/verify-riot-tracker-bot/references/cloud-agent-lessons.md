@@ -2,19 +2,19 @@
 
 Lessons from running `pnpm verify` on Cursor Cloud.
 
-## NEVER post verify or mock reports to Wise Fellas
+## NEVER post verify or mock reports to production
 
-This already happened. A verify / `report-mock` run used ambient Cursor/Railway `NOTIFICATION_CHANNEL_ID` (`1525711779865432135`, Wise Fellas `#riot-tracker`) and posted a Components V2 mock into production. That is unacceptable.
+This already happened: a verify / `report-mock` run inherited an ambient production `NOTIFICATION_CHANNEL_ID` and posted a Components V2 mock there. That is unacceptable.
 
 Rules:
 
 - Run the bot locally in the cloud VM (`pnpm start` / `pnpm verify`).
-- Connect that local bot only to **riot-tracker-testing**.
-- Never use Wise Fellas / production `NOTIFICATION_CHANNEL_ID` for verify or mock reports.
+- Connect that local bot only to the explicitly configured testing destination.
+- Never inherit a production `NOTIFICATION_CHANNEL_ID` for verify or mock reports.
 - Isolated sqlite is not enough. Discord destination must be isolated too.
 - Do not give the cloud environment a Railway credential or production database.
-- `pnpm verify` ignores ambient `NOTIFICATION_CHANNEL_ID`. It needs `VERIFY_NOTIFICATION_CHANNEL_ID`, `TESTING_NOTIFICATION_CHANNEL_ID`, or `DISCORD_TEST_CHANNEL_URL` pointing at riot-tracker-testing.
-- If those testing values are missing or do not match the allowlist, skip Discord send. Do not fall back. `report-mock` and `DEV_MODE` allow only guild `1523432684691525802`, channel `1523432733785722940`.
+- `pnpm verify` ignores ambient `NOTIFICATION_CHANNEL_ID`. Configure `TESTING_DISCORD_GUILD_ID` plus `TESTING_NOTIFICATION_CHANNEL_ID`, or `DISCORD_TEST_CHANNEL_URL`.
+- If testing values are missing or conflict, skip Discord send. Do not fall back. `report-mock` and `DEV_MODE` allow only the configured testing guild and channel.
 - Supply a designated test account through `VERIFY_RIOT_ID`; never resolve one from production.
 
 ## Bot boot race

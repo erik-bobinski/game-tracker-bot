@@ -1,60 +1,66 @@
-// Wise Fellas production. verify, DEV_MODE, and mock reports must never post here.
-export const PRODUCTION_NOTIFICATION_CHANNEL_IDS = new Set([
-  "1525711779865432135",
-]);
+export interface DiscordDestination {
+  readonly guildId: string;
+  readonly channelId: string;
+}
 
-// riot-tracker-testing. Development and verification may post only here.
-export const TESTING_NOTIFICATION_CHANNEL_IDS = new Set([
-  "1523432733785722940",
-]);
+const snowflake = /^\d{17,20}$/;
 
-export const TESTING_DISCORD_GUILD_IDS = new Set(["1523432684691525802"]);
+const discordId = (value: string | undefined) => {
+  const id = value?.trim();
+  return id && snowflake.test(id) ? id : undefined;
+};
 
-export const isTestingDiscordChannel = (channelId: string) =>
-  TESTING_NOTIFICATION_CHANNEL_IDS.has(channelId);
-
-export const isTestingDiscordGuild = (guildId: string) =>
-  TESTING_DISCORD_GUILD_IDS.has(guildId);
-
-export const isTestingDiscordDestination = (
-  channelId: string,
-  guildId?: string,
-) =>
-  isTestingDiscordChannel(channelId) &&
-  (guildId === undefined || isTestingDiscordGuild(guildId));
-
-export const testingDiscordRefusal = (channelId: string) =>
-  `Refusing testing Discord destination ${channelId}. Mock reports, DEV_MODE, and verify may post only to riot-tracker-testing channel 1523432733785722940.`;
-
-const channelFromTestUrl = (url: string) => {
+const destinationFromUrl = (
+  url: string | undefined,
+): DiscordDestination | undefined => {
   const match = url
-    .trim()
+    ?.trim()
     .match(
       /https?:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/channels\/(\d+)\/(\d+)/,
     );
-  if (!match) return undefined;
-  const guildId = match[1];
-  const channelId = match[2];
-  if (!guildId || !channelId) return undefined;
-  return isTestingDiscordDestination(channelId, guildId)
-    ? channelId
-    : undefined;
+  const guildId = discordId(match?.[1]);
+  const channelId = discordId(match?.[2]);
+  return guildId && channelId ? { guildId, channelId } : undefined;
 };
 
-// Testing-only destination. Ambient NOTIFICATION_CHANNEL_ID is ignored.
-export const testingNotificationChannelId = (
+// Verification accepts only an explicitly configured testing destination.
+// Ambient NOTIFICATION_CHANNEL_ID is intentionally ignored.
+export const testingDiscordDestination = (
   env: Record<string, string | undefined>,
-) => {
-  for (const value of [
-    env.VERIFY_NOTIFICATION_CHANNEL_ID,
-    env.TESTING_NOTIFICATION_CHANNEL_ID,
-  ]) {
-    const channelId = value?.trim();
-    if (channelId && isTestingDiscordChannel(channelId)) {
-      return channelId;
-    }
+): DiscordDestination | undefined => {
+  const fromUrl = destinationFromUrl(env.DISCORD_TEST_CHANNEL_URL);
+  const configuredGuildId = discordId(env.TESTING_DISCORD_GUILD_ID);
+  const configuredChannelId = discordId(env.TESTING_NOTIFICATION_CHANNEL_ID);
+
+  if (
+    fromUrl &&
+    ((configuredGuildId && configuredGuildId !== fromUrl.guildId) ||
+      (configuredChannelId && configuredChannelId !== fromUrl.channelId))
+  ) {
+    return undefined;
   }
-  return env.DISCORD_TEST_CHANNEL_URL
-    ? channelFromTestUrl(env.DISCORD_TEST_CHANNEL_URL)
-    : undefined;
+
+  const guildId = configuredGuildId ?? fromUrl?.guildId;
+  const allowlistedChannelId = configuredChannelId ?? fromUrl?.channelId;
+  const requestedChannelId =
+    discordId(env.VERIFY_NOTIFICATION_CHANNEL_ID) ?? allowlistedChannelId;
+
+  if (
+    !guildId ||
+    !allowlistedChannelId ||
+    requestedChannelId !== allowlistedChannelId
+  ) {
+    return undefined;
+  }
+
+  return { guildId, channelId: requestedChannelId };
 };
+
+export const matchesDiscordDestination = (
+  channelId: string,
+  guildId: string | undefined,
+  expected: DiscordDestination,
+) => channelId === expected.channelId && guildId === expected.guildId;
+
+export const testingDiscordRefusal = (channelId: string) =>
+  `Refusing Discord destination ${channelId}. Mock reports, DEV_MODE, and verify require an explicitly configured testing guild and channel.`;

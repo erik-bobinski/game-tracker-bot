@@ -26,7 +26,7 @@ import { GameAdapters } from "../game/game-adapters/index.ts";
 import { PollingState } from "../polling/state.ts";
 import { commands } from "./commands.ts";
 import {
-  isTestingDiscordDestination,
+  matchesDiscordDestination,
   testingDiscordRefusal,
 } from "./destination.ts";
 import {
@@ -76,12 +76,12 @@ const makeDiscord = Effect.gen(function* () {
   );
 
   if (devMode) {
-    if (!isTestingDiscordDestination(channelId)) {
-      return yield* new DiscordError({
-        operation: "boot",
-        cause: testingDiscordRefusal(channelId),
-      });
-    }
+    const testingDestination = {
+      channelId: yield* Config.nonEmptyString(
+        "TESTING_NOTIFICATION_CHANNEL_ID",
+      ),
+      guildId: yield* Config.nonEmptyString("TESTING_DISCORD_GUILD_ID"),
+    };
     const channel = yield* rest
       .getChannel(channelId)
       .pipe(
@@ -90,7 +90,7 @@ const makeDiscord = Effect.gen(function* () {
         ),
       );
     const guildId = "guild_id" in channel ? channel.guild_id : undefined;
-    if (!isTestingDiscordDestination(channelId, guildId)) {
+    if (!matchesDiscordDestination(channelId, guildId, testingDestination)) {
       return yield* new DiscordError({
         operation: "boot",
         cause: testingDiscordRefusal(channelId),

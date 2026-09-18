@@ -28,7 +28,7 @@ import {
 } from "../services/discord/commands.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
 import {
-  isTestingDiscordDestination,
+  matchesDiscordDestination,
   testingDiscordRefusal,
 } from "../services/discord/destination.ts";
 import {
@@ -593,7 +593,13 @@ const reportMock = Command.make(
   Effect.fn(function* ({ game }) {
     const { json } = yield* admin;
     const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
-    if (!isTestingDiscordDestination(channelId)) {
+    const testingDestination = {
+      channelId: yield* Config.nonEmptyString(
+        "TESTING_NOTIFICATION_CHANNEL_ID",
+      ),
+      guildId: yield* Config.nonEmptyString("TESTING_DISCORD_GUILD_ID"),
+    };
+    if (channelId !== testingDestination.channelId) {
       return yield* fail(testingDiscordRefusal(channelId));
     }
     const report = yield* buildMockMatchReport(game).pipe(
@@ -606,7 +612,9 @@ const reportMock = Command.make(
           .getChannel(channelId)
           .pipe(orFail("Could not read the notification channel"));
         const guildId = "guild_id" in channel ? channel.guild_id : undefined;
-        if (!isTestingDiscordDestination(channelId, guildId)) {
+        if (
+          !matchesDiscordDestination(channelId, guildId, testingDestination)
+        ) {
           return yield* fail(testingDiscordRefusal(channelId));
         }
         return yield* rest

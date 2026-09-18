@@ -7,7 +7,7 @@ description: Headless end-to-end verification for the riot-tracker Discord bot. 
 
 Cloud agents prove bot behavior by running the live app plus the admin CLI against an isolated sqlite file. No Discord web login is required.
 
-**Discord destination is isolated too.** Run the bot locally in the cloud VM (`pnpm start` / this harness). Connect it only to **riot-tracker-testing**. Never post match reports, mock reports, or verify output to Wise Fellas or any production channel. Isolated sqlite does not make a production `NOTIFICATION_CHANNEL_ID` safe.
+**Discord destination is isolated too.** Run the bot locally in the cloud VM (`pnpm start` / this harness). Connect it only to the explicitly configured testing guild and channel. Never post match reports, mock reports, or verify output to a production destination. Isolated sqlite does not make an ambient `NOTIFICATION_CHANNEL_ID` safe.
 
 ## Launch
 
@@ -22,9 +22,9 @@ pnpm verify
 Isolation:
 
 - sqlite: `DB_PATH=/tmp/riot-verify-<run-id>.sqlite` so production data is never touched.
-- Discord: ambient `NOTIFICATION_CHANNEL_ID` is ignored. Set one of `VERIFY_NOTIFICATION_CHANNEL_ID`, `TESTING_NOTIFICATION_CHANNEL_ID`, or `DISCORD_TEST_CHANNEL_URL` to riot-tracker-testing guild `1523432684691525802`, channel `1523432733785722940`. If none match, verify skips Discord send. `report-mock` and `DEV_MODE` fail closed outside that allowlist.
+- Discord: ambient `NOTIFICATION_CHANNEL_ID` is ignored. Configure `TESTING_DISCORD_GUILD_ID` plus `TESTING_NOTIFICATION_CHANNEL_ID`, or `DISCORD_TEST_CHANNEL_URL`. `VERIFY_NOTIFICATION_CHANNEL_ID` may select only the configured testing channel. Missing or conflicting values skip Discord send. `report-mock` and `DEV_MODE` fail closed outside that destination.
 - Riot: set `VERIFY_RIOT_ID` to the designated non-production test account.
-- credentials: use only the `riot-tracker-dev` bot token. Do not expose a production Discord token, Railway credential, or production database to the cloud environment.
+- credentials: use only a testing bot token. Do not expose a production Discord token, Railway credential, or production database to the cloud environment.
 
 Cloud-agent traps (READY race, Henrik 404, Discord isolation) are in [references/cloud-agent-lessons.md](references/cloud-agent-lessons.md).
 
@@ -49,11 +49,13 @@ Read `.cursor/skills/verify-riot-tracker-bot/features/README.md` before running 
 
 The bundled verifier exercises: typecheck → inspect mock payload → refuse a non-testing destination → bot boot (testing dest only) → signup → refresh (twice, idempotent) → status → report-mock (testing dest only) → signout.
 
-Manual equivalents. Point `NOTIFICATION_CHANNEL_ID` at riot-tracker-testing, never Wise Fellas:
+Manual equivalents. Point all Discord variables at the dedicated testing destination:
 
 ```bash
 export DB_PATH=/tmp/riot-verify-manual.sqlite
-export NOTIFICATION_CHANNEL_ID=<riot-tracker-testing-channel-id>
+export TESTING_DISCORD_GUILD_ID=<testing-guild-id>
+export TESTING_NOTIFICATION_CHANNEL_ID=<testing-channel-id>
+export NOTIFICATION_CHANNEL_ID="$TESTING_NOTIFICATION_CHANNEL_ID"
 pnpm start   # separate terminal
 pnpm admin signup <riot-id> --discord-id verify-agent-user --json
 pnpm admin refresh verify-agent-user --json
@@ -68,7 +70,7 @@ Capture under `/opt/cursor/artifacts/verify-<run-id>/`:
 - `results.json` — every step with stdout/stderr
 - `bot.log` — boot excerpt showing the process is up
 
-Proof standards: exercise real Riot/Henrik APIs, real sqlite writes, and real Discord REST for `report-mock` only when the destination is riot-tracker-testing. Do not log into Discord web. Do not post to Wise Fellas.
+Proof standards: exercise real Riot/Henrik APIs, real sqlite writes, and real Discord REST for `report-mock` only when the destination is the configured testing server. Do not log into Discord web. Do not post verification output to production.
 
 A Henrik 404 on Valorant during signup/refresh is not a harness failure. That game stays in `missing`; League can still track. Second refresh must have `added: []`.
 

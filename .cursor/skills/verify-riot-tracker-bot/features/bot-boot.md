@@ -23,6 +23,6 @@ Preconditions: Node 24, ambient `DISCORD_BOT_TOKEN`.
 
 - Node 22 crashes on `@effect/sql-sqlite-node` import; use Node 24.
 - `pnpm dev` needs a `.env` file; cloud agents use `pnpm start` with ambient env.
-- `DEV_MODE=true` boots only for riot-tracker-testing guild `1523432684691525802`, channel `1523432733785722940`.
+- `DEV_MODE=true` boots only for `TESTING_DISCORD_GUILD_ID` and `TESTING_NOTIFICATION_CHANNEL_ID`.
 - dfx can emit READY before `makeDiscord` subscribes. Waiting only on `discord gateway ready` flakes. Treat `slash commands registered` plus `application started` as a successful boot; READY often shows up a moment later.
 - Rank-emoji REST used to run before the READY subscription and ate the first READY. Subscribe first, then do REST.

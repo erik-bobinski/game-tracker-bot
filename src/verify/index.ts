@@ -5,9 +5,9 @@ import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
 import {
-  PRODUCTION_NOTIFICATION_CHANNEL_IDS,
+  type DiscordDestination,
   testingDiscordRefusal,
-  testingNotificationChannelId,
+  testingDiscordDestination,
 } from "../services/discord/destination.ts";
 import {
   matchReportMessage,
@@ -51,7 +51,8 @@ const tmux = (args: ReadonlyArray<string>) =>
     encoding: "utf-8",
   });
 
-const testingChannelId = testingNotificationChannelId(process.env);
+const testingDestination = testingDiscordDestination(process.env);
+const testingChannelId = testingDestination?.channelId;
 
 const sharedEnv = () => {
   const env: Record<string, string | undefined> = { ...process.env };
@@ -60,7 +61,11 @@ const sharedEnv = () => {
   env.LOG_LEVEL = "Warn";
   // Never inherit an ambient destination. Only the testing allowlist is valid.
   delete env.NOTIFICATION_CHANNEL_ID;
-  if (testingChannelId) env.NOTIFICATION_CHANNEL_ID = testingChannelId;
+  if (testingDestination) {
+    env.NOTIFICATION_CHANNEL_ID = testingDestination.channelId;
+    env.TESTING_NOTIFICATION_CHANNEL_ID = testingDestination.channelId;
+    env.TESTING_DISCORD_GUILD_ID = testingDestination.guildId;
+  }
   return env;
 };
 
@@ -117,8 +122,8 @@ const startBot = () => {
     "bash",
     "-l",
   ]);
-  const discordDest = testingChannelId
-    ? `export NOTIFICATION_CHANNEL_ID="${testingChannelId}"`
+  const discordDest = testingDestination
+    ? `export NOTIFICATION_CHANNEL_ID="${testingDestination.channelId}" TESTING_NOTIFICATION_CHANNEL_ID="${testingDestination.channelId}" TESTING_DISCORD_GUILD_ID="${testingDestination.guildId}"`
     : "unset NOTIFICATION_CHANNEL_ID";
   const command = [
     'export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"',
@@ -261,27 +266,30 @@ const inspectLolMockReport = () => {
 };
 
 const reportMockRefusesNonTesting = () => {
-  const [prodChannelId] = PRODUCTION_NOTIFICATION_CHANNEL_IDS;
-  if (!prodChannelId) {
-    return {
-      step: "report-mock refuses non-testing Discord",
-      ok: false,
-      detail: "production channel denylist is empty",
-    } satisfies StepResult;
-  }
+  const expected =
+    testingDestination ??
+    ({
+      guildId: "1".repeat(18),
+      channelId: "2".repeat(18),
+    } satisfies DiscordDestination);
+  const nonTestingChannelId = "3".repeat(18);
   const result = run(["admin", "report-mock", "--game", "lol", "--json"], {
     ...sharedEnv(),
-    NOTIFICATION_CHANNEL_ID: prodChannelId,
+    DISCORD_BOT_TOKEN: "verify-invalid-token",
+    NOTIFICATION_CHANNEL_ID: nonTestingChannelId,
+    TESTING_NOTIFICATION_CHANNEL_ID: expected.channelId,
+    TESTING_DISCORD_GUILD_ID: expected.guildId,
   });
   const text = `${result.stdout}\n${result.stderr}\n${result.detail ?? ""}`;
-  const refused = !result.ok && /riot-tracker-testing/.test(text);
+  const refusal = testingDiscordRefusal(nonTestingChannelId);
+  const refused = !result.ok && text.includes(refusal);
   return {
     step: "report-mock refuses non-testing Discord",
     ok: refused,
     stdout: result.stdout,
     stderr: result.stderr,
     detail: refused
-      ? testingDiscordRefusal(prodChannelId)
+      ? refusal
       : "report-mock did not refuse a non-testing channel",
   } satisfies StepResult;
 };
