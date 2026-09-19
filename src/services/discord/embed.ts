@@ -98,16 +98,18 @@ export const matchEmbed = (
   const score = trackedTeam?.score;
   const scoresTied = score !== undefined && score[0] === score[1];
   const winners = report.match.teams.filter((team) => team.won === true);
-  const winner = winners.length === 1 ? winners[0] : undefined;
-  const declared = report.match.teams.some((team) => team.won !== undefined);
-  const outcome =
-    scoresTied || (winner === undefined && declared)
-      ? "draw"
-      : winner !== undefined && trackedTeam?.id === winner.id
-        ? "victory"
-        : trackedTeam && winner !== undefined
-          ? "defeat"
-          : "complete";
+  const uniqueWinner = winners.length === 1 ? winners[0] : undefined;
+  const isDraw =
+    scoresTied ||
+    (uniqueWinner === undefined &&
+      report.match.teams.some((team) => team.won !== undefined));
+  const outcome = isDraw
+    ? "draw"
+    : uniqueWinner !== undefined && trackedTeam?.id === uniqueWinner.id
+      ? "victory"
+      : uniqueWinner !== undefined && trackedTeam
+        ? "defeat"
+        : "complete";
   const { verdict, color } = {
     victory: { verdict: "Victory", color: 0x57f287 },
     defeat: { verdict: "Defeat", color: 0xed4245 },
