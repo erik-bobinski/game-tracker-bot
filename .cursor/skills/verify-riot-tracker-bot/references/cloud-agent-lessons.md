@@ -12,7 +12,7 @@ Rules:
 - Connect that local bot only to the explicitly configured testing destination.
 - Never inherit a production `NOTIFICATION_CHANNEL_ID` for verify or mock reports.
 - Isolated sqlite is not enough. Discord destination must be isolated too.
-- Do not give the cloud environment a Railway credential or production database.
+- `RAILWAY_API_TOKEN_DEV` is allowed: a Railway project token scoped to the `dev` environment, used read-only. Export it as `RAILWAY_TOKEN` only while running Railway CLI and keep `RAILWAY_API_TOKEN` unset. Production Railway tokens, environments, databases, deploys, and mutations remain forbidden. Never give the cloud environment a production Railway token or production database.
 - `pnpm verify` ignores ambient `NOTIFICATION_CHANNEL_ID`. Configure `TESTING_DISCORD_GUILD_ID` plus `TESTING_NOTIFICATION_CHANNEL_ID`, or `DISCORD_TEST_CHANNEL_URL`.
 - If testing values are missing or conflict, skip Discord send. Do not fall back. `report-mock` and `DEV_MODE` allow only the configured testing guild and channel.
 - Supply a designated test account through `VERIFY_RIOT_ID`; never resolve one from production.

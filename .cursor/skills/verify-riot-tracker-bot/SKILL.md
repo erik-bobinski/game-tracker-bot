@@ -24,7 +24,8 @@ Isolation:
 - sqlite: `DB_PATH=/tmp/riot-verify-<run-id>.sqlite` so production data is never touched.
 - Discord: ambient `NOTIFICATION_CHANNEL_ID` is ignored. Configure `TESTING_DISCORD_GUILD_ID` plus `TESTING_NOTIFICATION_CHANNEL_ID`, or `DISCORD_TEST_CHANNEL_URL`. `VERIFY_NOTIFICATION_CHANNEL_ID` may select only the configured testing channel. Missing or conflicting values skip Discord send. `report-mock` and `DEV_MODE` fail closed outside that destination.
 - Riot: set `VERIFY_RIOT_ID` to the designated non-production test account.
-- credentials: use only a testing bot token. Do not expose a production Discord token, Railway credential, or production database to the cloud environment.
+- credentials: use only a testing bot token. Do not expose a production Discord token, a production Railway token, or a production database to the cloud environment.
+- Railway: `RAILWAY_API_TOKEN_DEV` is allowed. It is a `dev`-environment-scoped Railway project token used read-only. Export it as `RAILWAY_TOKEN` only while running Railway CLI, and keep `RAILWAY_API_TOKEN` unset. Production Railway tokens, environments, databases, deploys, and mutations remain forbidden.
 
 Cloud-agent traps (READY race, Henrik 404, Discord isolation) are in [references/cloud-agent-lessons.md](references/cloud-agent-lessons.md).
 
@@ -41,7 +42,7 @@ For the live bot, confirm the process log contains `slash commands registered` a
 
 ## Riot ID resolution
 
-Verification needs a real Riot account supplied as `VERIFY_RIOT_ID=name#tag`. Keep it separate from production tracking data. The verifier has no Railway or production-database fallback.
+Verification needs a real Riot account supplied as `VERIFY_RIOT_ID=name#tag`. Keep it separate from production tracking data. If Cursor secrets omit that account or the testing Discord destination, load them read-only from the Railway `dev` environment with `RAILWAY_API_TOKEN_DEV` (exported as `RAILWAY_TOKEN` for CLI only; `RAILWAY_API_TOKEN` stays unset). Never fall back to production Railway or a production database.
 
 ## Drive
 

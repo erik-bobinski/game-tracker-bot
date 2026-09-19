@@ -17,7 +17,7 @@ Headless verification for cloud agents. Read this index, then the feature file f
 - Use `pnpm admin … --json` for individual steps; never prompt in scripts.
 - Do not log into Discord web or Gmail for verification.
 - Do not post verify or mock reports to production. Local bot, configured testing destination only.
-- Do not give the cloud environment Railway or production database credentials.
+- `RAILWAY_API_TOKEN_DEV` is allowed as a read-only Railway `dev` project token. Export it as `RAILWAY_TOKEN` only for Railway CLI and keep `RAILWAY_API_TOKEN` unset. Production Railway tokens, environments, databases, deploys, and mutations are forbidden.
 
 ## Proof and skip reporting
 
