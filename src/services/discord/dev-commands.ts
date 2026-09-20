@@ -64,15 +64,11 @@ const devReport = (deps: CommandDeps) =>
       ),
   );
 
-// Fake identity keyed by riot id, never sent to discord, so one tester can
-// hold several tracked accounts at once.
 const fakeIdentity = (riotName: string, riotTag: string) => ({
   discordUserId: `dev-${riotName}-${riotTag}`.toLowerCase(),
   discordName: `${riotName} (dev)`,
 });
 
-// Tracks a riot account under a fake identity, or under a real member of the
-// dev server, so shared matches report as multi-user.
 const devSignup = (deps: CommandDeps) =>
   Ix.global(
     {
@@ -110,7 +106,6 @@ const devSignup = (deps: CommandDeps) =>
             onNone: () => fake,
             onSome: (userId) => ({
               discordUserId: userId,
-              // the username, not a <@id> mention that would ping them
               discordName: Option.getOrElse(
                 i.resolve("user", (id, data) => data.users?.[id]?.username),
                 () => fake.discordName,
@@ -164,7 +159,6 @@ const devSignup = (deps: CommandDeps) =>
       ),
   );
 
-// Drops the account of a real member, or of a fake dev_signup identity.
 const devSignout = ({ database }: CommandDeps) =>
   Ix.global(
     {

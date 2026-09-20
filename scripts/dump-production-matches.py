@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh src/fixtures/production-matches.json from production reports.
-
-Uses Railway GraphQL (project-access-token) to load Discord/Riot/Henrik keys,
-then pulls Riot IDs from the notification channel — not sqlite. Stdout is
-counts only; secret values are never printed.
-"""
+"""Refresh src/fixtures/production-matches.json from production reports."""
 
 from __future__ import annotations
 
@@ -36,9 +31,7 @@ PLAIN_RIOT = re.compile(r"(?<![#\w])([A-Za-z0-9][A-Za-z0-9 _.\-]{0,30})#([A-Za-z
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT = REPO_ROOT / "src/fixtures/production-matches.json"
 
-# Keep only fields the TypeScript match schemas decode. Extra wire keys bloat
-# the catalog and can hide decode failures behind unused data.
-LOL_SPEC = {
+LOL_DECODE_FIELDS = {
     "metadata": {"matchId": True, "participants": True},
     "info": {
         "gameMode": True,
@@ -65,7 +58,7 @@ LOL_SPEC = {
     },
 }
 
-VAL_SPEC = {
+VAL_DECODE_FIELDS = {
     "metadata": {
         "match_id": True,
         "map": {"id": True, "name": True},
@@ -110,18 +103,18 @@ def railway_token() -> str:
     )
 
 
-def prune(value: object, spec: object) -> object:
-    if spec is True:
+def prune(value: object, fields: object) -> object:
+    if fields is True:
         return value
-    if not isinstance(spec, dict):
+    if not isinstance(fields, dict):
         return value
     if isinstance(value, list):
-        return [prune(item, spec) for item in value]
+        return [prune(item, fields) for item in value]
     if not isinstance(value, dict):
         return value
     return {
         key: prune(value[key], child)
-        for key, child in spec.items()
+        for key, child in fields.items()
         if key in value
     }
 
@@ -348,10 +341,10 @@ def main() -> None:
             break
 
     matches = [
-        {"game": "lol", "raw": prune(match, LOL_SPEC)} for match in lol_by_id.values()
+        {"game": "lol", "raw": prune(match, LOL_DECODE_FIELDS)} for match in lol_by_id.values()
     ]
     matches += [
-        {"game": "valorant", "raw": prune(match, VAL_SPEC)} for match in val_by_id.values()
+        {"game": "valorant", "raw": prune(match, VAL_DECODE_FIELDS)} for match in val_by_id.values()
     ]
     payload = {
         "source": "railway-production",
