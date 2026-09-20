@@ -27,8 +27,10 @@ const rankIconKey = (rank: string) => {
 };
 
 const valorantTierSet = "03621f52-342b-cf4e-4f86-9350a49c6d04";
+// Discord thumbnails must be a public HTTPS PNG. The red V lives in
+// assets/logo-valorant.png; this URL is pinned to the commit that added it.
 export const valLogoUrl =
-  "https://media.valorant-api.com/currencies/85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741/displayicon.png";
+  "https://raw.githubusercontent.com/syan-alt/riot-tracker-bot/00f16c7ae52914cb1db331a25d55b689c0777cb4/assets/logo-valorant.png";
 export const valRankIcons = [
   ["iron", 3],
   ["bronze", 6],
