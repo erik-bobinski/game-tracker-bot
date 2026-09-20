@@ -15,7 +15,7 @@ export PATH="$NVM_BIN:$PATH"
 pnpm verify
 ```
 
-`pnpm verify` typechecks, starts the bot (`pnpm start`, not `pnpm dev`), waits until the process is up, drives admin commands, writes JSON evidence to `/opt/cursor/artifacts/verify-<run-id>/`, and leaves the bot running.
+`pnpm verify` typechecks, runs `pnpm fixtures:check` (50 production match embeds), starts the bot (`pnpm start`, not `pnpm dev`), waits until the process is up, drives admin commands, writes JSON evidence to `/opt/cursor/artifacts/verify-<run-id>/`, and leaves the bot running.
 
 Isolation uses `DB_PATH=/tmp/riot-verify-<run-id>.sqlite` so production data is never touched.
 
@@ -83,7 +83,7 @@ Banners from ssh go to stderr. JSON for `admin status` is on stdout; the harness
 
 Read `.cursor/skills/verify-riot-tracker-bot/features/README.md` before running individual recipes.
 
-The bundled verifier exercises: typecheck → bot boot → signup → refresh (twice, idempotent) → status → report-mock → signout.
+The bundled verifier exercises: typecheck → fixtures:check → bot boot → signup → refresh (twice, idempotent) → status → report-mock (production fixture) → signout.
 
 Manual equivalents:
 

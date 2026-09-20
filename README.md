@@ -29,15 +29,15 @@ railway ssh --service riot-tracker-bot
 pnpm admin <command>
 ```
 
-| Command                               | What it does                                                  |
-| ------------------------------------- | ------------------------------------------------------------- |
-| `status`                              | Polling state, the database in use, and every tracked account |
-| `signup <riot-id> --discord-id <id>`  | Track a Riot account on someone's behalf                      |
-| `signout <target>`                    | Stop tracking an account and delete its data                  |
-| `pause` / `resume`                    | Stop or restart all reports                                   |
-| `rank-check <target> [--game <game>]` | Look up a tracked account's current rank                      |
-| `refresh <target>`                    | Recheck a signed-up account for games missing at signup       |
-| `report-mock [--game <game>]`         | Post a mock match report embed to the notification channel    |
+| Command                                     | What it does                                                  |
+| ------------------------------------------- | ------------------------------------------------------------- |
+| `status`                                    | Polling state, the database in use, and every tracked account |
+| `signup <riot-id> --discord-id <id>`        | Track a Riot account on someone's behalf                      |
+| `signout <target>`                          | Stop tracking an account and delete its data                  |
+| `pause` / `resume`                          | Stop or restart all reports                                   |
+| `rank-check <target> [--game <game>]`       | Look up a tracked account's current rank                      |
+| `refresh <target>`                          | Recheck a signed-up account for games missing at signup       |
+| `report-mock [--game <game>] [--index <n>]` | Post a production fixture match report embed                  |
 
 `<target>` is a Discord user ID, a Discord name, or a Riot ID — whichever you
 have. Leave an argument off and the command asks for it. `--json` prints the
@@ -62,6 +62,7 @@ src/
       game-api/                raw API clients and decode schemas
     discord/                   gateway, slash commands, embeds
     database/                  SQLite, migrations, account storage
+  fixtures/                    production match catalog for tests above the game API
 ```
 
 **The match engine** is where it comes together. Each tick it loads every
@@ -80,9 +81,8 @@ it as reported.
    them, and fetch rank data.
 4. Register the adapter in `GameAdaptersLive` and provide its API-client layer
    from `src/index.ts`.
-5. Add the game to the `/rank_check` choices, the admin CLI's `--game` choices,
-   and the development report mocks, then run `pnpm typecheck` and test
-   `/dev_report`.
+5. Add the game to the `/rank_check` choices and the admin CLI's `--game` choices.
+6. Register `{ schema, toDetails }` for the new `GameId` in `src/fixtures/production-matches.ts`, refresh `src/fixtures/production-matches.json` with `python3 scripts/dump-production-matches.py`, then run `pnpm typecheck` and `pnpm fixtures:check`.
 
 Keep game-specific API shapes inside the client and adapter. Once they produce
 the shared types, polling, deduplication, storage, and Discord reporting should
@@ -129,7 +129,7 @@ API keys, and set `DEV_MODE=true`. That registers three extra commands:
 | Command                              | What it does                                                               |
 | ------------------------------------ | -------------------------------------------------------------------------- |
 | `/dev_clear`                         | Forget reported matches, so the next poll re-reports your real recent ones |
-| `/dev_report <game>`                 | Post a report built from mock API responses, no game required              |
+| `/dev_report <game>`                 | Post a report built from a production fixture, no live game required       |
 | `/dev_signup <riot_name> <riot_tag>` | Track a Riot account under a fake Discord identity                         |
 
 `/dev_signup` exists because tracked users are just database rows — Discord

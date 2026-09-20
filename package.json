@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "admin": "tsx src/admin/index.ts",
-    "verify": "tsx src/verify/index.ts"
+    "verify": "tsx src/verify/index.ts",
+    "fixtures:check": "tsx src/fixtures/check.ts"
   },
   "type": "module",
   "keywords": [],

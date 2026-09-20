@@ -15,8 +15,17 @@ import {
   Schema,
 } from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
-import { DiscordConfig, DiscordREST, DiscordRESTLive, MemoryRateLimitStoreLive } from "dfx";
-import { registerAccount, refreshAccount, formatRefreshResult } from "../services/discord/commands.ts";
+import {
+  DiscordConfig,
+  DiscordREST,
+  DiscordRESTLive,
+  MemoryRateLimitStoreLive,
+} from "dfx";
+import {
+  registerAccount,
+  refreshAccount,
+  formatRefreshResult,
+} from "../services/discord/commands.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
 import { matchEmbed } from "../services/discord/embed.ts";
 import {
@@ -143,9 +152,7 @@ const DiscordRestLive = DiscordRESTLive.pipe(
 );
 
 const withGameAdapters = <A, E>(
-  run: (
-    adapters: GameAdapters["Service"],
-  ) => Effect.Effect<A, E | AdminError>,
+  run: (adapters: GameAdapters["Service"]) => Effect.Effect<A, E | AdminError>,
 ) =>
   Effect.gen(function* () {
     const adapters = yield* GameAdapters;
@@ -570,15 +577,19 @@ const reportMock = Command.make(
   "report-mock",
   {
     game: Flag.choice("game", ["lol", "valorant"]).pipe(
-      Flag.withDescription("which game's mock match to post"),
+      Flag.withDescription("which game's production fixture to post"),
       Flag.withDefault("lol"),
     ),
+    index: Flag.integer("index").pipe(
+      Flag.withDescription("0-based fixture in that game's catalog"),
+      Flag.withDefault(0),
+    ),
   },
-  Effect.fn(function* ({ game }) {
+  Effect.fn(function* ({ game, index }) {
     const { json } = yield* admin;
     const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
-    const report = yield* buildMockMatchReport(game).pipe(
-      orFail("Could not build mock match report"),
+    const report = yield* buildMockMatchReport(game, index).pipe(
+      orFail("Could not build fixture match report"),
     );
 
     yield* withDiscordRest((rest) =>
@@ -586,20 +597,20 @@ const reportMock = Command.make(
         .createMessage(channelId, {
           embeds: [matchEmbed(report, {})],
         })
-        .pipe(orFail("Could not post mock match report")),
+        .pipe(orFail("Could not post fixture match report")),
     );
 
     yield* emit(
       json,
-      { game, channelId, matchId: report.match.matchId },
+      { game, index, channelId, matchId: report.match.matchId },
       [
-        `Posted a mock ${gameNames[game]} match report to channel ${channelId}.`,
+        `Posted a ${gameNames[game]} production fixture report to channel ${channelId}.`,
       ],
     );
   }),
 ).pipe(
   Command.withDescription(
-    "Post a mock match report embed to the notification channel",
+    "Post a production fixture match report embed to the notification channel",
   ),
 );
 

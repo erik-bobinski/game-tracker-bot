@@ -30,3 +30,4 @@ Headless verification for cloud agents. Read this index, then the feature file f
 - [Signup](./signup.md)
 - [Refresh](./refresh.md)
 - [Report mock embed](./report-mock.md)
+- Production fixtures / `pnpm fixtures:check` — decode the committed catalog and render embeds before the live bot starts

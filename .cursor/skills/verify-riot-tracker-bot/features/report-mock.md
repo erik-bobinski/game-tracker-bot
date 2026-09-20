@@ -1,24 +1,31 @@
 # Report mock embed
 
-Posts a mock match scoreboard embed to the notification channel via Discord REST.
+Posts a scoreboard embed built from a committed production match fixture.
 
 ## Sub-features
 
-- `report-mock` — builds mock match data and posts an embed (no live match required)
+- `fixtures:check` — decode all 50 production matches and render embeds locally
+- `report-mock` — post one fixture embed to the notification channel (no live match required)
 
 ## How to get to it (user POV)
 
+`pnpm fixtures:check`
 `pnpm admin report-mock --game lol --json`
+`pnpm admin report-mock --game valorant --json`
 
 ## Driving it with admin CLI
 
-Preconditions: `DISCORD_BOT_TOKEN`, `NOTIFICATION_CHANNEL_ID`.
+Preconditions: `DISCORD_BOT_TOKEN`, `NOTIFICATION_CHANNEL_ID`. `fixtures:check` needs no secrets.
 
+- Action: `pnpm fixtures:check`
+- Observable: exit 0, JSON includes `"ok": true`, `"lol": 25`, `"valorant": 25`.
 - Action: `pnpm admin report-mock --game lol --json`
-- Observable: exit 0, JSON includes `channelId` and `matchId`; embed appears in the notification channel.
+- Observable: exit 0, JSON includes `channelId` and a real `matchId` (not `NA1_DEV_...`).
+
+`/dev_report` uses the same `productionMatchReport` helper.
 
 ## Gotchas
 
-- Outbound only — no Discord user session required.
-- Reuses the same mock payloads as `/dev_report`.
-- Cloud agents should not log into Discord web to confirm the embed. REST success plus JSON `channelId` is the proof.
+- Fixtures live in `src/fixtures/production-matches.json`. They are schema-pruned Riot/Henrik payloads from production-tracked players, not sqlite rows (prod sqlite only stores match ids).
+- Refresh with `python3 scripts/dump-production-matches.py`. Project tokens must use GraphQL header `project-access-token`.
+- Outbound Discord REST only. Cloud agents should not log into Discord web. REST success plus JSON `channelId` is the proof for `report-mock`.

@@ -87,7 +87,17 @@ const stopBotSessions = () => {
 
 const startBot = () => {
   stopBotSessions();
-  tmux(["new-session", "-d", "-s", botSession, "-c", workspace, "--", "bash", "-l"]);
+  tmux([
+    "new-session",
+    "-d",
+    "-s",
+    botSession,
+    "-c",
+    workspace,
+    "--",
+    "bash",
+    "-l",
+  ]);
   const command = [
     'export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"',
     '. "$NVM_DIR/nvm.sh"',
@@ -161,6 +171,9 @@ const main = () => {
 
   record(run(["typecheck"]));
   if (!results.at(-1)?.ok) fail("typecheck failed", riotId);
+
+  record(run(["fixtures:check"]));
+  if (!results.at(-1)?.ok) fail("fixtures:check failed", riotId);
 
   startBot();
   const ready = waitForBotReady();

@@ -56,6 +56,14 @@ dfx can emit READY before `makeDiscord` subscribes. `src/services/discord/index.
 
 A 404 whose body asks the player to finish a game is a missing game, not a harness failure. League can still be in `games` / `tracked`. Second refresh must have `added: []`.
 
+## Project tokens and GraphQL
+
+`RAILWAY_API_TOKEN_PROD` / `RAILWAY_API_TOKEN_DEV` are project tokens. The CLI sends them as `Authorization: Bearer`, which makes `whoami`, `ssh keys add`, and `projects` fail.
+
+The same token works as header `project-access-token` against `https://backboard.railway.com/graphql/v2`. That can list variables, services, and volumes.
+
+`railway ssh keys add` is unauthorized for project tokens, and `railway volume files` uses SSH, so sqlite on `/data` cannot be copied this way. Match fixtures are dumped with `scripts/dump-production-matches.py` (Discord notification-channel riot ids, then Riot/Henrik). Do not print variable values.
+
 ## Cloud runtime
 
 - Node 24. Node 22 crashes on the sqlite native import.
