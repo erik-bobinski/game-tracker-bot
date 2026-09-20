@@ -73,7 +73,7 @@ const leaderboard = (
         .join("");
       return `${prefix}${name} (${player.character}) ${player.kills}/${player.deaths}/${player.assists}${extras}`;
     })
-    .join("\n");
+    .join("\n\n");
 
 export interface RankReport {
   readonly riotName: string;
