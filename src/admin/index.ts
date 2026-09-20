@@ -26,8 +26,8 @@ import {
   refreshAccount,
   formatRefreshResult,
 } from "../services/discord/commands.ts";
-import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
 import { matchEmbed } from "../services/discord/embed.ts";
+import { productionMatchReport } from "../fixtures/production-matches.ts";
 import {
   Database,
   DatabaseLive,
@@ -588,7 +588,7 @@ const reportMock = Command.make(
   Effect.fn(function* ({ game, index }) {
     const { json } = yield* admin;
     const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
-    const report = yield* buildMockMatchReport(game, index).pipe(
+    const report = yield* productionMatchReport({ game, index }).pipe(
       orFail("Could not build fixture match report"),
     );
 

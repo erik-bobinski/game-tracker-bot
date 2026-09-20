@@ -9,9 +9,6 @@ import {
   type CommandDeps,
 } from "./commands.ts";
 
-export const buildMockMatchReport = (game: GameId, index = 0) =>
-  productionMatchReport({ game, index });
-
 const devClear = ({ database }: CommandDeps) =>
   Ix.global(
     {
@@ -55,7 +52,7 @@ const devReport = (deps: CommandDeps) =>
     (i) =>
       Effect.gen(function* () {
         const game = i.optionValue("game") as GameId;
-        const report = yield* buildMockMatchReport(game);
+        const report = yield* productionMatchReport({ game });
         yield* deps.notifyMatch(report);
         return reply("Production fixture report sent.");
       }).pipe(

@@ -82,7 +82,9 @@ it as reported.
 4. Register the adapter in `GameAdaptersLive` and provide its API-client layer
    from `src/index.ts`.
 5. Add the game to the `/rank_check` choices and the admin CLI's `--game` choices.
-6. Register `{ schema, toDetails }` for the new `GameId` in `src/fixtures/production-matches.ts`, refresh `src/fixtures/production-matches.json` with `python3 scripts/dump-production-matches.py`, then run `pnpm typecheck` and `pnpm fixtures:check`.
+6. Register `{ schema, toDetails }` for the new `GameId` in `src/fixtures/production-matches.ts`.
+   Refresh `src/fixtures/production-matches.json` with `python3 scripts/dump-production-matches.py`.
+   Then run `pnpm typecheck` and `pnpm fixtures:check`.
 
 Keep game-specific API shapes inside the client and adapter. Once they produce
 the shared types, polling, deduplication, storage, and Discord reporting should

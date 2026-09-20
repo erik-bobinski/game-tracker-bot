@@ -11,8 +11,6 @@ const defineGameFixture = <S extends Schema.Top>(
   schema: S,
   toDetails: (match: S["Type"]) => MatchDetails,
 ) => ({
-  schema,
-  toDetails,
   decode: (raw: unknown) =>
     Schema.decodeUnknownEffect(schema)(raw).pipe(Effect.map(toDetails)),
 });
@@ -38,31 +36,24 @@ const ProductionCatalog = Schema.Struct({
   matches: Schema.Array(CatalogEntry),
 });
 
-const ProductionMatchReportInput = Schema.Struct({
-  game: GameId,
-  index: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-  discordNames: Schema.Array(Schema.String),
-  trackedCount: Schema.Number.check(
-    Schema.isInt(),
-    Schema.isGreaterThanOrEqualTo(0),
-  ),
-});
+export class ProductionFixtureError extends Schema.TaggedError<ProductionFixtureError>()(
+  "ProductionFixtureError",
+  { message: Schema.String },
+) {}
 
 const catalogText = readFileSync(
   new URL("./production-matches.json", import.meta.url),
   "utf8",
 );
 
-const decodeCatalogMatch = (entry: typeof CatalogEntry.Type) =>
-  gameFixtures[entry.game].decode(entry.raw);
-
-// Import-time decode so admin and /dev_report fail on a bad catalog.
-export const productionMatches: readonly MatchDetails[] = Effect.runSync(
+export const productionMatches: ReadonlyArray<MatchDetails> = Effect.runSync(
   Schema.decodeUnknownEffect(Schema.fromJsonString(ProductionCatalog))(
     catalogText,
   ).pipe(
     Effect.flatMap((catalog) =>
-      Effect.forEach(catalog.matches, decodeCatalogMatch),
+      Effect.forEach(catalog.matches, (entry) =>
+        gameFixtures[entry.game].decode(entry.raw),
+      ),
     ),
   ),
 );
@@ -77,32 +68,20 @@ export const productionMatchReport = (input: {
   readonly trackedCount?: number;
 }) =>
   Effect.gen(function* () {
-    const request = yield* Schema.decodeUnknownEffect(
-      ProductionMatchReportInput,
-    )({
-      game: input.game,
-      index: input.index ?? 0,
-      discordNames: input.discordNames ?? ["VerifyAgent"],
-      trackedCount: input.trackedCount ?? 2,
-    });
-    const matches = productionMatchesByGame(request.game);
-    if (matches.length === 0) {
-      return yield* Schema.decodeUnknownEffect(Schema.Never)(request.game);
-    }
-    const index = yield* Schema.decodeUnknownEffect(
-      Schema.Number.check(
-        Schema.isInt(),
-        Schema.isBetween({ minimum: 0, maximum: matches.length - 1 }),
-      ),
-    )(request.index);
+    const index = input.index ?? 0;
+    const discordNames = input.discordNames ?? ["VerifyAgent"];
+    const trackedCount = input.trackedCount ?? 2;
+    const matches = productionMatchesByGame(input.game);
     const match = matches[index];
-    if (match === undefined) {
-      return yield* Schema.decodeUnknownEffect(Schema.Never)(request.index);
+    if (!match) {
+      return yield* new ProductionFixtureError({
+        message: `No ${input.game} production fixture at index ${index} (${matches.length} available)`,
+      });
     }
     return {
-      discordNames: request.discordNames,
+      discordNames,
       trackedPuuids: match.players
-        .slice(0, request.trackedCount)
+        .slice(0, trackedCount)
         .map((player) => player.puuid),
       match,
       rankUpdates: new Map(),

@@ -22,7 +22,7 @@ Preconditions: `DISCORD_BOT_TOKEN`, `NOTIFICATION_CHANNEL_ID`. `fixtures:check` 
 - Action: `pnpm admin report-mock --game lol --json`
 - Observable: exit 0, JSON includes `channelId` and a real `matchId` (not `NA1_DEV_...`).
 
-`/dev_report` uses the same `productionMatchReport` helper.
+`/dev_report` and `pnpm admin report-mock` both call `productionMatchReport`.
 
 ## Gotchas
 
