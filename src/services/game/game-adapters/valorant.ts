@@ -27,6 +27,8 @@ const rankIconKey = (rank: string) => {
 };
 
 const valorantTierSet = "03621f52-342b-cf4e-4f86-9350a49c6d04";
+export const valLogoUrl =
+  "https://media.valorant-api.com/currencies/85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741/displayicon.png";
 export const valRankIcons = [
   ["iron", 3],
   ["bronze", 6],
@@ -104,6 +106,7 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
   const adapter: GameAdapter = {
     game: "valorant",
     rankIcons: valRankIcons,
+    logoUrl: valLogoUrl,
     resolveAccount: Effect.fn("GameAdapter.valorant.resolveAccount")(function* (
       name: string,
       tag: string,

@@ -11,10 +11,10 @@ import {
 } from "../services/discord/destination.ts";
 import {
   matchReportMessage,
-  rankImagesFrom,
+  gameLogosFrom,
 } from "../services/discord/embed.ts";
-import { lolRankIcons } from "../services/game/game-adapters/lol.ts";
-import { valRankIcons } from "../services/game/game-adapters/valorant.ts";
+import { lolLogoUrl } from "../services/game/game-adapters/lol.ts";
+import { valLogoUrl } from "../services/game/game-adapters/valorant.ts";
 import { resolveVerifyRiotId } from "./production-riot-id.ts";
 
 const workspace = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -223,15 +223,17 @@ const hasComponentType = (node: unknown, type: number): boolean => {
 
 const inspectLolMockReport = () => {
   const report = Effect.runSync(buildMockMatchReport("lol"));
+  const sampleEmoji = "<:rank_lol_challenger:1>";
   const message = matchReportMessage(
     report,
-    {},
-    rankImagesFrom([
-      { game: "lol", rankIcons: lolRankIcons },
-      { game: "valorant", rankIcons: valRankIcons },
+    { "lol.challenger": sampleEmoji },
+    gameLogosFrom([
+      { game: "lol", logoUrl: lolLogoUrl },
+      { game: "valorant", logoUrl: valLogoUrl },
     ]),
   );
   const urls = mediaUrlsFrom(message.components);
+  const payload = JSON.stringify(message);
   const bad = urls.filter(
     (url) => !/\.(png|jpe?g|webp|gif)(?:\?|$)/i.test(url),
   );
@@ -257,10 +259,24 @@ const inspectLolMockReport = () => {
       detail: `non-file image urls: ${bad.join(", ")}`,
     } satisfies StepResult;
   }
+  if (!urls.includes(lolLogoUrl)) {
+    return {
+      step: "inspect lol mock payload",
+      ok: false,
+      detail: "header thumbnail must be the game logo",
+    } satisfies StepResult;
+  }
+  if (!payload.includes(sampleEmoji)) {
+    return {
+      step: "inspect lol mock payload",
+      ok: false,
+      detail: "player lines must include rank emojis",
+    } satisfies StepResult;
+  }
   return {
     step: "inspect lol mock payload",
     ok: true,
-    detail: `${urls.length} image urls, no media gallery`,
+    detail: `${urls.length} image urls, game logo thumbnail, rank emojis, no media gallery`,
     stdout: JSON.stringify({ flags: message.flags, urls, hasGallery }, null, 2),
   } satisfies StepResult;
 };

@@ -63,6 +63,8 @@ const compact = (value: number) =>
 const STATIC_ASSETS =
   "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default";
 
+export const lolLogoUrl = `${STATIC_ASSETS}/lol_icon.png`;
+
 export const lolRankIcons = [
   "iron",
   "bronze",
@@ -142,6 +144,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
   const adapter: GameAdapter = {
     game: "lol",
     rankIcons: lolRankIcons,
+    logoUrl: lolLogoUrl,
     resolveAccount: Effect.fn("GameAdapter.lol.resolveAccount")(function* (
       name: string,
       tag: string,

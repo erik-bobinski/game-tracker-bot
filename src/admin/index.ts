@@ -33,10 +33,17 @@ import {
 } from "../services/discord/destination.ts";
 import {
   matchReportMessage,
-  rankImagesFrom,
+  gameLogosFrom,
 } from "../services/discord/embed.ts";
-import { lolRankIcons } from "../services/game/game-adapters/lol.ts";
-import { valRankIcons } from "../services/game/game-adapters/valorant.ts";
+import { provisionRankEmojis } from "../services/discord/rank-emojis.ts";
+import {
+  lolLogoUrl,
+  lolRankIcons,
+} from "../services/game/game-adapters/lol.ts";
+import {
+  valLogoUrl,
+  valRankIcons,
+} from "../services/game/game-adapters/valorant.ts";
 import {
   Database,
   DatabaseLive,
@@ -617,15 +624,28 @@ const reportMock = Command.make(
         ) {
           return yield* fail(testingDiscordRefusal(channelId));
         }
+        const rankEmojis = yield* provisionRankEmojis([
+          { game: "lol", rankIcons: lolRankIcons },
+          { game: "valorant", rankIcons: valRankIcons },
+        ]).pipe(
+          Effect.provideService(DiscordREST, rest),
+          Effect.provide(NodeHttpClient.layerUndici),
+          Effect.catch((error) =>
+            Effect.logWarning(
+              "rank emoji provisioning failed; posting without icons",
+              error,
+            ).pipe(Effect.as({})),
+          ),
+        );
         return yield* rest
           .createMessage(
             channelId,
             matchReportMessage(
               report,
-              {},
-              rankImagesFrom([
-                { game: "lol", rankIcons: lolRankIcons },
-                { game: "valorant", rankIcons: valRankIcons },
+              rankEmojis,
+              gameLogosFrom([
+                { game: "lol", logoUrl: lolLogoUrl },
+                { game: "valorant", logoUrl: valLogoUrl },
               ]),
             ),
           )

@@ -31,7 +31,7 @@ import {
 } from "./destination.ts";
 import {
   matchReportMessage,
-  rankImagesFrom,
+  gameLogosFrom,
   type MatchReport,
 } from "./embed.ts";
 import { provisionRankEmojis } from "./rank-emojis.ts";
@@ -138,13 +138,13 @@ const makeDiscord = Effect.gen(function* () {
       ).pipe(Effect.as({})),
     ),
   );
-  const rankImages = rankImagesFrom(gameAdapters.all);
+  const gameLogos = gameLogosFrom(gameAdapters.all);
 
   const notifyMatch = Effect.fn("Discord.notifyMatch")(
     function* (report: MatchReport) {
       yield* rest.createMessage(
         channelId,
-        matchReportMessage(report, rankEmojis, rankImages),
+        matchReportMessage(report, rankEmojis, gameLogos),
       );
     },
     Effect.mapError(

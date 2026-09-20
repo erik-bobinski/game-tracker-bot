@@ -32,10 +32,9 @@ is ignored by verify because it may point at a production destination.
 - Reuses the same mock payloads as `/dev_report`.
 - Cloud agents should not log into Discord web to confirm the message. REST
   success plus JSON `channelId` (testing server) and V2 `flags` is the proof.
-- Admin posts without boot-time rank emojis, so rank crests in the scoreboard
-  lines are text. Rank thumbnails use square HTTPS crests, not a Media Gallery.
-  `/dev_report` on a running bot also inlines application emojis in the player
-  list.
+- Rank crests in the scoreboard are application emojis (same as `/dev_report`).
+  The header thumbnail is the game logo, not a rank crest, and there is no
+  Media Gallery.
 - Refuses every destination outside `TESTING_DISCORD_GUILD_ID` and
   `TESTING_NOTIFICATION_CHANNEL_ID`.
 - If testing Discord credentials are missing, `pnpm verify` skips this send

@@ -63,6 +63,8 @@ export const logApiError = (message: string, error: unknown) =>
 export interface GameAdapter {
   readonly game: GameId;
   readonly rankIcons: ReadonlyArray<RankIcon>;
+  // square HTTPS PNG used as the match-report header thumbnail
+  readonly logoUrl: string;
 
   readonly resolveAccount: (
     name: string,

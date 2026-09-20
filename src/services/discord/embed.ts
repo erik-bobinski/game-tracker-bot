@@ -17,7 +17,7 @@ export interface MatchReport {
 }
 
 export type RankEmojis = Readonly<Record<string, string>>;
-export type RankImages = Readonly<Record<string, string>>;
+export type GameLogos = Readonly<Record<string, string>>;
 
 const nameList = (names: ReadonlyArray<string>) => {
   const bolded = names.map((name) => `**${name}**`);
@@ -104,25 +104,17 @@ const renderableImageUrl = (url: string) => {
   }
 };
 
-export const rankImagesFrom = (
+export const gameLogosFrom = (
   adapters: ReadonlyArray<{
     readonly game: GameId;
-    readonly rankIcons: ReadonlyArray<{
-      readonly key: string;
-      readonly url: string;
-      readonly largeUrl?: string;
-    }>;
+    readonly logoUrl: string;
   }>,
-): RankImages =>
+): GameLogos =>
   Object.fromEntries(
-    adapters.flatMap((adapter) =>
-      adapter.rankIcons.flatMap((icon) => {
-        const url =
-          renderableImageUrl(icon.url) ||
-          renderableImageUrl(icon.largeUrl ?? "");
-        return url ? [[`${adapter.game}.${icon.key}`, url] as const] : [];
-      }),
-    ),
+    adapters.flatMap((adapter) => {
+      const url = renderableImageUrl(adapter.logoUrl);
+      return url ? [[adapter.game, url] as const] : [];
+    }),
   );
 
 // posted by notifyMatch and admin report-mock. Components V2 so the
@@ -130,7 +122,7 @@ export const rankImagesFrom = (
 export const matchReportMessage = (
   report: MatchReport,
   rankEmojis: RankEmojis,
-  rankImages: RankImages = {},
+  gameLogos: GameLogos = {},
 ) => {
   const trackedPuuids = new Set(report.trackedPuuids);
   const trackedPlayer = report.match.players.find((player) =>
@@ -168,11 +160,7 @@ export const matchReportMessage = (
   ]
     .filter((value): value is string => Boolean(value))
     .join(" · ");
-  const thumbnailUrl = trackedPlayer
-    ? renderableImageUrl(
-        rankAsset(trackedPlayer, report.match.game, rankImages),
-      )
-    : "";
+  const thumbnailUrl = renderableImageUrl(gameLogos[report.match.game] ?? "");
   const header = thumbnailUrl
     ? [
         UI.section({
@@ -182,7 +170,7 @@ export const matchReportMessage = (
           ],
           accessory: UI.thumbnail({
             url: thumbnailUrl,
-            description: trackedPlayer?.rank ?? trackedPlayer?.character,
+            description: gameNames[report.match.game],
           }),
         }),
       ]

@@ -11,7 +11,7 @@ const emojiName = (game: GameAdapter["game"], key: string) =>
   `rank_${game}_${key}`;
 
 export const provisionRankEmojis = Effect.fn("Discord.provisionRankEmojis")(
-  function* (adapters: ReadonlyArray<GameAdapter>) {
+  function* (adapters: ReadonlyArray<Pick<GameAdapter, "game" | "rankIcons">>) {
     const rest = yield* DiscordREST;
     const client = (yield* HttpClient.HttpClient).pipe(
       HttpClient.filterStatusOk,
