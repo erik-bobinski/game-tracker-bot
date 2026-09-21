@@ -8,7 +8,9 @@ Tracks a Riot account for a fake Discord user via the admin CLI.
 
 ## How to get to it (user POV)
 
-`pnpm admin signup <riot-id> --discord-id <id> --json`
+Discord: `/signup` with `riot_name` and `riot_tag`. The bot saves whatever League or Valorant lookup succeeds.
+
+Operator: `pnpm admin signup <riot-id> --discord-id <id> --json`.
 
 ## Driving it with admin CLI
 

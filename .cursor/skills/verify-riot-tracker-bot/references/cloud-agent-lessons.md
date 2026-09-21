@@ -1,37 +1,29 @@
 # Cloud agent lessons
 
-Lessons from running `pnpm verify` on Cursor Cloud against Railway production.
+Lessons from running verification on Cursor Cloud.
 
 ## Railway tokens on Cursor Cloud
 
-`RAILWAY_API_TOKEN` is often a project or workspace UUID, not a personal account token.
+Two different token slots:
 
-- `railway whoami`, `railway list`, and `railway link` return `Unauthorized` (`me` is not allowed). That is not a dead end.
-- GraphQL `projects` and `railway ssh` still work once project, service, and environment are named.
+- **Project token** — `RAILWAY_TOKEN`. `railway status` and `railway run --service riot-tracker-bot --environment <env>` work with no `railway link`. Cursor Cloud injects these as `RAILWAY_API_TOKEN_DEV` and `RAILWAY_API_TOKEN_PROD`. Copy the one you mean onto `RAILWAY_TOKEN`. Do not leave a project token only in `RAILWAY_API_TOKEN`: `railway status` then says "No linked project", and `whoami` / GraphQL `projects` return Unauthorized.
+- **Account or workspace token** — `RAILWAY_API_TOKEN`. `whoami` can still be Unauthorized. GraphQL `projects` and `railway ssh` can work once project, service, and environment are named.
 
-Discover IDs:
+Prefer **dev** for Discord proof (`RAILWAY_API_TOKEN_DEV`, `--environment dev`). That bot is not the production gateway, and the dev service sets `DEV_MODE=true`. Production leaves `DEV_MODE` unset and is already connected; do not `pnpm start` that token.
 
-```bash
-pnpm exec railway api 'query { projects { edges { node { id name } } } }'
-```
+`src/verify/production-riot-id.ts` treats `RAILWAY_TOKEN` as a signal to `railway ssh`, then copies it onto `RAILWAY_API_TOKEN`. It does not read `RAILWAY_API_TOKEN_DEV` or `RAILWAY_API_TOKEN_PROD`. Export `RAILWAY_TOKEN` yourself before `pnpm verify`. Do not set `VERIFY_RIOT_ID` to skip that gap. Mock-report proof does not need the Riot id lookup.
 
-Production in this repo has been:
+With a project token, skip `railway link` and the `projects` query. Names that work:
 
-- project name `riot-tracker-bot`
-- service name `riot-tracker-bot`
-- environment name `production`
+- project `riot-tracker-bot`
+- service `riot-tracker-bot`
+- environments `dev` and `production`
 
-Export before ssh (names or ids):
-
-```bash
-export RAILWAY_PROJECT_ID=<project-id>
-export RAILWAY_SERVICE=riot-tracker-bot
-export RAILWAY_ENVIRONMENT=production
-```
-
-The CLI reads `RAILWAY_API_TOKEN`. Cursor Cloud may inject `RAILWAY_API_KEY` or `RAILWAY_TOKEN`; `src/verify/production-riot-id.ts` copies those onto `RAILWAY_API_TOKEN`.
+`railway run` injects service variables into the child and overwrites `DB_PATH`. Point admin and the bot at an isolated sqlite file in that child. Do not print the injected variables.
 
 ## SSH
+
+Account tokens only. Project tokens should use `railway run`, not ssh, for Discord proof.
 
 `railway ssh` needs a key Railway knows and a host key in `known_hosts`:
 
@@ -60,4 +52,4 @@ A 404 whose body asks the player to finish a game is a missing game, not a harne
 
 - Node 24. Node 22 crashes on the sqlite native import.
 - `pnpm start` with ambient env. `pnpm dev` wants a `.env` file that does not exist here.
-- Leave the verify bot running. The harness deletes only its isolated sqlite file.
+- `discord-rest-proof.mjs` stops the bot it started and deletes its sqlite file. Artifact files stay.
