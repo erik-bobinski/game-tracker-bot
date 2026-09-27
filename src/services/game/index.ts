@@ -31,6 +31,7 @@ export interface MatchPlayer {
 
 export interface MatchTeam {
   readonly id: string;
+  /** Omitted when the match ended in a draw */
   readonly won?: boolean;
   readonly score?: readonly [number, number];
 }

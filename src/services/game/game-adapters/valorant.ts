@@ -78,7 +78,7 @@ export const valMatchToDetails = (match: ValRawMatch): MatchDetails => {
 
   const teams: Array<MatchTeam> = match.teams.map((team) => ({
     id: team.team_id.toLowerCase(),
-    won: team.won,
+    ...(team.rounds.won !== team.rounds.lost ? { won: team.won } : {}),
     score: [team.rounds.won, team.rounds.lost],
   }));
 
