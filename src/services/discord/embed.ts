@@ -100,7 +100,9 @@ export const matchEmbed = (
       ? "Victory"
       : trackedTeam?.won === false
         ? "Defeat"
-        : "Match complete";
+        : trackedTeam
+          ? "Draw"
+          : "Match complete";
   const color =
     trackedTeam?.won === true
       ? 0x57f287
