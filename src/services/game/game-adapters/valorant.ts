@@ -21,6 +21,15 @@ import {
   type ValRawMatch,
 } from "../game-api/val/match-schema.ts";
 
+// modes without sides (deathmatch) team players by puuid, so only the real
+// side ids get the "Team" suffix
+const teamName = (teamId: string) => {
+  const side = teamId.toLowerCase();
+  return side === "blue" || side === "red"
+    ? `${side.charAt(0).toUpperCase()}${side.slice(1)} Team`
+    : teamId;
+};
+
 const rankIconKey = (rank: string) => {
   const key = rank.toLowerCase().replaceAll(" ", "_");
   return key && key !== "unrated" ? key : undefined;
@@ -78,6 +87,7 @@ export const valMatchToDetails = (match: ValRawMatch): MatchDetails => {
 
   const teams: Array<MatchTeam> = match.teams.map((team) => ({
     id: team.team_id.toLowerCase(),
+    name: teamName(team.team_id),
     ...(team.rounds.won !== team.rounds.lost ? { won: team.won } : {}),
     score: [team.rounds.won, team.rounds.lost],
   }));
