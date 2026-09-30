@@ -28,7 +28,7 @@ const nameList = (names: ReadonlyArray<string>) => {
 };
 
 // "32m 41s", dropping a zero component so a remake reads as "48s"
-const formatDuration = (seconds: number) => {
+export const formatDuration = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
   if (minutes === 0) return `${rest}s`;
@@ -132,28 +132,40 @@ const verdicts = {
   },
 } as const;
 
+// The tracked players' side, and whether it won, lost, or drew.
+export const matchVerdict = (report: MatchReport) => {
+  const trackedPuuids = new Set(report.trackedPuuids);
+  const trackedPlayer = report.match.players.find((player) =>
+    trackedPuuids.has(player.puuid),
+  );
+  const trackedTeam = report.match.teams.find(
+    (team) => team.id === trackedPlayer?.team,
+  );
+  const key =
+    trackedTeam?.won === true
+      ? "win"
+      : trackedTeam?.won === false
+        ? "loss"
+        : trackedTeam
+          ? "draw"
+          : "unknown";
+  return { key, verdict: verdicts[key], trackedTeam } as const;
+};
+
+// "**A** and **B** won a **Competitive** game on **Ascent**."
+export const matchSummary = (report: MatchReport) => {
+  const { match } = report;
+  const { verdict } = matchVerdict(report);
+  return `${nameList(report.discordNames)} ${verdict.verb} a **${match.mode}** game${match.map ? ` on **${match.map}**` : ""}.`;
+};
+
 export const matchEmbed = (
   report: MatchReport,
   rankEmojis: RankEmojis,
 ): Discord.RichEmbed => {
   const { match } = report;
   const trackedPuuids = new Set(report.trackedPuuids);
-  const trackedPlayer = match.players.find((player) =>
-    trackedPuuids.has(player.puuid),
-  );
-  const trackedTeam = match.teams.find(
-    (team) => team.id === trackedPlayer?.team,
-  );
-  const verdict =
-    verdicts[
-      trackedTeam?.won === true
-        ? "win"
-        : trackedTeam?.won === false
-          ? "loss"
-          : trackedTeam
-            ? "draw"
-            : "unknown"
-    ];
+  const { verdict, trackedTeam } = matchVerdict(report);
 
   const context: RowContext = {
     game: match.game,
@@ -179,7 +191,7 @@ export const matchEmbed = (
       `${verdict.emoji} ${verdict.label}`,
       trackedTeam?.score?.join("–"),
     ]),
-    description: `${nameList(report.discordNames)} ${verdict.verb} a **${match.mode}** game${match.map ? ` on **${match.map}**` : ""}.`,
+    description: matchSummary(report),
     color: verdict.color,
     fields: teams,
     footer: {

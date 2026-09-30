@@ -25,7 +25,8 @@ import { Database } from "../database/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import { PollingState } from "../polling/state.ts";
 import { commands } from "./commands.ts";
-import { matchEmbed, type MatchReport } from "./embed.ts";
+import type { MatchReport } from "./embed.ts";
+import { makeMatchCard, postMatchReport } from "./match-card.tsx";
 import { provisionRankEmojis } from "./rank-emojis.ts";
 
 export class DiscordError extends Schema.TaggedError<DiscordError>()(
@@ -110,11 +111,11 @@ const makeDiscord = Effect.gen(function* () {
     ),
   );
 
+  const card = yield* makeMatchCard(gameAdapters.all);
+
   const notifyMatch = Effect.fn("Discord.notifyMatch")(
     function* (report: MatchReport) {
-      yield* rest.createMessage(channelId, {
-        embeds: [matchEmbed(report, rankEmojis)],
-      });
+      yield* postMatchReport({ rest, channelId, card, rankEmojis }, report);
     },
     Effect.mapError(
       (cause) => new DiscordError({ operation: "notifyMatch", cause }),

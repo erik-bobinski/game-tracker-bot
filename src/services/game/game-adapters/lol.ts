@@ -92,7 +92,7 @@ export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
     (participant) => {
       const multiKill =
         participant.largestMultiKill >= 5
-          ? "🔥 Penta Kill"
+          ? "Penta Kill"
           : participant.largestMultiKill === 4
             ? "Quadra Kill"
             : undefined;
