@@ -42,8 +42,10 @@ export class Discord extends Context.Service<
   }
 >()("app/Discord") {}
 
+// fetch, not undici: the undici client can't send the multipart body a match
+// card is uploaded in
 const DiscordApiLive = DiscordIxLive.pipe(
-  Layer.provide(NodeHttpClient.layerUndici),
+  Layer.provide(NodeHttpClient.layerFetch),
   Layer.provide(NodeSocket.layerWebSocketConstructor),
   Layer.provide(
     DiscordConfig.layerConfig({

@@ -134,7 +134,8 @@ const GameLive = GameAdaptersLive.pipe(
 
 const DiscordRestLive = DiscordRESTLive.pipe(
   Layer.provide(MemoryRateLimitStoreLive),
-  Layer.provide(NodeHttpClient.layerUndici),
+  // fetch, as the bot's own rest client does, for the card's multipart upload
+  Layer.provide(NodeHttpClient.layerFetch),
   Layer.provide(
     DiscordConfig.layerConfig({
       token: Config.redacted("DISCORD_BOT_TOKEN"),
