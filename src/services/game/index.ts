@@ -18,6 +18,7 @@ export interface MatchPlayer {
   readonly riotName: string;
   readonly riotTag: string;
   readonly character: string;
+  readonly characterIconUrl?: string;
   readonly kills: number;
   readonly deaths: number;
   readonly assists: number;

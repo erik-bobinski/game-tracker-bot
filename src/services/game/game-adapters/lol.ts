@@ -62,6 +62,8 @@ const compact = (value: number) =>
 
 const STATIC_ASSETS =
   "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default";
+const GAME_DATA =
+  "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default";
 
 const rankIcons = [
   "iron",
@@ -100,6 +102,7 @@ export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
         riotName: participant.riotIdGameName,
         riotTag: participant.riotIdTagline,
         character: participant.championName,
+        characterIconUrl: `${GAME_DATA}/v1/champion-icons/${participant.championId}.png`,
         kills: participant.kills,
         deaths: participant.deaths,
         assists: participant.assists,
@@ -141,6 +144,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
 
   const adapter: GameAdapter = {
     game: "lol",
+    iconUrl: `${STATIC_ASSETS}/lol_icon.png`,
     rankIcons,
     resolveAccount: Effect.fn("GameAdapter.lol.resolveAccount")(function* (
       name: string,

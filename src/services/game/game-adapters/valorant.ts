@@ -70,6 +70,7 @@ export const valMatchToDetails = (match: ValRawMatch): MatchDetails => {
       riotName: player.name,
       riotTag: player.tag,
       character: player.agent.name,
+      characterIconUrl: `https://media.valorant-api.com/agents/${player.agent.id}/displayicon.png`,
       kills: player.stats.kills,
       deaths: player.stats.deaths,
       assists: player.stats.assists,
@@ -112,6 +113,8 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
 
   const adapter: GameAdapter = {
     game: "valorant",
+    iconUrl: new URL("../../../../assets/logo-valorant.png", import.meta.url)
+      .href,
     rankIcons,
     resolveAccount: Effect.fn("GameAdapter.valorant.resolveAccount")(function* (
       name: string,
