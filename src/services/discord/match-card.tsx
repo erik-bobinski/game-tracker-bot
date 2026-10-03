@@ -642,7 +642,7 @@ export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
   const filename = "match-report.png";
   return yield* rest
     .createMessage(channelId, {
-      content: `${matchVerdict(report).verdict.emoji} ${matchSummary(report)}`,
+      content: matchSummary(report),
       attachments: [{ id: "0", filename }],
     })
     .pipe(

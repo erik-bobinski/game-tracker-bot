@@ -73,7 +73,6 @@ const playerRows = (player: MatchPlayer, context: RowContext) => {
   const icon = rankEmoji(player, context.game, context.emojis);
   const movement = rankMovement(context.rankUpdates.get(player.puuid));
   const headline = [
-    player.puuid === context.mvpPuuid ? "🥇" : undefined,
     icon || undefined,
     // the lol crests are per-tier, so the division goes beside them
     icon && player.rankDivision ? `\`${player.rankDivision}\`` : undefined,
@@ -88,6 +87,7 @@ const playerRows = (player: MatchPlayer, context: RowContext) => {
     icon && movement?.delta ? movement.delta : movement?.full,
     icon ? undefined : player.rank,
     player.flair,
+    player.puuid === context.mvpPuuid ? "MVP" : undefined,
   ]);
   return [headline, `-# ${stats}`].join("\n");
 };
@@ -99,7 +99,8 @@ const teamField = (
   context: RowContext,
 ): Discord.RichEmbedField => ({
   name: joinParts([
-    `${team.won === true ? "🏆 " : ""}${label}`,
+    label,
+    team.won === true ? "Win" : undefined,
     team.score?.[0] === undefined ? undefined : String(team.score[0]),
   ]),
   value: [...players]
@@ -122,18 +123,13 @@ export const rankEmbed = (report: RankReport): Discord.RichEmbed => ({
   ...(report.iconUrl ? { image: { url: report.iconUrl } } : {}),
 });
 
-// How the tracked players' result is headlined: the emoji and colour set the
-// tone before anything is read, the verb carries it into the description.
+// How the tracked players' result is headlined: the colour sets the tone
+// before anything is read, the verb carries it into the description.
 const verdicts = {
-  win: { emoji: "🏆", label: "Victory", color: 0x57f287, verb: "won" },
-  loss: { emoji: "💀", label: "Defeat", color: 0xed4245, verb: "lost" },
-  draw: { emoji: "🤝", label: "Draw", color: 0xfee75c, verb: "drew" },
-  unknown: {
-    emoji: "🎮",
-    label: "Match complete",
-    color: 0x99aab5,
-    verb: "finished",
-  },
+  win: { label: "Victory", color: 0x57f287, verb: "won" },
+  loss: { label: "Defeat", color: 0xed4245, verb: "lost" },
+  draw: { label: "Draw", color: 0xfee75c, verb: "drew" },
+  unknown: { label: "Match complete", color: 0x99aab5, verb: "finished" },
 } as const;
 
 const teamOutcome = (team: MatchTeam | undefined) =>
@@ -220,10 +216,7 @@ export const matchEmbed = (
 
   return {
     author: { name: gameNames[match.game] },
-    title: joinParts([
-      `${verdict.emoji} ${verdict.label}`,
-      trackedTeam?.score?.join("–"),
-    ]),
+    title: joinParts([verdict.label, trackedTeam?.score?.join("–")]),
     description: matchSummary(report),
     color: verdict.color,
     fields,
