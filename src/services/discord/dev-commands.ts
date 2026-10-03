@@ -204,8 +204,10 @@ export const buildMockMatchReport = (game: GameId) =>
     const rankUnit = match.game === "lol" ? "LP" : "RR";
 
     return {
-      discordNames: ["VerifyAgent", "VerifyTeammate"],
-      trackedPuuids: match.players.slice(0, 2).map((player) => player.puuid),
+      tracked: match.players.slice(0, 2).map((player, index) => ({
+        discordName: index === 0 ? "VerifyAgent" : "VerifyTeammate",
+        puuid: player.puuid,
+      })),
       match,
       rankUpdates: new Map(
         match.players.slice(0, 2).map((player, index) => [

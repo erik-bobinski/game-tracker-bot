@@ -1,4 +1,5 @@
 import type { Discord } from "dfx";
+import { Array } from "effect";
 import { gameNames } from "../game/index.ts";
 import type {
   GameId,
@@ -11,8 +12,10 @@ import type {
 } from "../game/index.ts";
 
 export interface MatchReport {
-  readonly discordNames: ReadonlyArray<string>;
-  readonly trackedPuuids: ReadonlyArray<Puuid>;
+  readonly tracked: ReadonlyArray<{
+    readonly discordName: string;
+    readonly puuid: Puuid;
+  }>;
   readonly match: MatchDetails;
   readonly rankUpdates: ReadonlyMap<Puuid, RankUpdate>;
 }
@@ -132,31 +135,53 @@ const verdicts = {
   },
 } as const;
 
-// The tracked players' side, and whether it won, lost, or drew.
-export const matchVerdict = (report: MatchReport) => {
-  const trackedPuuids = new Set(report.trackedPuuids);
-  const trackedPlayer = report.match.players.find((player) =>
-    trackedPuuids.has(player.puuid),
-  );
-  const trackedTeam = report.match.teams.find(
-    (team) => team.id === trackedPlayer?.team,
-  );
-  const key =
-    trackedTeam?.won === true
+const teamOutcome = (team: MatchTeam | undefined) =>
+  team === undefined
+    ? "unknown"
+    : team.won === true
       ? "win"
-      : trackedTeam?.won === false
+      : team.won === false
         ? "loss"
-        : trackedTeam
-          ? "draw"
-          : "unknown";
-  return { key, verdict: verdicts[key], trackedTeam } as const;
+        : "draw";
+
+// Each tracked player's outcome from their own side. The verdict is the one
+// they all share, or the neutral "unknown" when tracked players were
+// opponents; trackedTeam is the first tracked player's side.
+export const matchVerdict = (report: MatchReport) => {
+  const { match } = report;
+  const teamOf = (puuid: Puuid) => {
+    const teamId = match.players.find((player) => player.puuid === puuid)?.team;
+    return match.teams.find((team) => team.id === teamId);
+  };
+  const tracked = report.tracked.map(
+    (player) =>
+      ({ ...player, outcome: teamOutcome(teamOf(player.puuid)) }) as const,
+  );
+  const [first, ...rest] = tracked;
+  const key =
+    first && rest.every((player) => player.outcome === first.outcome)
+      ? first.outcome
+      : "unknown";
+  return {
+    key,
+    verdict: verdicts[key],
+    trackedTeam: first && teamOf(first.puuid),
+    tracked,
+  } as const;
 };
 
-// "**A** and **B** won a **Competitive** game on **Ascent**."
+// "**A** and **B** won a **Competitive** game on **Ascent**.", or one clause
+// per outcome when tracked players were opponents:
+// "**A** and **B** won, **C** lost a **Competitive** game on **Ascent**."
 export const matchSummary = (report: MatchReport) => {
   const { match } = report;
-  const { verdict } = matchVerdict(report);
-  return `${nameList(report.discordNames)} ${verdict.verb} a **${match.mode}** game${match.map ? ` on **${match.map}**` : ""}.`;
+  const clauses = Object.values(
+    Array.groupBy(matchVerdict(report).tracked, (player) => player.outcome),
+  ).map(
+    (group) =>
+      `${nameList(group.map((player) => player.discordName))} ${verdicts[group[0].outcome].verb}`,
+  );
+  return `${clauses.join(", ")} a **${match.mode}** game${match.map ? ` on **${match.map}**` : ""}.`;
 };
 
 export const matchEmbed = (
@@ -164,7 +189,7 @@ export const matchEmbed = (
   rankEmojis: RankEmojis,
 ): Discord.RichEmbed => {
   const { match } = report;
-  const trackedPuuids = new Set(report.trackedPuuids);
+  const trackedPuuids = new Set(report.tracked.map((player) => player.puuid));
   const { verdict, trackedTeam } = matchVerdict(report);
 
   const context: RowContext = {

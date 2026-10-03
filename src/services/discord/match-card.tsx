@@ -307,7 +307,7 @@ const Card = ({
 }) => {
   const { match } = report;
   const { key, verdict, trackedTeam } = matchVerdict(report);
-  const trackedPuuids = new Set(report.trackedPuuids);
+  const trackedPuuids = new Set(report.tracked.map((player) => player.puuid));
   const mvp = [...match.players].sort((a, b) => b.sortKey - a.sortKey)[0]
     ?.puuid;
   const accent = verdictColors[key];
