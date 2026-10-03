@@ -1,13 +1,16 @@
 import { Config, Context, Effect, Layer, Redacted, Schema } from "effect";
+import * as HttpBody from "effect/unstable/http/HttpBody";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
-import { Puuid, type ResolvedAccount } from "../../index.ts";
+import { Puuid, type MatchId, type ResolvedAccount } from "../../index.ts";
 import {
   ValAccountResponse,
+  ValMatchResponse,
   ValMatchesResponse,
   ValMmrHistoryResponse,
   ValMmrResponse,
+  ValPerformanceScoresResponse,
   type ValMmrHistoryEntry,
   type ValRawMatch,
 } from "./match-schema.ts";
@@ -35,6 +38,20 @@ export class HenrikApiClient extends Context.Service<
       count: number,
     ) => Effect.Effect<
       ReadonlyArray<ValRawMatch>,
+      HttpClientError.HttpClientError | Schema.SchemaError
+    >;
+    getMatch: (
+      matchId: MatchId,
+      region: string | undefined,
+    ) => Effect.Effect<
+      ValRawMatch,
+      HttpClientError.HttpClientError | Schema.SchemaError
+    >;
+    getPerformanceScores: (
+      matchId: MatchId,
+      region: string | undefined,
+    ) => Effect.Effect<
+      ReadonlyMap<Puuid, number>,
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
     getRank: (
@@ -105,6 +122,45 @@ export const HenrikApiClientLive = Layer.effect(
       },
     );
 
+    const getMatch = Effect.fn("HenrikApiClient.getMatch")(function* (
+      matchId: MatchId,
+      region: string | undefined,
+    ) {
+      const res = yield* client.get(
+        `/valorant/v4/match/${region ?? defaultRegion}/${matchId}`,
+      );
+      const json = yield* res.json;
+      const { data } =
+        yield* Schema.decodeUnknownEffect(ValMatchResponse)(json);
+      return data;
+    });
+
+    // rounded Performance Score per player, from riot's own match payload;
+    // players without one are left out
+    const getPerformanceScores = Effect.fn(
+      "HenrikApiClient.getPerformanceScores",
+    )(function* (matchId: MatchId, region: string | undefined) {
+      const res = yield* client.post("/valorant/v1/raw", {
+        body: HttpBody.jsonUnsafe({
+          type: "matchdetails",
+          value: matchId,
+          region: region ?? defaultRegion,
+          platform,
+        }),
+      });
+      const json = yield* res.json;
+      const { data } = yield* Schema.decodeUnknownEffect(
+        ValPerformanceScoresResponse,
+      )(json);
+      return new Map(
+        data.players.flatMap(({ subject, scores }) =>
+          typeof scores?.performanceScore === "number"
+            ? [[subject, Math.round(scores.performanceScore)] as const]
+            : [],
+        ),
+      );
+    });
+
     const getRank = Effect.fn("HenrikApiClient.getRank")(function* (
       puuid: Puuid,
       region: string | undefined,
@@ -143,6 +199,8 @@ export const HenrikApiClientLive = Layer.effect(
     return HenrikApiClient.of({
       getAccountByRiotId,
       getRecentMatches,
+      getMatch,
+      getPerformanceScores,
       getRank,
       getMmrHistory,
     });

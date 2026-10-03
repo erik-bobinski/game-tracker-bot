@@ -198,8 +198,26 @@ export const buildMockMatchReport = (game: GameId) =>
               yield* Schema.decodeUnknownEffect(LolMatch)(lolMockResponse()),
             ),
           )
-        : valMatchToDetails(
-            yield* Schema.decodeUnknownEffect(ValRawMatch)(valMockResponse()),
+        : yield* Schema.decodeUnknownEffect(ValRawMatch)(
+            valMockResponse(),
+          ).pipe(
+            Effect.map((raw) =>
+              valMatchToDetails(
+                raw,
+                new Map(
+                  raw.players.map((player) => [
+                    player.puuid,
+                    Math.min(
+                      500,
+                      Math.round(
+                        player.stats.score / raw.rounds.length +
+                          player.stats.assists * 6,
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            ),
           );
     const rankUnit = match.game === "lol" ? "LP" : "RR";
 
