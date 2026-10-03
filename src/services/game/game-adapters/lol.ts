@@ -62,6 +62,8 @@ const compact = (value: number) =>
 
 const STATIC_ASSETS =
   "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default";
+const GAME_DATA =
+  "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default";
 
 const rankIcons = [
   "iron",
@@ -90,7 +92,7 @@ export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
     (participant) => {
       const multiKill =
         participant.largestMultiKill >= 5
-          ? "🔥 Penta Kill"
+          ? "Penta Kill"
           : participant.largestMultiKill === 4
             ? "Quadra Kill"
             : undefined;
@@ -100,6 +102,7 @@ export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
         riotName: participant.riotIdGameName,
         riotTag: participant.riotIdTagline,
         character: participant.championName,
+        characterIconUrl: `${GAME_DATA}/v1/champion-icons/${participant.championId}.png`,
         kills: participant.kills,
         deaths: participant.deaths,
         assists: participant.assists,
@@ -114,7 +117,6 @@ export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
 
   const teams: Array<MatchTeam> = [100, 200].map((teamId) => ({
     id: String(teamId),
-    name: teamId === 100 ? "Blue Team" : "Red Team",
     won:
       match.info.participants.find(
         (participant) => participant.teamId === teamId,
@@ -141,6 +143,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
 
   const adapter: GameAdapter = {
     game: "lol",
+    iconUrl: `${STATIC_ASSETS}/lol_icon.png`,
     rankIcons,
     resolveAccount: Effect.fn("GameAdapter.lol.resolveAccount")(function* (
       name: string,

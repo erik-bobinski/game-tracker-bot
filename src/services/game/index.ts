@@ -18,6 +18,7 @@ export interface MatchPlayer {
   readonly riotName: string;
   readonly riotTag: string;
   readonly character: string;
+  readonly characterIconUrl?: string;
   readonly kills: number;
   readonly deaths: number;
   readonly assists: number;
@@ -31,8 +32,6 @@ export interface MatchPlayer {
 
 export interface MatchTeam {
   readonly id: string;
-  /** How the report heads this team's column ("Blue Team", "Red Team") */
-  readonly name?: string;
   /** Omitted when the match ended in a draw */
   readonly won?: boolean;
   readonly score?: readonly [number, number];

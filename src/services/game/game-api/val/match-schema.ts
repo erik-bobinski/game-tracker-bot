@@ -85,6 +85,29 @@ export const ValMatchesResponse = HenrikResponse(
   Schema.Array(LenientValRawMatch),
 );
 
+export const ValMatchResponse = HenrikResponse(ValRawMatch);
+
+// TempValueF is Riot's placeholder name for Performance Score; modes without
+// Performance Score omit it or the whole scores object
+export const ValPerformanceScoresResponse = HenrikResponse(
+  Schema.Struct({
+    players: Schema.Array(
+      Schema.Struct({
+        subject: Puuid,
+        scores: Schema.optionalKey(
+          Schema.NullOr(
+            Schema.Struct({
+              performanceScore: Schema.optionalKey(
+                Schema.NullOr(Schema.Number),
+              ),
+            }).pipe(Schema.encodeKeys({ performanceScore: "TempValueF" })),
+          ),
+        ),
+      }),
+    ),
+  }),
+);
+
 export const ValMmrHistoryEntry = Schema.Struct({
   matchId: MatchId,
   delta: Schema.Number,

@@ -117,8 +117,7 @@ const makeMatchEngine = Effect.gen(function* () {
           ),
         );
       yield* discord.notifyMatch({
-        discordNames: players.map((player) => player.discordName),
-        trackedPuuids: players.map((player) => player.puuid),
+        tracked: players,
         match: enrichment.match,
         rankUpdates: enrichment.rankUpdates,
       });

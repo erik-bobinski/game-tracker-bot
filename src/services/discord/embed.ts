@@ -1,4 +1,5 @@
 import type { Discord } from "dfx";
+import { Array } from "effect";
 import { gameNames } from "../game/index.ts";
 import type {
   GameId,
@@ -11,8 +12,10 @@ import type {
 } from "../game/index.ts";
 
 export interface MatchReport {
-  readonly discordNames: ReadonlyArray<string>;
-  readonly trackedPuuids: ReadonlyArray<Puuid>;
+  readonly tracked: ReadonlyArray<{
+    readonly discordName: string;
+    readonly puuid: Puuid;
+  }>;
   readonly match: MatchDetails;
   readonly rankUpdates: ReadonlyMap<Puuid, RankUpdate>;
 }
@@ -28,7 +31,7 @@ const nameList = (names: ReadonlyArray<string>) => {
 };
 
 // "32m 41s", dropping a zero component so a remake reads as "48s"
-const formatDuration = (seconds: number) => {
+export const formatDuration = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
   if (minutes === 0) return `${rest}s`;
@@ -91,11 +94,12 @@ const playerRows = (player: MatchPlayer, context: RowContext) => {
 
 const teamField = (
   team: MatchTeam,
+  label: string,
   players: ReadonlyArray<MatchPlayer>,
   context: RowContext,
 ): Discord.RichEmbedField => ({
   name: joinParts([
-    `${team.won === true ? "🏆 " : ""}${team.name ?? "Team"}`,
+    `${team.won === true ? "🏆 " : ""}${label}`,
     team.score?.[0] === undefined ? undefined : String(team.score[0]),
   ]),
   value: [...players]
@@ -132,28 +136,71 @@ const verdicts = {
   },
 } as const;
 
+const teamOutcome = (team: MatchTeam | undefined) =>
+  team === undefined
+    ? "unknown"
+    : team.won === true
+      ? "win"
+      : team.won === false
+        ? "loss"
+        : "draw";
+
+// Each tracked player's outcome from their own side. The verdict is the one
+// they all share, or the neutral "unknown" when tracked players were
+// opponents; trackedTeam is the first tracked player's side, and teams puts it
+// first so the people being reported on lead both scoreboards.
+export const matchVerdict = (report: MatchReport) => {
+  const { match } = report;
+  const teamOf = (puuid: Puuid) => {
+    const teamId = match.players.find((player) => player.puuid === puuid)?.team;
+    return match.teams.find((team) => team.id === teamId);
+  };
+  const tracked = report.tracked.map(
+    (player) =>
+      ({ ...player, outcome: teamOutcome(teamOf(player.puuid)) }) as const,
+  );
+  const [first, ...rest] = tracked;
+  const key =
+    first && rest.every((player) => player.outcome === first.outcome)
+      ? first.outcome
+      : "unknown";
+  const trackedTeam = first && teamOf(first.puuid);
+  return {
+    key,
+    verdict: verdicts[key],
+    trackedTeam,
+    teams: [...match.teams].sort(
+      (a, b) => Number(b === trackedTeam) - Number(a === trackedTeam),
+    ),
+    tracked,
+  } as const;
+};
+
+// How a scoreboard heads the team at this position in matchVerdict's teams
+export const teamLabel = (index: number) =>
+  `Team ${String.fromCharCode(65 + index)}`;
+
+// "**A** and **B** won a **Competitive** game on **Ascent**.", or one clause
+// per outcome when tracked players were opponents:
+// "**A** and **B** won, **C** lost a **Competitive** game on **Ascent**."
+export const matchSummary = (report: MatchReport) => {
+  const { match } = report;
+  const clauses = Object.values(
+    Array.groupBy(matchVerdict(report).tracked, (player) => player.outcome),
+  ).map(
+    (group) =>
+      `${nameList(group.map((player) => player.discordName))} ${verdicts[group[0].outcome].verb}`,
+  );
+  return `${clauses.join(", ")} a **${match.mode}** game${match.map ? ` on **${match.map}**` : ""}.`;
+};
+
 export const matchEmbed = (
   report: MatchReport,
   rankEmojis: RankEmojis,
 ): Discord.RichEmbed => {
   const { match } = report;
-  const trackedPuuids = new Set(report.trackedPuuids);
-  const trackedPlayer = match.players.find((player) =>
-    trackedPuuids.has(player.puuid),
-  );
-  const trackedTeam = match.teams.find(
-    (team) => team.id === trackedPlayer?.team,
-  );
-  const verdict =
-    verdicts[
-      trackedTeam?.won === true
-        ? "win"
-        : trackedTeam?.won === false
-          ? "loss"
-          : trackedTeam
-            ? "draw"
-            : "unknown"
-    ];
+  const trackedPuuids = new Set(report.tracked.map((player) => player.puuid));
+  const { verdict, trackedTeam, teams } = matchVerdict(report);
 
   const context: RowContext = {
     game: match.game,
@@ -164,14 +211,12 @@ export const matchEmbed = (
       ?.puuid,
   };
 
-  // the tracked players' own team leads, so the people being reported on are
-  // the first thing under the headline
-  const teams = [...match.teams]
-    .sort((a, b) => Number(b === trackedTeam) - Number(a === trackedTeam))
-    .flatMap((team) => {
-      const players = match.players.filter((player) => player.team === team.id);
-      return players.length > 0 ? [teamField(team, players, context)] : [];
-    });
+  const fields = teams.flatMap((team, index) => {
+    const players = match.players.filter((player) => player.team === team.id);
+    return players.length > 0
+      ? [teamField(team, teamLabel(index), players, context)]
+      : [];
+  });
 
   return {
     author: { name: gameNames[match.game] },
@@ -179,9 +224,9 @@ export const matchEmbed = (
       `${verdict.emoji} ${verdict.label}`,
       trackedTeam?.score?.join("–"),
     ]),
-    description: `${nameList(report.discordNames)} ${verdict.verb} a **${match.mode}** game${match.map ? ` on **${match.map}**` : ""}.`,
+    description: matchSummary(report),
     color: verdict.color,
-    fields: teams,
+    fields,
     footer: {
       text: joinParts([
         formatDuration(match.durationSeconds),
