@@ -94,11 +94,12 @@ const playerRows = (player: MatchPlayer, context: RowContext) => {
 
 const teamField = (
   team: MatchTeam,
+  label: string,
   players: ReadonlyArray<MatchPlayer>,
   context: RowContext,
 ): Discord.RichEmbedField => ({
   name: joinParts([
-    `${team.won === true ? "🏆 " : ""}${team.name ?? "Team"}`,
+    `${team.won === true ? "🏆 " : ""}${label}`,
     team.score?.[0] === undefined ? undefined : String(team.score[0]),
   ]),
   value: [...players]
@@ -146,7 +147,8 @@ const teamOutcome = (team: MatchTeam | undefined) =>
 
 // Each tracked player's outcome from their own side. The verdict is the one
 // they all share, or the neutral "unknown" when tracked players were
-// opponents; trackedTeam is the first tracked player's side.
+// opponents; trackedTeam is the first tracked player's side, and teams puts it
+// first so the people being reported on lead both scoreboards.
 export const matchVerdict = (report: MatchReport) => {
   const { match } = report;
   const teamOf = (puuid: Puuid) => {
@@ -162,13 +164,21 @@ export const matchVerdict = (report: MatchReport) => {
     first && rest.every((player) => player.outcome === first.outcome)
       ? first.outcome
       : "unknown";
+  const trackedTeam = first && teamOf(first.puuid);
   return {
     key,
     verdict: verdicts[key],
-    trackedTeam: first && teamOf(first.puuid),
+    trackedTeam,
+    teams: [...match.teams].sort(
+      (a, b) => Number(b === trackedTeam) - Number(a === trackedTeam),
+    ),
     tracked,
   } as const;
 };
+
+// How a scoreboard heads the team at this position in matchVerdict's teams
+export const teamLabel = (index: number) =>
+  `Team ${String.fromCharCode(65 + index)}`;
 
 // "**A** and **B** won a **Competitive** game on **Ascent**.", or one clause
 // per outcome when tracked players were opponents:
@@ -190,7 +200,7 @@ export const matchEmbed = (
 ): Discord.RichEmbed => {
   const { match } = report;
   const trackedPuuids = new Set(report.tracked.map((player) => player.puuid));
-  const { verdict, trackedTeam } = matchVerdict(report);
+  const { verdict, trackedTeam, teams } = matchVerdict(report);
 
   const context: RowContext = {
     game: match.game,
@@ -201,14 +211,12 @@ export const matchEmbed = (
       ?.puuid,
   };
 
-  // the tracked players' own team leads, so the people being reported on are
-  // the first thing under the headline
-  const teams = [...match.teams]
-    .sort((a, b) => Number(b === trackedTeam) - Number(a === trackedTeam))
-    .flatMap((team) => {
-      const players = match.players.filter((player) => player.team === team.id);
-      return players.length > 0 ? [teamField(team, players, context)] : [];
-    });
+  const fields = teams.flatMap((team, index) => {
+    const players = match.players.filter((player) => player.team === team.id);
+    return players.length > 0
+      ? [teamField(team, teamLabel(index), players, context)]
+      : [];
+  });
 
   return {
     author: { name: gameNames[match.game] },
@@ -218,7 +226,7 @@ export const matchEmbed = (
     ]),
     description: matchSummary(report),
     color: verdict.color,
-    fields: teams,
+    fields,
     footer: {
       text: joinParts([
         formatDuration(match.durationSeconds),

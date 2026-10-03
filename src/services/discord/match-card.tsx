@@ -26,6 +26,7 @@ import {
   matchEmbed,
   matchSummary,
   matchVerdict,
+  teamLabel,
   type MatchReport,
   type RankEmojis,
 } from "./embed.ts";
@@ -306,15 +307,11 @@ const Card = ({
   images: CardImages;
 }) => {
   const { match } = report;
-  const { key, verdict, trackedTeam } = matchVerdict(report);
+  const { key, verdict, trackedTeam, teams } = matchVerdict(report);
   const trackedPuuids = new Set(report.tracked.map((player) => player.puuid));
   const mvp = [...match.players].sort((a, b) => b.sortKey - a.sortKey)[0]
     ?.puuid;
   const accent = verdictColors[key];
-  // the tracked players' own team leads, top left
-  const teams = [...match.teams].sort(
-    (a, b) => Number(b === trackedTeam) - Number(a === trackedTeam),
-  );
 
   return (
     <div
@@ -391,7 +388,7 @@ const Card = ({
           rowGap: 10,
         }}
       >
-        {teams.flatMap((team) => {
+        {teams.flatMap((team, index) => {
           const players = match.players
             .filter((player) => player.team === team.id)
             .sort((a, b) => b.sortKey - a.sortKey);
@@ -421,7 +418,7 @@ const Card = ({
                   }}
                 />
                 <div style={{ color: colors.text }}>
-                  {(team.name ?? "Team").toUpperCase()}
+                  {teamLabel(index).toUpperCase()}
                 </div>
                 <div style={{ marginLeft: 6, color: teamColor(team) }}>
                   {team.won === true

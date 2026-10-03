@@ -117,7 +117,6 @@ export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
 
   const teams: Array<MatchTeam> = [100, 200].map((teamId) => ({
     id: String(teamId),
-    name: teamId === 100 ? "Blue Team" : "Red Team",
     won:
       match.info.participants.find(
         (participant) => participant.teamId === teamId,
