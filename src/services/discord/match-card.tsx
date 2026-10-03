@@ -196,7 +196,7 @@ const PlayerRow = ({
         alignItems: "center",
         position: "relative",
         height: 58,
-        padding: "0 9px 0 7px",
+        padding: "0 7px 0 5px",
         marginTop: 4,
         borderRadius: 6,
         backgroundColor: tracked ? colors.tracked : colors.row,
@@ -213,7 +213,7 @@ const PlayerRow = ({
       ) : null}
       <Icon
         src={images.characters.get(player.puuid)}
-        size={38}
+        size={34}
         alt={player.character}
       />
       <div
@@ -223,7 +223,7 @@ const PlayerRow = ({
           flexGrow: 1,
           flexShrink: 1,
           minWidth: 0,
-          marginLeft: 9,
+          marginLeft: 7,
         }}
       >
         <div
@@ -252,24 +252,15 @@ const PlayerRow = ({
               src={rankIcon}
               width={15}
               height={15}
-              style={{ marginRight: 4 }}
+              style={{ marginRight: 3 }}
             />
           ) : null}
-          <div
-            style={{
-              flexShrink: 1,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {player.rank ?? "Unranked"}
-          </div>
+          <div style={{ flexShrink: 0 }}>{player.rank ?? "Unranked"}</div>
           {delta ? (
             <div
               style={{
                 flexShrink: 0,
-                marginLeft: 6,
+                marginLeft: 5,
                 fontWeight: 600,
                 color: delta.color,
               }}
@@ -285,7 +276,7 @@ const PlayerRow = ({
           flexDirection: "column",
           alignItems: "flex-end",
           flexShrink: 0,
-          marginLeft: 8,
+          marginLeft: 6,
         }}
       >
         <div style={{ fontSize: 14, fontWeight: 800, color: colors.text }}>
