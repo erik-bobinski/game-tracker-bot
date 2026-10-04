@@ -316,7 +316,7 @@ const placementSummary = (report: PlacementReport) => {
       ? []
       : [`**${discordName}** finished ${ordinal(placement)}`];
   });
-  return `${clauses.join(", ")} in a **${report.match.mode}** game.`;
+  return `${clauses.join(", ")} in a **${report.match.mode}** game${report.match.map ? ` on **${report.match.map}**` : ""}.`;
 };
 
 export const matchSummary = (report: MatchReport) => {

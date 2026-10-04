@@ -540,7 +540,7 @@ const placementCard = (report: PlacementReport, images: CardImages) => {
       icon={images.game}
       game={match.game}
       label={label}
-      details={[match.mode, formatDuration(match.durationSeconds)]}
+      details={[match.mode, match.map, formatDuration(match.durationSeconds)]}
       columns={[
         column(`Top ${half}`, colors.up, players.slice(0, half)),
         column(
