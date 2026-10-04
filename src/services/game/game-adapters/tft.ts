@@ -58,7 +58,8 @@ const tftStat = (participant: TftParticipant) => {
   if (typeof participant.level === "number") {
     parts.push(`Level ${participant.level}`);
   }
-  if (typeof participant.total_damage_to_players === "number") {
+  // riot sends 0 for every player since set 18, which reads as a real stat
+  if (participant.total_damage_to_players) {
     parts.push(`${participant.total_damage_to_players} player dmg`);
   }
   return parts.join(" · ");
@@ -126,7 +127,7 @@ export const makeTftGameAdapter = Effect.gen(function* () {
       name: string,
       tag: string,
     ) {
-      const puuid = yield* riotClient.getAccountByRiotId(name, tag);
+      const puuid = yield* riotClient.getAccountByRiotId("tft", name, tag);
       const region = yield* riotClient.getPlatformId("tft", puuid);
       return { puuid, region };
     }),

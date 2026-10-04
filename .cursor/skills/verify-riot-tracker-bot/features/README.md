@@ -5,7 +5,7 @@ Headless verification for cloud agents. Read this index, then the feature file f
 ## Baseline preconditions
 
 - Node 24 (`nvm use 24`; prepend `$NVM_BIN` to `PATH` on cloud VMs).
-- Ambient secrets: `DISCORD_BOT_TOKEN`, `NOTIFICATION_CHANNEL_ID`, `RIOT_API_KEY`, `HENRIK_API_KEY`.
+- Ambient secrets: `DISCORD_BOT_TOKEN`, `NOTIFICATION_CHANNEL_ID`, `RIOT_API_KEY`, `RIOT_TFT_API_KEY`, `HENRIK_API_KEY`.
 - A real Riot ID via Railway (`RAILWAY_API_TOKEN` plus project/service/environment), `PRODUCTION_DB_PATH`, or `VERIFY_RIOT_ID` as a last resort. See the skill Launch section.
 - Isolated database: `DB_PATH=/tmp/riot-verify-$RUN_ID.sqlite`.
 - `pnpm start` with ambient env. Do not use `pnpm dev` (it wants a `.env` file).

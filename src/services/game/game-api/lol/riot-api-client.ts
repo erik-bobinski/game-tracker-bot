@@ -53,6 +53,7 @@ export class RiotApiClient extends Context.Service<
   RiotApiClient,
   {
     getAccountByRiotId: (
+      game: "lol" | "tft",
       name: string,
       tag: string,
     ) => Effect.Effect<
@@ -102,20 +103,16 @@ export class RiotApiClient extends Context.Service<
 export const RiotApiLive = Layer.effect(
   RiotApiClient,
   Effect.gen(function* () {
-    const apiKey = yield* Config.redacted("RIOT_API_KEY");
     // account-v1 answers for any account from any cluster, so this only picks
     // the nearest one; per-account routing comes from the stored platformId
     const defaultCluster = yield* Config.string("RIOT_REGION").pipe(
       Config.withDefault("americas"),
     );
-    const client = (yield* HttpClient.HttpClient).pipe(
+    const http = (yield* HttpClient.HttpClient).pipe(
       HttpClient.mapRequest(
         HttpClientRequest.prependUrl(
           `https://${defaultCluster}.api.riotgames.com`,
         ),
-      ),
-      HttpClient.mapRequest(
-        HttpClientRequest.setHeader("X-Riot-Token", Redacted.value(apiKey)),
       ),
       HttpClient.filterStatusOk,
       HttpClient.retryTransient({
@@ -140,10 +137,22 @@ export const RiotApiLive = Layer.effect(
         ),
       }),
     );
+    // Riot scopes each product key to one game and encrypts puuids per key,
+    // so tft calls, account lookups included, go out under the tft key
+    const withKey = (key: Redacted.Redacted) =>
+      http.pipe(
+        HttpClient.mapRequest(
+          HttpClientRequest.setHeader("X-Riot-Token", Redacted.value(key)),
+        ),
+      );
+    const clients = {
+      lol: withKey(yield* Config.redacted("RIOT_API_KEY")),
+      tft: withKey(yield* Config.redacted("RIOT_TFT_API_KEY")),
+    };
 
     const getAccountByRiotId = Effect.fn("RiotApi.getAccountByRiotId")(
-      function* (name: string, tag: string) {
-        const res = yield* client.get(
+      function* (game: "lol" | "tft", name: string, tag: string) {
+        const res = yield* clients[game].get(
           `/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`,
         );
         const json = yield* res.json;
@@ -158,7 +167,7 @@ export const RiotApiLive = Layer.effect(
       game: "lol" | "tft",
       puuid: Puuid,
     ) {
-      const res = yield* client.get(
+      const res = yield* clients[game].get(
         `/riot/account/v1/region/by-game/${game}/by-puuid/${encodeURIComponent(puuid)}`,
       );
       const json = yield* res.json;
@@ -170,10 +179,14 @@ export const RiotApiLive = Layer.effect(
 
     // an unknown shard falls back to the configured cluster, which is right
     // as long as the account plays there
-    const matchGet = (platformId: string | undefined, path: string) => {
+    const matchGet = (
+      game: "lol" | "tft",
+      platformId: string | undefined,
+      path: string,
+    ) => {
       const cluster =
         (platformId ? CLUSTERS[platformId] : undefined) ?? defaultCluster;
-      return client
+      return clients[game]
         .pipe(
           HttpClient.mapRequest(
             HttpClientRequest.setUrl(
@@ -189,6 +202,7 @@ export const RiotApiLive = Layer.effect(
       platformId: string | undefined,
     ) {
       const res = yield* matchGet(
+        "lol",
         platformId,
         `/lol/match/v5/matches/${matchId}`,
       );
@@ -201,6 +215,7 @@ export const RiotApiLive = Layer.effect(
       platformId: string | undefined,
     ) {
       const res = yield* matchGet(
+        "tft",
         platformId,
         `/tft/match/v1/matches/${matchId}`,
       );
@@ -212,6 +227,7 @@ export const RiotApiLive = Layer.effect(
     const getLolRecentMatches = Effect.fn("RiotApi.getLolRecentMatches")(
       function* (puuid: Puuid, platformId: string | undefined, count: number) {
         const res = yield* matchGet(
+          "lol",
           platformId,
           `/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids?count=${count}`,
         );
@@ -236,6 +252,7 @@ export const RiotApiLive = Layer.effect(
     const getTftRecentMatches = Effect.fn("RiotApi.getTftRecentMatches")(
       function* (puuid: Puuid, platformId: string | undefined, count: number) {
         const res = yield* matchGet(
+          "tft",
           platformId,
           `/tft/match/v1/matches/by-puuid/${encodeURIComponent(puuid)}/ids?count=${count}`,
         );
@@ -261,7 +278,7 @@ export const RiotApiLive = Layer.effect(
       puuid: Puuid,
       platformId: string,
     ) {
-      const shardClient = client.pipe(
+      const shardClient = clients.lol.pipe(
         HttpClient.mapRequest(
           HttpClientRequest.setUrl(
             `https://${platformId}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(puuid)}`,
@@ -276,7 +293,7 @@ export const RiotApiLive = Layer.effect(
 
     const getTftLeagueEntries = Effect.fn("RiotApi.getTftLeagueEntries")(
       function* (puuid: Puuid, platformId: string) {
-        const shardClient = client.pipe(
+        const shardClient = clients.tft.pipe(
           HttpClient.mapRequest(
             HttpClientRequest.setUrl(
               `https://${platformId}.api.riotgames.com/tft/league/v1/by-puuid/${encodeURIComponent(puuid)}`,
