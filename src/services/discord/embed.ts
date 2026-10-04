@@ -304,12 +304,9 @@ export const placementVerdict = (report: PlacementReport) => {
       : primary.placement <= half
         ? "win"
         : "loss";
-  const label =
-    tracked.length > 1
-      ? "TFT Results"
-      : primary
-        ? `${ordinal(primary.placement)} Place`
-        : verdicts.unknown.label;
+  const label = primary
+    ? `${ordinal(primary.placement)} Place`
+    : verdicts.unknown.label;
   return { key, label, trackedPuuids, half } as const;
 };
 
