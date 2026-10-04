@@ -1,11 +1,7 @@
 import { Effect } from "effect";
 import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
 import { riotRankDisplay, riotRankIcons } from "../game-api/riot/ranks.ts";
-import type {
-  TftLeagueEntry,
-  TftMatch,
-  TftParticipant,
-} from "../game-api/tft/match-schema.ts";
+import type { TftLeagueEntry, TftMatch } from "../game-api/tft/match-schema.ts";
 import type {
   PlacementMatch,
   PlacementPlayer,
@@ -53,18 +49,6 @@ const shardFromMatchId = (matchId: string) => {
   return matchId.slice(0, separator).toLowerCase();
 };
 
-const tftStat = (participant: TftParticipant) => {
-  const parts: Array<string> = [];
-  if (typeof participant.level === "number") {
-    parts.push(`Level ${participant.level}`);
-  }
-  // riot sends 0 for every player since set 18, which reads as a real stat
-  if (participant.total_damage_to_players) {
-    parts.push(`${participant.total_damage_to_players} player dmg`);
-  }
-  return parts.join(" · ");
-};
-
 const rankedTftEntry = (entries: ReadonlyArray<TftLeagueEntry>) => {
   const entry = entries.find((candidate) => candidate.queueType === RANKED_TFT);
   if (
@@ -100,7 +84,9 @@ export const tftMatchToDetails = (match: TftMatch): PlacementMatch => {
       riotName: participant.riotIdGameName,
       riotTag: participant.riotIdTagline,
       placement: participant.placement,
-      stat: tftStat(participant),
+      // riot sends 0 player damage for everyone since set 18, so level is
+      // the only stat worth showing
+      stat: participant.level == null ? "" : `Level ${participant.level}`,
     }),
   );
 
@@ -122,6 +108,8 @@ export const makeTftGameAdapter = Effect.gen(function* () {
   const adapter: GameAdapter = {
     game: "tft",
     requiresMatchHistory: true,
+    iconUrl:
+      "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/content/src/leagueclient/gamemodeassets/tft/img/game-select-icon-active.png",
     rankIcons: riotRankIcons,
     resolveAccount: Effect.fn("GameAdapter.tft.resolveAccount")(function* (
       name: string,

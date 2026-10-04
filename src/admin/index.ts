@@ -602,13 +602,7 @@ const reportMock = Command.make(
     );
 
     if (Option.isSome(out)) {
-      const { match } = report;
-      if (match.kind !== "versus") {
-        return yield* fail(
-          `A ${gameNames[game]} report is posted as an embed and has no match card to write.`,
-        );
-      }
-      const png = yield* card({ ...report, match }).pipe(
+      const png = yield* card(report).pipe(
         orFail("Could not render the match card"),
       );
       yield* Effect.promise(() => writeFile(out.value, png));
