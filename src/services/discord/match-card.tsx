@@ -199,7 +199,11 @@ const Row = ({
 }) => {
   const delta = rankDelta(report.rankUpdates.get(player.puuid));
   const rankIcon = images.ranks.get(player.puuid);
-  const ranked = report.match.players.some((candidate) => candidate.rank);
+  const label =
+    player.rank ??
+    (report.match.players.some((candidate) => candidate.rank)
+      ? "Unranked"
+      : undefined);
   return (
     <div
       style={{
@@ -245,7 +249,7 @@ const Row = ({
         >
           {player.riotName}
         </div>
-        {ranked || delta ? (
+        {label ? (
           <div
             style={{
               display: "flex",
@@ -263,9 +267,7 @@ const Row = ({
                 style={{ marginRight: 3 }}
               />
             ) : null}
-            {ranked ? (
-              <div style={{ flexShrink: 0 }}>{player.rank ?? "Unranked"}</div>
-            ) : null}
+            <div style={{ flexShrink: 0 }}>{label}</div>
             {delta ? (
               <div
                 style={{
