@@ -24,6 +24,7 @@ export const LolParticipant = Schema.Struct({
   riotIdGameName: Schema.String,
   riotIdTagline: Schema.String,
   teamId: Schema.Literals([100, 200]),
+  championId: Schema.Number,
   championName: Schema.String,
   kills: Schema.Number,
   deaths: Schema.Number,

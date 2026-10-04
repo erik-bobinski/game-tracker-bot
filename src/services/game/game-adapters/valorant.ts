@@ -48,12 +48,18 @@ const rankIcons = [
     url: `https://media.valorant-api.com/competitivetiers/${valorantTierSet}/27/smallicon.png`,
   });
 
-export const valMatchToDetails = (match: ValRawMatch): VersusMatch => {
+// ranks players by ACS until enrichMatch supplies their Performance Scores
+export const valMatchToDetails = (
+  match: ValRawMatch,
+  performanceScores?: ReadonlyMap<Puuid, number>,
+): VersusMatch => {
   const rounds = Math.max(match.rounds.length, 1);
   const players: Array<VersusPlayer> = match.players.map((player) => {
     const shots =
       player.stats.headshots + player.stats.bodyshots + player.stats.legshots;
     const acs = Math.floor(player.stats.score / rounds);
+    const score = performanceScores?.get(player.puuid);
+    const headline = score === undefined ? `${acs} ACS` : `${score} PS`;
     const iconKey = rankIconKey(player.tier.name);
     return {
       puuid: player.puuid,
@@ -61,14 +67,15 @@ export const valMatchToDetails = (match: ValRawMatch): VersusMatch => {
       riotName: player.name,
       riotTag: player.tag,
       character: player.agent.name,
+      characterIconUrl: `https://media.valorant-api.com/agents/${player.agent.id}/displayicon.png`,
       kills: player.stats.kills,
       deaths: player.stats.deaths,
       assists: player.stats.assists,
       stat:
         shots > 0
-          ? `${acs} ACS · ${Math.floor((player.stats.headshots * 100) / shots)}% HS`
-          : `${acs} ACS`,
-      sortKey: acs,
+          ? `${headline} · ${Math.floor((player.stats.headshots * 100) / shots)}% HS`
+          : headline,
+      sortKey: score ?? acs,
       ...(player.tier.name && player.tier.name !== "Unrated"
         ? { rank: player.tier.name }
         : {}),
@@ -78,7 +85,7 @@ export const valMatchToDetails = (match: ValRawMatch): VersusMatch => {
 
   const teams: Array<MatchTeam> = match.teams.map((team) => ({
     id: team.team_id.toLowerCase(),
-    won: team.won,
+    ...(team.rounds.won !== team.rounds.lost ? { won: team.won } : {}),
     score: [team.rounds.won, team.rounds.lost],
   }));
 
@@ -104,6 +111,8 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
   const adapter: GameAdapter = {
     game: "valorant",
     requiresMatchHistory: false,
+    iconUrl: new URL("../../../../assets/logo-valorant.png", import.meta.url)
+      .href,
     rankIcons,
     resolveAccount: Effect.fn("GameAdapter.valorant.resolveAccount")(function* (
       name: string,
@@ -120,7 +129,7 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
         );
         return matches
           .filter((match) => match.metadata.is_completed)
-          .map(valMatchToDetails);
+          .map((match) => valMatchToDetails(match));
       },
       Effect.mapError(
         (cause) =>
@@ -135,9 +144,25 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
       match,
       trackedPlayers,
     }) {
-      const enrichment = emptyEnrichment(match);
-      if (match.kind !== "versus") return enrichment;
-      if (match.mode !== "Competitive") return enrichment;
+      if (match.kind !== "versus") return emptyEnrichment(match);
+      const region = trackedPlayers[0]?.region;
+      const scored = yield* Effect.all(
+        [
+          henrikClient.getMatch(match.matchId, region),
+          henrikClient.getPerformanceScores(match.matchId, region),
+        ],
+        { concurrency: 2 },
+      ).pipe(
+        Effect.map(([raw, scores]) => valMatchToDetails(raw, scores)),
+        Effect.catch((error) =>
+          logApiWarning("valorant performance scores unavailable", error).pipe(
+            Effect.annotateLogs({ matchId: match.matchId }),
+            Effect.as(match),
+          ),
+        ),
+      );
+      const enrichment = emptyEnrichment(scored);
+      if (scored.mode !== "Competitive") return enrichment;
 
       yield* Effect.forEach(
         trackedPlayers,

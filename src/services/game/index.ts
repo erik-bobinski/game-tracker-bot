@@ -41,6 +41,7 @@ export interface MatchPlayerIdentity {
 export interface VersusPlayer extends MatchPlayerIdentity {
   readonly team: string;
   readonly character: string;
+  readonly characterIconUrl?: string;
   readonly kills: number;
   readonly deaths: number;
   readonly assists: number;
@@ -53,6 +54,7 @@ export interface PlacementPlayer extends MatchPlayerIdentity {
 
 export interface MatchTeam {
   readonly id: string;
+  /** Omitted when the match ended in a draw */
   readonly won?: boolean;
   readonly score?: readonly [number, number];
 }

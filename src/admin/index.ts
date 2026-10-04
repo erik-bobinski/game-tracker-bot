@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import {
   NodeHttpClient,
   NodeRuntime,
@@ -27,7 +28,10 @@ import {
   formatRefreshResult,
 } from "../services/discord/commands.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
-import { matchEmbed } from "../services/discord/embed.ts";
+import {
+  makeMatchCard,
+  postMatchReport,
+} from "../services/discord/match-card.tsx";
 import {
   Database,
   DatabaseLive,
@@ -143,7 +147,8 @@ const GameLive = GameAdaptersLive.pipe(
 
 const DiscordRestLive = DiscordRESTLive.pipe(
   Layer.provide(MemoryRateLimitStoreLive),
-  Layer.provide(NodeHttpClient.layerUndici),
+  // fetch, as the bot's own rest client does, for the card's multipart upload
+  Layer.provide(NodeHttpClient.layerFetch),
   Layer.provide(
     DiscordConfig.layerConfig({
       token: Config.redacted("DISCORD_BOT_TOKEN"),
@@ -580,29 +585,52 @@ const reportMock = Command.make(
       Flag.withDescription("which game's mock match to post"),
       Flag.withDefault("lol"),
     ),
+    out: Flag.path("out").pipe(
+      Flag.withDescription(
+        "write the match card png to this path instead of posting it",
+      ),
+      Flag.optional,
+    ),
   },
-  Effect.fn(function* ({ game }) {
+  Effect.fn(function* ({ game, out }) {
     const { json } = yield* admin;
-    const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
     const report = yield* buildMockMatchReport(game).pipe(
       orFail("Could not build mock match report"),
     );
+    const card = yield* makeMatchCard(
+      yield* withGameAdapters((adapters) => Effect.succeed(adapters.all)),
+    );
 
+    if (Option.isSome(out)) {
+      const { match } = report;
+      if (match.kind !== "versus") {
+        return yield* fail(
+          `A ${gameNames[game]} report is posted as an embed and has no match card to write.`,
+        );
+      }
+      const png = yield* card({ ...report, match }).pipe(
+        orFail("Could not render the match card"),
+      );
+      yield* Effect.promise(() => writeFile(out.value, png));
+      return yield* emit(json, { game, out: out.value }, [
+        `Wrote a mock ${gameNames[game]} match card to ${out.value}.`,
+      ]);
+    }
+
+    const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
     yield* withDiscordRest((rest) =>
-      rest
-        .createMessage(channelId, {
-          embeds: [matchEmbed(report, {})],
-        })
-        .pipe(orFail("Could not post mock match report")),
+      postMatchReport({ rest, channelId, card, rankEmojis: {} }, report).pipe(
+        orFail("Could not post mock match report"),
+      ),
     );
 
     yield* emit(json, { game, channelId, matchId: report.match.matchId }, [
       `Posted a mock ${gameNames[game]} match report to channel ${channelId}.`,
     ]);
-  }),
+  }, Effect.provide(NodeHttpClient.layerUndici)),
 ).pipe(
   Command.withDescription(
-    "Post a mock match report embed to the notification channel",
+    "Post a mock match report to the notification channel, or render its card to a file",
   ),
 );
 
