@@ -28,6 +28,7 @@ import {
   formatRefreshResult,
 } from "../services/discord/commands.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
+import type { MatchReport } from "../services/discord/embed.ts";
 import {
   makeMatchCard,
   postMatchReport,
@@ -39,15 +40,17 @@ import {
   type Account,
 } from "../services/database/index.ts";
 import {
+  enrichOrSkip,
   GameAdapters,
   GameAdaptersLive,
+  type GameAdapter,
 } from "../services/game/game-adapters/index.ts";
 import { RiotApiLive } from "../services/game/game-api/lol/riot-api-client.ts";
 import { HenrikApiClientLive } from "../services/game/game-api/val/henrik-api-client.ts";
 import { gameIds, gameNames, type GameId } from "../services/game/index.ts";
 
 // Anything the operator caused or can fix: an unknown account, a riot id that
-// resolves to nothing, an api that wouldn't answer. Exit 2 belongs to the
+// resolves to nothing, an api that wouldn't answer. Exit 1 belongs to the
 // argument parser, so these take 3.
 class AdminError extends Schema.TaggedError<AdminError>()("AdminError", {
   message: Schema.String,
@@ -78,6 +81,13 @@ const emit = (json: boolean, data: unknown, lines: ReadonlyArray<string>) =>
   Console.log(json ? JSON.stringify(data, null, 2) : lines.join("\n"));
 
 const riotId = (account: Account) => `${account.riotName}#${account.riotTag}`;
+
+const parseRiotId = (raw: string) => {
+  const [riotName, riotTag, ...extra] = raw.trim().replace(/^@/, "").split("#");
+  return riotName && riotTag && extra.length === 0
+    ? Effect.succeed({ riotName, riotTag })
+    : fail(`"${raw}" is not a riot id; expected name#tag.`);
+};
 
 const trackedGames = (account: Account) =>
   (Object.keys(account.games) as ReadonlyArray<GameId>).filter(
@@ -316,13 +326,7 @@ const signup = Command.make(
         ),
       onSome: Effect.succeed,
     });
-    const [riotName, riotTag, ...extra] = rawRiotId
-      .trim()
-      .replace(/^@/, "")
-      .split("#");
-    if (!riotName || !riotTag || extra.length > 0) {
-      return yield* fail(`"${rawRiotId}" is not a riot id; expected name#tag.`);
-    }
+    const { riotName, riotTag } = yield* parseRiotId(rawRiotId);
 
     const discordUserId = yield* Option.match(discordId, {
       onNone: () =>
@@ -578,6 +582,46 @@ const refresh = Command.make(
   ),
 );
 
+const sendReport = Effect.fn("Admin.sendReport")(function* (
+  report: MatchReport,
+  adapters: ReadonlyArray<GameAdapter>,
+  out: Option.Option<string>,
+) {
+  const { json } = yield* admin;
+  const { game, matchId } = report.match;
+  const label = `${gameNames[game]} match ${matchId}`;
+  const card = yield* makeMatchCard(adapters);
+
+  if (Option.isSome(out)) {
+    const png = yield* card(report).pipe(
+      orFail("Could not render the match card"),
+    );
+    yield* Effect.tryPromise(() => writeFile(out.value, png)).pipe(
+      orFail(`Could not write ${out.value}`),
+    );
+    return yield* emit(json, { game, matchId, out: out.value }, [
+      `Wrote the card for ${label} to ${out.value}.`,
+    ]);
+  }
+
+  const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
+  yield* withDiscordRest((rest) =>
+    postMatchReport({ rest, channelId, card, rankEmojis: {} }, report).pipe(
+      orFail("Could not post match report"),
+    ),
+  );
+  yield* emit(json, { game, channelId, matchId }, [
+    `Posted ${label} to channel ${channelId}.`,
+  ]);
+});
+
+const outFlag = Flag.path("out").pipe(
+  Flag.withDescription(
+    "write the match card png to this path instead of posting it",
+  ),
+  Flag.optional,
+);
+
 const reportMock = Command.make(
   "report-mock",
   {
@@ -585,47 +629,85 @@ const reportMock = Command.make(
       Flag.withDescription("which game's mock match to post"),
       Flag.withDefault("lol"),
     ),
-    out: Flag.path("out").pipe(
-      Flag.withDescription(
-        "write the match card png to this path instead of posting it",
-      ),
-      Flag.optional,
-    ),
+    out: outFlag,
   },
   Effect.fn(function* ({ game, out }) {
-    const { json } = yield* admin;
     const report = yield* buildMockMatchReport(game).pipe(
       orFail("Could not build mock match report"),
     );
-    const card = yield* makeMatchCard(
-      yield* withGameAdapters((adapters) => Effect.succeed(adapters.all)),
+    const adapters = yield* withGameAdapters((loaded) =>
+      Effect.succeed(loaded.all),
     );
-
-    if (Option.isSome(out)) {
-      const png = yield* card(report).pipe(
-        orFail("Could not render the match card"),
-      );
-      yield* Effect.promise(() => writeFile(out.value, png));
-      return yield* emit(json, { game, out: out.value }, [
-        `Wrote a mock ${gameNames[game]} match card to ${out.value}.`,
-      ]);
-    }
-
-    const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
-    yield* withDiscordRest((rest) =>
-      postMatchReport({ rest, channelId, card, rankEmojis: {} }, report).pipe(
-        orFail("Could not post mock match report"),
-      ),
-    );
-
-    yield* emit(json, { game, channelId, matchId: report.match.matchId }, [
-      `Posted a mock ${gameNames[game]} match report to channel ${channelId}.`,
-    ]);
+    yield* sendReport(report, adapters, out);
   }, Effect.provide(NodeHttpClient.layerUndici)),
 ).pipe(
   Command.withDescription(
     "Post a mock match report to the notification channel, or render its card to a file",
   ),
+);
+
+const reportMatch = Command.make(
+  "report-match",
+  {
+    target: Argument.string("riot-id").pipe(
+      Argument.withDescription(
+        "riot id whose recent match to report, as name#tag",
+      ),
+    ),
+    game: Flag.choice("game", gameIds).pipe(
+      Flag.withDescription("which game's match history to read"),
+    ),
+    index: Flag.integer("index").pipe(
+      Flag.withDescription("which recent match to report, 0 being the newest"),
+      Flag.withDefault(0),
+    ),
+    out: outFlag,
+  },
+  Effect.fn(function* ({ target, game, index, out }) {
+    const { riotName, riotTag } = yield* parseRiotId(target);
+    const { report, adapters } = yield* withGameAdapters((loaded) =>
+      Effect.gen(function* () {
+        const adapter = loaded.all.find((candidate) => candidate.game === game);
+        if (!adapter) return yield* fail(`${gameNames[game]} isn't supported.`);
+        const { puuid, region } = yield* adapter
+          .resolveAccount(riotName, riotTag)
+          .pipe(orFail(`Could not find ${riotName}#${riotTag}`));
+        const matches = yield* adapter
+          .getRecentMatches(puuid, region)
+          .pipe(orFail("Could not read recent matches"));
+        const match = matches[index];
+        if (!match) {
+          return yield* fail(
+            `No recent ${gameNames[game]} match at index ${index} for ${riotName}#${riotTag} (${matches.length} available).`,
+          );
+        }
+        const enrichment = yield* enrichOrSkip(adapter, {
+          match,
+          trackedPlayers: [{ puuid, region, previousRankSnapshots: {} }],
+        });
+        return {
+          report: {
+            tracked: [{ discordName: riotName, puuid }],
+            match: enrichment.match,
+            rankUpdates: enrichment.rankUpdates,
+          } satisfies MatchReport,
+          adapters: loaded.all,
+        };
+      }),
+    );
+    yield* sendReport(report, adapters, out);
+  }, Effect.provide(NodeHttpClient.layerUndici)),
+).pipe(
+  Command.withDescription(
+    "Report a real recent match through the polling pipeline, to the notification channel or a png",
+  ),
+  Command.withExamples([
+    {
+      command:
+        "admin report-match 'hathaways#noa' --game valorant --out card.png",
+      description: "Render someone's newest Valorant match without posting it",
+    },
+  ]),
 );
 
 const cli = admin.pipe(
@@ -638,6 +720,7 @@ const cli = admin.pipe(
     rankCheck,
     refresh,
     reportMock,
+    reportMatch,
   ]),
   Command.run({ version: "1.0.0" }),
 );

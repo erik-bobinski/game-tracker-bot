@@ -116,6 +116,21 @@ export const emptyEnrichment = (match: MatchDetails) => ({
   updatedRankSnapshots: new Map<Puuid, RankSnapshots>(),
 });
 
+export const enrichOrSkip = (
+  adapter: GameAdapter,
+  input: Parameters<GameAdapter["enrichMatch"]>[0],
+) =>
+  adapter
+    .enrichMatch(input)
+    .pipe(
+      Effect.catchTag("GameApiError", (error) =>
+        logApiWarning(
+          "sending match report without optional enrichment",
+          error,
+        ).pipe(Effect.as(emptyEnrichment(input.match))),
+      ),
+    );
+
 const toGameState = (
   puuid: Puuid,
   region: Region | undefined,

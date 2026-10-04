@@ -96,6 +96,8 @@ pnpm admin report-mock --game lol --json
 pnpm admin status --json
 ```
 
+To check a change against live data, report a real match through the polling path with `pnpm admin report-match 'name#tag' --game <game>`. See [features/report-match.md](features/report-match.md).
+
 ## Evidence
 
 Capture under `/opt/cursor/artifacts/verify-<run-id>/`:

@@ -30,3 +30,4 @@ Headless verification for cloud agents. Read this index, then the feature file f
 - [Signup](./signup.md)
 - [Refresh](./refresh.md)
 - [Report mock embed](./report-mock.md)
+- [Report a real match](./report-match.md)
