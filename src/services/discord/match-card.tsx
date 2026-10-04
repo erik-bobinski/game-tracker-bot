@@ -199,6 +199,7 @@ const Row = ({
 }) => {
   const delta = rankDelta(report.rankUpdates.get(player.puuid));
   const rankIcon = images.ranks.get(player.puuid);
+  const ranked = report.match.players.some((candidate) => candidate.rank);
   return (
     <div
       style={{
@@ -244,37 +245,41 @@ const Row = ({
         >
           {player.riotName}
         </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            marginTop: 3,
-            fontSize: 11.5,
-            color: player.rank ? colors.muted : colors.faint,
-          }}
-        >
-          {rankIcon ? (
-            <img
-              src={rankIcon}
-              width={15}
-              height={15}
-              style={{ marginRight: 3 }}
-            />
-          ) : null}
-          <div style={{ flexShrink: 0 }}>{player.rank ?? "Unranked"}</div>
-          {delta ? (
-            <div
-              style={{
-                flexShrink: 0,
-                marginLeft: 5,
-                fontWeight: 600,
-                color: delta.color,
-              }}
-            >
-              {delta.text}
-            </div>
-          ) : null}
-        </div>
+        {ranked || delta ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              marginTop: 3,
+              fontSize: 11.5,
+              color: player.rank ? colors.muted : colors.faint,
+            }}
+          >
+            {rankIcon ? (
+              <img
+                src={rankIcon}
+                width={15}
+                height={15}
+                style={{ marginRight: 3 }}
+              />
+            ) : null}
+            {ranked ? (
+              <div style={{ flexShrink: 0 }}>{player.rank ?? "Unranked"}</div>
+            ) : null}
+            {delta ? (
+              <div
+                style={{
+                  flexShrink: 0,
+                  marginLeft: 5,
+                  fontWeight: 600,
+                  color: delta.color,
+                }}
+              >
+                {delta.text}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div
         style={{
