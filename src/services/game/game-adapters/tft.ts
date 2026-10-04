@@ -58,7 +58,8 @@ const tftStat = (participant: TftParticipant) => {
   if (typeof participant.level === "number") {
     parts.push(`Level ${participant.level}`);
   }
-  if (typeof participant.total_damage_to_players === "number") {
+  // riot sends 0 for every player since set 18, which reads as a real stat
+  if (participant.total_damage_to_players) {
     parts.push(`${participant.total_damage_to_players} player dmg`);
   }
   return parts.join(" · ");
