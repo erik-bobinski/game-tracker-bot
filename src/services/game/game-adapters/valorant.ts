@@ -48,18 +48,24 @@ const rankIcons = [
     url: `https://media.valorant-api.com/competitivetiers/${valorantTierSet}/27/smallicon.png`,
   });
 
-// ranks players by ACS until enrichMatch supplies their Performance Scores
 export const valMatchToDetails = (
   match: ValRawMatch,
   performanceScores?: ReadonlyMap<Puuid, number>,
 ): VersusMatch => {
-  const rounds = Math.max(match.rounds.length, 1);
+  // Henrik reports deathmatch-style modes as a single round
+  const roundBased = match.rounds.length > 1;
   const players: Array<VersusPlayer> = match.players.map((player) => {
     const shots =
       player.stats.headshots + player.stats.bodyshots + player.stats.legshots;
-    const acs = Math.floor(player.stats.score / rounds);
     const score = performanceScores?.get(player.puuid);
-    const headline = score === undefined ? `${acs} ACS` : `${score} PS`;
+    const impact = !roundBased
+      ? undefined
+      : score === undefined
+        ? {
+            value: Math.floor(player.stats.score / match.rounds.length),
+            unit: "ACS",
+          }
+        : { value: score, unit: "PS" };
     const iconKey = rankIconKey(player.tier.name);
     return {
       puuid: player.puuid,
@@ -71,11 +77,15 @@ export const valMatchToDetails = (
       kills: player.stats.kills,
       deaths: player.stats.deaths,
       assists: player.stats.assists,
-      stat:
+      stat: [
+        impact && `${impact.value} ${impact.unit}`,
         shots > 0
-          ? `${headline} · ${Math.floor((player.stats.headshots * 100) / shots)}% HS`
-          : headline,
-      sortKey: score ?? acs,
+          ? `${Math.floor((player.stats.headshots * 100) / shots)}% HS`
+          : undefined,
+      ]
+        .filter((part) => part !== undefined)
+        .join(" · "),
+      sortKey: impact?.value ?? player.stats.kills,
       ...(player.tier.name && player.tier.name !== "Unrated"
         ? { rank: player.tier.name }
         : {}),
