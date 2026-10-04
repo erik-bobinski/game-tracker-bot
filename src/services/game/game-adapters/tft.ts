@@ -91,6 +91,7 @@ export const tftMatchToDetails = (match: TftMatch): PlacementMatch => {
 
   return {
     kind: "placement",
+    winningPlacements: Math.ceil(players.length / 2),
     matchId: match.metadata.match_id,
     game: "tft",
     date: match.info.game_datetime,

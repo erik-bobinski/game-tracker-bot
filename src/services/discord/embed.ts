@@ -297,7 +297,7 @@ export const placementVerdict = (report: PlacementReport) => {
   const key =
     primary === undefined
       ? "unknown"
-      : primary.placement <= half
+      : primary.placement <= report.match.winningPlacements
         ? "win"
         : "loss";
   const label = primary

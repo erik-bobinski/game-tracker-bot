@@ -73,15 +73,23 @@ export const valMatchToDetails = (
     };
   };
 
-  // Henrik gives every deathmatch player a team of their own
-  if (match.teams.length > 2) {
+  const freeForAll = match.players.every(
+    (player) => player.team_id === player.puuid,
+  );
+  if (freeForAll) {
+    const winners = new Set(
+      match.teams.filter((team) => team.won).map((team) => team.team_id),
+    );
     return {
       ...base,
       kind: "placement",
+      winningPlacements: 1,
       players: [...match.players]
         .sort(
           (a, b) =>
-            b.stats.kills - a.stats.kills || b.stats.score - a.stats.score,
+            Number(winners.has(b.puuid)) - Number(winners.has(a.puuid)) ||
+            b.stats.kills - a.stats.kills ||
+            b.stats.score - a.stats.score,
         )
         .map((player, index) => ({
           ...identity(player),
