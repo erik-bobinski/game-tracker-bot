@@ -28,6 +28,7 @@ import {
   formatRefreshResult,
 } from "../services/discord/commands.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
+import type { MatchReport } from "../services/discord/embed.ts";
 import {
   makeMatchCard,
   postMatchReport,
@@ -78,6 +79,13 @@ const emit = (json: boolean, data: unknown, lines: ReadonlyArray<string>) =>
   Console.log(json ? JSON.stringify(data, null, 2) : lines.join("\n"));
 
 const riotId = (account: Account) => `${account.riotName}#${account.riotTag}`;
+
+const parseRiotId = (raw: string) => {
+  const [riotName, riotTag, ...extra] = raw.trim().replace(/^@/, "").split("#");
+  return riotName && riotTag && extra.length === 0
+    ? Effect.succeed({ riotName, riotTag })
+    : fail(`"${raw}" is not a riot id; expected name#tag.`);
+};
 
 const trackedGames = (account: Account) =>
   (Object.keys(account.games) as ReadonlyArray<GameId>).filter(
@@ -316,13 +324,7 @@ const signup = Command.make(
         ),
       onSome: Effect.succeed,
     });
-    const [riotName, riotTag, ...extra] = rawRiotId
-      .trim()
-      .replace(/^@/, "")
-      .split("#");
-    if (!riotName || !riotTag || extra.length > 0) {
-      return yield* fail(`"${rawRiotId}" is not a riot id; expected name#tag.`);
-    }
+    const { riotName, riotTag } = yield* parseRiotId(rawRiotId);
 
     const discordUserId = yield* Option.match(discordId, {
       onNone: () =>
@@ -578,6 +580,47 @@ const refresh = Command.make(
   ),
 );
 
+// Writes a report's card to `out`, or posts the report to the notification
+// channel the way the bot does, falling back to the embed if the card fails
+const sendReport = Effect.fn(function* (
+  json: boolean,
+  report: MatchReport,
+  out: Option.Option<string>,
+  label: string,
+) {
+  const { game, matchId } = report.match;
+  const card = yield* makeMatchCard(
+    yield* withGameAdapters((adapters) => Effect.succeed(adapters.all)),
+  );
+
+  if (Option.isSome(out)) {
+    const png = yield* card(report).pipe(
+      orFail("Could not render the match card"),
+    );
+    yield* Effect.promise(() => writeFile(out.value, png));
+    return yield* emit(json, { game, matchId, out: out.value }, [
+      `Wrote a ${label} card to ${out.value}.`,
+    ]);
+  }
+
+  const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
+  yield* withDiscordRest((rest) =>
+    postMatchReport({ rest, channelId, card, rankEmojis: {} }, report).pipe(
+      orFail("Could not post match report"),
+    ),
+  );
+  yield* emit(json, { game, channelId, matchId }, [
+    `Posted a ${label} report to channel ${channelId}.`,
+  ]);
+});
+
+const outFlag = Flag.path("out").pipe(
+  Flag.withDescription(
+    "write the match card png to this path instead of posting it",
+  ),
+  Flag.optional,
+);
+
 const reportMock = Command.make(
   "report-mock",
   {
@@ -585,47 +628,88 @@ const reportMock = Command.make(
       Flag.withDescription("which game's mock match to post"),
       Flag.withDefault("lol"),
     ),
-    out: Flag.path("out").pipe(
-      Flag.withDescription(
-        "write the match card png to this path instead of posting it",
-      ),
-      Flag.optional,
-    ),
+    out: outFlag,
   },
   Effect.fn(function* ({ game, out }) {
     const { json } = yield* admin;
     const report = yield* buildMockMatchReport(game).pipe(
       orFail("Could not build mock match report"),
     );
-    const card = yield* makeMatchCard(
-      yield* withGameAdapters((adapters) => Effect.succeed(adapters.all)),
-    );
-
-    if (Option.isSome(out)) {
-      const png = yield* card(report).pipe(
-        orFail("Could not render the match card"),
-      );
-      yield* Effect.promise(() => writeFile(out.value, png));
-      return yield* emit(json, { game, out: out.value }, [
-        `Wrote a mock ${gameNames[game]} match card to ${out.value}.`,
-      ]);
-    }
-
-    const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
-    yield* withDiscordRest((rest) =>
-      postMatchReport({ rest, channelId, card, rankEmojis: {} }, report).pipe(
-        orFail("Could not post mock match report"),
-      ),
-    );
-
-    yield* emit(json, { game, channelId, matchId: report.match.matchId }, [
-      `Posted a mock ${gameNames[game]} match report to channel ${channelId}.`,
-    ]);
+    yield* sendReport(json, report, out, `mock ${gameNames[game]} match`);
   }, Effect.provide(NodeHttpClient.layerUndici)),
 ).pipe(
   Command.withDescription(
     "Post a mock match report to the notification channel, or render its card to a file",
   ),
+);
+
+// The polling path for one real match: the adapter finds the account, reads
+// its recent matches and enriches the chosen one exactly as the match engine
+// does, so a change can be checked against live data before it ships.
+const reportMatch = Command.make(
+  "report-match",
+  {
+    target: Argument.string("riot-id").pipe(
+      Argument.withDescription(
+        "riot id whose recent match to report, as name#tag",
+      ),
+    ),
+    game: Flag.choice("game", gameIds).pipe(
+      Flag.withDescription("which game's match history to read"),
+    ),
+    index: Flag.integer("index").pipe(
+      Flag.withDescription("which recent match to report, 0 being the newest"),
+      Flag.withDefault(0),
+    ),
+    out: outFlag,
+  },
+  Effect.fn(function* ({ target, game, index, out }) {
+    const { json } = yield* admin;
+    const { riotName, riotTag } = yield* parseRiotId(target);
+    const report = yield* withGameAdapters((adapters) =>
+      Effect.gen(function* () {
+        const adapter = adapters.all.find(
+          (candidate) => candidate.game === game,
+        );
+        if (!adapter) return yield* fail(`${gameNames[game]} isn't supported.`);
+        const { puuid, region } = yield* adapter
+          .resolveAccount(riotName, riotTag)
+          .pipe(orFail(`Could not find ${riotName}#${riotTag}`));
+        const matches = yield* adapter
+          .getRecentMatches(puuid, region)
+          .pipe(orFail("Could not read recent matches"));
+        const match = matches[index];
+        if (!match) {
+          return yield* fail(
+            `${riotName}#${riotTag} has ${matches.length} recent ${gameNames[game]} matches, so there is no index ${index}.`,
+          );
+        }
+        const enrichment = yield* adapter
+          .enrichMatch({
+            match,
+            trackedPlayers: [{ puuid, region, previousRankSnapshots: {} }],
+          })
+          .pipe(orFail("Could not enrich the match"));
+        return {
+          tracked: [{ discordName: riotName, puuid }],
+          match: enrichment.match,
+          rankUpdates: enrichment.rankUpdates,
+        } satisfies MatchReport;
+      }),
+    );
+    yield* sendReport(json, report, out, `${gameNames[game]} match`);
+  }, Effect.provide(NodeHttpClient.layerUndici)),
+).pipe(
+  Command.withDescription(
+    "Report a real recent match through the polling pipeline, to the notification channel or a png",
+  ),
+  Command.withExamples([
+    {
+      command:
+        "admin report-match 'hathaways#noa' --game valorant --out card.png",
+      description: "Render someone's newest Valorant match without posting it",
+    },
+  ]),
 );
 
 const cli = admin.pipe(
@@ -638,6 +722,7 @@ const cli = admin.pipe(
     rankCheck,
     refresh,
     reportMock,
+    reportMatch,
   ]),
   Command.run({ version: "1.0.0" }),
 );
