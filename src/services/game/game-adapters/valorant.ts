@@ -48,25 +48,24 @@ const rankIcons = [
     url: `https://media.valorant-api.com/competitivetiers/${valorantTierSet}/27/smallicon.png`,
   });
 
-// ranks players by ACS until enrichMatch supplies their Performance Scores.
-// Deathmatch-style modes come back as a single round, so they skip both and
-// rank by kills like the in-game scoreboard
 export const valMatchToDetails = (
   match: ValRawMatch,
   performanceScores?: ReadonlyMap<Puuid, number>,
 ): VersusMatch => {
-  const rounds = match.rounds.length;
+  // Henrik reports deathmatch-style modes as a single round
+  const roundBased = match.rounds.length > 1;
   const players: Array<VersusPlayer> = match.players.map((player) => {
     const shots =
       player.stats.headshots + player.stats.bodyshots + player.stats.legshots;
-    const acs = Math.floor(player.stats.score / Math.max(rounds, 1));
     const score = performanceScores?.get(player.puuid);
-    const headline =
-      rounds <= 1
-        ? undefined
-        : score === undefined
-          ? `${acs} ACS`
-          : `${score} PS`;
+    const impact = !roundBased
+      ? undefined
+      : score === undefined
+        ? {
+            value: Math.floor(player.stats.score / match.rounds.length),
+            unit: "ACS",
+          }
+        : { value: score, unit: "PS" };
     const iconKey = rankIconKey(player.tier.name);
     return {
       puuid: player.puuid,
@@ -79,14 +78,14 @@ export const valMatchToDetails = (
       deaths: player.stats.deaths,
       assists: player.stats.assists,
       stat: [
-        headline,
+        impact && `${impact.value} ${impact.unit}`,
         shots > 0
           ? `${Math.floor((player.stats.headshots * 100) / shots)}% HS`
           : undefined,
       ]
         .filter((part) => part !== undefined)
         .join(" · "),
-      sortKey: rounds <= 1 ? player.stats.kills : (score ?? acs),
+      sortKey: impact?.value ?? player.stats.kills,
       ...(player.tier.name && player.tier.name !== "Unrated"
         ? { rank: player.tier.name }
         : {}),
