@@ -29,7 +29,6 @@ import {
   matchEmbed,
   matchSummary,
   matchVerdict,
-  placementSummary,
   placementVerdict,
   teamLabel,
   type MatchReport,
@@ -771,14 +770,10 @@ export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
       embeds: [matchEmbed(report, rankEmojis)],
     });
   }
-  const { match } = report;
   const filename = "match-report.png";
   return yield* rest
     .createMessage(channelId, {
-      content:
-        match.kind === "versus"
-          ? matchSummary({ ...report, match })
-          : placementSummary({ ...report, match }),
+      content: matchSummary(report),
       attachments: [{ id: "0", filename }],
     })
     .pipe(

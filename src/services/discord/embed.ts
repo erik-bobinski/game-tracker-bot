@@ -209,7 +209,7 @@ export const teamLabel = (index: number) =>
 // "**A** and **B** won a **Competitive** game on **Ascent**.", or one clause
 // per outcome when tracked players were opponents:
 // "**A** and **B** won, **C** lost a **Competitive** game on **Ascent**."
-export const matchSummary = (report: VersusReport) => {
+const versusSummary = (report: VersusReport) => {
   const { match } = report;
   const clauses = Object.values(
     Array.groupBy(matchVerdict(report).tracked, (player) => player.outcome),
@@ -247,7 +247,7 @@ const versusEmbed = (
   return {
     author: { name: gameNames[match.game] },
     title: joinParts([verdict.label, trackedTeam?.score?.join("–")]),
-    description: matchSummary(report),
+    description: versusSummary(report),
     color: verdict.color,
     fields,
     footer: {
@@ -314,7 +314,7 @@ export const placementVerdict = (report: PlacementReport) => {
 };
 
 // "**A** finished 4th, **B** finished 7th in a **Ranked TFT** game."
-export const placementSummary = (report: PlacementReport) => {
+const placementSummary = (report: PlacementReport) => {
   const placements = new Map(
     report.match.players.map((player) => [player.puuid, player.placement]),
   );
@@ -325,6 +325,14 @@ export const placementSummary = (report: PlacementReport) => {
       : [`**${discordName}** finished ${ordinal(placement)}`];
   });
   return `${clauses.join(", ")} in a **${report.match.mode}** game.`;
+};
+
+// The one line a match card is posted under
+export const matchSummary = (report: MatchReport) => {
+  const { match } = report;
+  return match.kind === "versus"
+    ? versusSummary({ ...report, match })
+    : placementSummary({ ...report, match });
 };
 
 const placementEmbed = (
