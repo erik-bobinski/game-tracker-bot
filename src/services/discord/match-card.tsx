@@ -500,9 +500,8 @@ const versusCard = (report: VersusReport, images: CardImages) => {
 // placement where a versus card shows their character
 const placementCard = (report: PlacementReport, images: CardImages) => {
   const { match } = report;
-  const { key, label, trackedPuuids } = placementVerdict(report);
+  const { key, label, trackedPuuids, half } = placementVerdict(report);
   const players = [...match.players].sort((a, b) => a.placement - b.placement);
-  const half = Math.ceil(players.length / 2);
   const column = (
     title: string,
     color: string,

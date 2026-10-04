@@ -297,10 +297,11 @@ export const placementVerdict = (report: PlacementReport) => {
     trackedPuuids.has(player.puuid),
   );
   const primary = tracked.length === 1 ? tracked[0] : undefined;
+  const half = Math.ceil(report.match.players.length / 2);
   const key =
     primary === undefined
       ? "unknown"
-      : primary.placement <= report.match.players.length / 2
+      : primary.placement <= half
         ? "win"
         : "loss";
   const label =
@@ -309,7 +310,7 @@ export const placementVerdict = (report: PlacementReport) => {
       : primary
         ? `${ordinal(primary.placement)} Place`
         : verdicts.unknown.label;
-  return { key, label, trackedPuuids } as const;
+  return { key, label, trackedPuuids, half } as const;
 };
 
 // "**A** finished 4th, **B** finished 7th in a **Ranked TFT** game."
