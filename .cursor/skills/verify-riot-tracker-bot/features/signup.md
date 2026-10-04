@@ -12,7 +12,7 @@ Tracks a Riot account for a fake Discord user via the admin CLI.
 
 ## Driving it with admin CLI
 
-Preconditions: `RIOT_API_KEY`, `HENRIK_API_KEY`, isolated `DB_PATH`, real riot id.
+Preconditions: `RIOT_API_KEY`, `RIOT_TFT_API_KEY`, `HENRIK_API_KEY`, isolated `DB_PATH`, real riot id.
 
 - Action: `pnpm admin signup <riot-id> --discord-id verify-agent-user --json`
 - Observable: JSON includes `games` array with at least one entry, or exit non-zero with a clear error.

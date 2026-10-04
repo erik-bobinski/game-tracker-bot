@@ -168,7 +168,7 @@ const withGameAdapters = <A, E>(
       cause instanceof AdminError
         ? cause
         : new AdminError({
-            message: `This command needs RIOT_API_KEY and HENRIK_API_KEY${
+            message: `This command needs RIOT_API_KEY, RIOT_TFT_API_KEY and HENRIK_API_KEY${
               cause instanceof Error && cause.message
                 ? `: ${cause.message}`
                 : ""

@@ -126,7 +126,7 @@ export const makeTftGameAdapter = Effect.gen(function* () {
       name: string,
       tag: string,
     ) {
-      const puuid = yield* riotClient.getAccountByRiotId(name, tag);
+      const puuid = yield* riotClient.getAccountByRiotId("tft", name, tag);
       const region = yield* riotClient.getPlatformId("tft", puuid);
       return { puuid, region };
     }),

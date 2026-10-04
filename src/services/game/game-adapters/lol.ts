@@ -111,7 +111,7 @@ export const makeLolGameAdapter = Effect.gen(function* () {
       name: string,
       tag: string,
     ) {
-      const puuid = yield* riotClient.getAccountByRiotId(name, tag);
+      const puuid = yield* riotClient.getAccountByRiotId("lol", name, tag);
       // the account resolves fine without a shard; only rank lookups need it
       const region = yield* riotClient
         .getPlatformId("lol", puuid)
