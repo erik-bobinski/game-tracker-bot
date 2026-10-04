@@ -9,11 +9,11 @@ import {
 } from "./index.ts";
 import {
   EpochMillis,
+  type MatchDetails,
   type MatchTeam,
   type Puuid,
   type RankInfo,
   type Region,
-  type VersusMatch,
   type VersusPlayer,
 } from "../index.ts";
 import {
@@ -51,8 +51,55 @@ const rankIcons = [
 export const valMatchToDetails = (
   match: ValRawMatch,
   performanceScores?: ReadonlyMap<Puuid, number>,
-): VersusMatch => {
-  // Henrik reports deathmatch-style modes as a single round
+): MatchDetails => {
+  const base = {
+    matchId: match.metadata.match_id,
+    game: "valorant",
+    date: EpochMillis.make(Date.parse(match.metadata.started_at)),
+    mode: valMatchMode(match.metadata),
+    map: match.metadata.map.name,
+    durationSeconds: Math.floor(match.metadata.game_length_in_ms / 1_000),
+  } as const;
+  const identity = (player: ValRawMatch["players"][number]) => {
+    const iconKey = rankIconKey(player.tier.name);
+    return {
+      puuid: player.puuid,
+      riotName: player.name,
+      riotTag: player.tag,
+      ...(player.tier.name && player.tier.name !== "Unrated"
+        ? { rank: player.tier.name }
+        : {}),
+      ...(iconKey ? { rankIconKey: iconKey } : {}),
+    };
+  };
+
+  const freeForAll = match.players.every(
+    (player) => player.team_id === player.puuid,
+  );
+  if (freeForAll) {
+    const winners = new Set(
+      match.teams.filter((team) => team.won).map((team) => team.team_id),
+    );
+    return {
+      ...base,
+      kind: "placement",
+      players: [...match.players]
+        .sort(
+          (a, b) =>
+            Number(winners.has(b.puuid)) - Number(winners.has(a.puuid)) ||
+            b.stats.kills - a.stats.kills ||
+            b.stats.score - a.stats.score,
+        )
+        .map((player, index) => ({
+          ...identity(player),
+          placement: index + 1,
+          won: winners.has(player.puuid),
+          stat: `${player.stats.kills} / ${player.stats.deaths} / ${player.stats.assists}`,
+        })),
+    };
+  }
+
+  // Henrik reports team deathmatch as a single round
   const roundBased = match.rounds.length > 1;
   const players: Array<VersusPlayer> = match.players.map((player) => {
     const shots =
@@ -66,12 +113,9 @@ export const valMatchToDetails = (
             unit: "ACS",
           }
         : { value: score, unit: "PS" };
-    const iconKey = rankIconKey(player.tier.name);
     return {
-      puuid: player.puuid,
+      ...identity(player),
       team: player.team_id.toLowerCase(),
-      riotName: player.name,
-      riotTag: player.tag,
       character: player.agent.name,
       characterIconUrl: `https://media.valorant-api.com/agents/${player.agent.id}/displayicon.png`,
       kills: player.stats.kills,
@@ -86,10 +130,6 @@ export const valMatchToDetails = (
         .filter((part) => part !== undefined)
         .join(" · "),
       sortKey: impact?.value ?? player.stats.kills,
-      ...(player.tier.name && player.tier.name !== "Unrated"
-        ? { rank: player.tier.name }
-        : {}),
-      ...(iconKey ? { rankIconKey: iconKey } : {}),
     };
   });
 
@@ -100,13 +140,8 @@ export const valMatchToDetails = (
   }));
 
   return {
+    ...base,
     kind: "versus",
-    matchId: match.metadata.match_id,
-    game: "valorant",
-    date: EpochMillis.make(Date.parse(match.metadata.started_at)),
-    mode: valMatchMode(match.metadata),
-    map: match.metadata.map.name,
-    durationSeconds: Math.floor(match.metadata.game_length_in_ms / 1_000),
     surrendered: match.rounds.some(
       (round) => round.result.toLowerCase() === "surrendered",
     ),

@@ -50,6 +50,7 @@ export interface VersusPlayer extends MatchPlayerIdentity {
 
 export interface PlacementPlayer extends MatchPlayerIdentity {
   readonly placement: number;
+  readonly won: boolean;
 }
 
 export interface MatchTeam {

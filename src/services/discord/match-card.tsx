@@ -492,17 +492,19 @@ const versusCard = (report: VersusReport, images: CardImages) => {
 
 const placementCard = (report: PlacementReport, images: CardImages) => {
   const { match } = report;
-  const { key, label, trackedPuuids, half } = placementVerdict(report);
+  const { key, label, trackedPuuids } = placementVerdict(report);
   const players = [...match.players].sort((a, b) => a.placement - b.placement);
-  const column = (
-    title: string,
-    color: string,
-    group: ReadonlyArray<PlacementPlayer>,
-  ) => ({
+  const half = Math.ceil(players.length / 2);
+  const column = (title: string, group: ReadonlyArray<PlacementPlayer>) => ({
     label: title,
-    color,
+    color: group.every((player) => player.won) ? colors.up : colors.down,
     rows: group.map((player) => {
-      const tint = player.placement === 1 ? colors.gold : color;
+      const tint =
+        player.placement === 1
+          ? colors.gold
+          : player.won
+            ? colors.up
+            : colors.down;
       return (
         <Row
           player={player}
@@ -540,14 +542,10 @@ const placementCard = (report: PlacementReport, images: CardImages) => {
       icon={images.game}
       game={match.game}
       label={label}
-      details={[match.mode, formatDuration(match.durationSeconds)]}
+      details={[match.mode, match.map, formatDuration(match.durationSeconds)]}
       columns={[
-        column(`Top ${half}`, colors.up, players.slice(0, half)),
-        column(
-          `Bottom ${players.length - half}`,
-          colors.down,
-          players.slice(half),
-        ),
+        column(`Top ${half}`, players.slice(0, half)),
+        column(`Bottom ${players.length - half}`, players.slice(half)),
       ]}
     />
   );
