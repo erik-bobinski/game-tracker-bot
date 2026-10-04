@@ -64,8 +64,8 @@ export const logApiError = (message: string, error: unknown) =>
 export interface GameAdapter {
   readonly game: GameId;
   readonly requiresMatchHistory: boolean;
-  // the logo a match card is headed with; games reported as an embed leave it out
-  readonly iconUrl?: string;
+  // the logo a match card is headed with
+  readonly iconUrl: string;
   readonly rankIcons: ReadonlyArray<RankIcon>;
 
   readonly resolveAccount: (

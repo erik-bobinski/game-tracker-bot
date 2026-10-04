@@ -43,7 +43,7 @@ export class MatchCardError extends Schema.TaggedError<MatchCardError>()(
 ) {}
 
 // Discord shows an inline image at most 550x350, so the card is laid out near
-// that ratio with the teams side by side, then rasterised at SCALE so text
+// that ratio with two columns side by side, then rasterised at SCALE so text
 // stays sharp on high-density screens
 const WIDTH = 640;
 const PADDING = 12;

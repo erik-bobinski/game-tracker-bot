@@ -24,7 +24,7 @@ export interface MatchReport {
   readonly rankUpdates: ReadonlyMap<Puuid, RankUpdate>;
 }
 
-// reports on a team match, which get a verdict and a match card
+// reports on a team match, decided by which side won
 export type VersusReport = MatchReport & { readonly match: VersusMatch };
 
 // reports on a free-for-all match, ranked by where each player finished
