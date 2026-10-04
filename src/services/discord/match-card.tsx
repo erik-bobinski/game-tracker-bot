@@ -178,8 +178,6 @@ interface CardImages {
   readonly ranks: ReadonlyMap<Puuid, string>;
 }
 
-// Two lines per player: who and at what rank in the middle, how they played on
-// the right. The portrait goes first, since players read it faster anyway.
 const Row = ({
   player,
   report,
@@ -310,7 +308,6 @@ interface Column {
   readonly rows: ReadonlyArray<JSXNode>;
 }
 
-// The verdict header over two side-by-side columns of player rows
 const Card = ({
   accent,
   icon,
@@ -436,8 +433,6 @@ const Card = ({
   </div>
 );
 
-// Teams side by side with the tracked players' team first, each sorted by
-// how well its players did
 const versusCard = (report: VersusReport, images: CardImages) => {
   const { match } = report;
   const { key, verdict, trackedTeam, teams } = matchVerdict(report);
@@ -495,8 +490,6 @@ const versusCard = (report: VersusReport, images: CardImages) => {
   );
 };
 
-// The lobby in finishing order, top half on the left, with each player's
-// placement where a versus card shows their character
 const placementCard = (report: PlacementReport, images: CardImages) => {
   const { match } = report;
   const { key, label, trackedPuuids, half } = placementVerdict(report);
@@ -743,8 +736,6 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
 
 export type MatchCard = Effect.Success<ReturnType<typeof makeMatchCard>>;
 
-// Posts a match as its card under a one-line summary. A card that fails to
-// render falls back to the embed scoreboard so the match is still reported.
 export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
   {
     rest,

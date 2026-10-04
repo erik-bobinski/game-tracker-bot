@@ -24,10 +24,8 @@ export interface MatchReport {
   readonly rankUpdates: ReadonlyMap<Puuid, RankUpdate>;
 }
 
-// reports on a team match, decided by which side won
 export type VersusReport = MatchReport & { readonly match: VersusMatch };
 
-// reports on a free-for-all match, ranked by where each player finished
 export type PlacementReport = MatchReport & { readonly match: PlacementMatch };
 
 export type RankEmojis = Readonly<Record<string, string>>;
@@ -289,8 +287,6 @@ const placementBoard = (
     })
     .join("\n");
 
-// A lone tracked player's finish, where the top half counts as a win, or a
-// neutral headline when several tracked players shared the lobby.
 export const placementVerdict = (report: PlacementReport) => {
   const trackedPuuids = new Set(report.tracked.map(({ puuid }) => puuid));
   const tracked = report.match.players.filter((player) =>
@@ -310,7 +306,6 @@ export const placementVerdict = (report: PlacementReport) => {
   return { key, label, trackedPuuids, half } as const;
 };
 
-// "**A** finished 4th, **B** finished 7th in a **Ranked TFT** game."
 const placementSummary = (report: PlacementReport) => {
   const placements = new Map(
     report.match.players.map((player) => [player.puuid, player.placement]),
@@ -324,7 +319,6 @@ const placementSummary = (report: PlacementReport) => {
   return `${clauses.join(", ")} in a **${report.match.mode}** game.`;
 };
 
-// The one line a match card is posted under
 export const matchSummary = (report: MatchReport) => {
   const { match } = report;
   return match.kind === "versus"

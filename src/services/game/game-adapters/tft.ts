@@ -84,8 +84,7 @@ export const tftMatchToDetails = (match: TftMatch): PlacementMatch => {
       riotName: participant.riotIdGameName,
       riotTag: participant.riotIdTagline,
       placement: participant.placement,
-      // riot sends 0 player damage for everyone since set 18, so level is
-      // the only stat worth showing
+      // riot sends 0 total_damage_to_players for everyone since set 18
       stat: participant.level == null ? "" : `Level ${participant.level}`,
     }),
   );
