@@ -40,15 +40,17 @@ import {
   type Account,
 } from "../services/database/index.ts";
 import {
+  enrichOrSkip,
   GameAdapters,
   GameAdaptersLive,
+  type GameAdapter,
 } from "../services/game/game-adapters/index.ts";
 import { RiotApiLive } from "../services/game/game-api/lol/riot-api-client.ts";
 import { HenrikApiClientLive } from "../services/game/game-api/val/henrik-api-client.ts";
 import { gameIds, gameNames, type GameId } from "../services/game/index.ts";
 
 // Anything the operator caused or can fix: an unknown account, a riot id that
-// resolves to nothing, an api that wouldn't answer. Exit 2 belongs to the
+// resolves to nothing, an api that wouldn't answer. Exit 1 belongs to the
 // argument parser, so these take 3.
 class AdminError extends Schema.TaggedError<AdminError>()("AdminError", {
   message: Schema.String,
@@ -580,26 +582,25 @@ const refresh = Command.make(
   ),
 );
 
-// Writes a report's card to `out`, or posts the report to the notification
-// channel the way the bot does, falling back to the embed if the card fails
-const sendReport = Effect.fn(function* (
-  json: boolean,
+const sendReport = Effect.fn("Admin.sendReport")(function* (
   report: MatchReport,
+  adapters: ReadonlyArray<GameAdapter>,
   out: Option.Option<string>,
-  label: string,
 ) {
+  const { json } = yield* admin;
   const { game, matchId } = report.match;
-  const card = yield* makeMatchCard(
-    yield* withGameAdapters((adapters) => Effect.succeed(adapters.all)),
-  );
+  const label = `${gameNames[game]} match ${matchId}`;
+  const card = yield* makeMatchCard(adapters);
 
   if (Option.isSome(out)) {
     const png = yield* card(report).pipe(
       orFail("Could not render the match card"),
     );
-    yield* Effect.promise(() => writeFile(out.value, png));
+    yield* Effect.tryPromise(() => writeFile(out.value, png)).pipe(
+      orFail(`Could not write ${out.value}`),
+    );
     return yield* emit(json, { game, matchId, out: out.value }, [
-      `Wrote a ${label} card to ${out.value}.`,
+      `Wrote the card for ${label} to ${out.value}.`,
     ]);
   }
 
@@ -610,7 +611,7 @@ const sendReport = Effect.fn(function* (
     ),
   );
   yield* emit(json, { game, channelId, matchId }, [
-    `Posted a ${label} report to channel ${channelId}.`,
+    `Posted ${label} to channel ${channelId}.`,
   ]);
 });
 
@@ -631,11 +632,13 @@ const reportMock = Command.make(
     out: outFlag,
   },
   Effect.fn(function* ({ game, out }) {
-    const { json } = yield* admin;
     const report = yield* buildMockMatchReport(game).pipe(
       orFail("Could not build mock match report"),
     );
-    yield* sendReport(json, report, out, `mock ${gameNames[game]} match`);
+    const adapters = yield* withGameAdapters((loaded) =>
+      Effect.succeed(loaded.all),
+    );
+    yield* sendReport(report, adapters, out);
   }, Effect.provide(NodeHttpClient.layerUndici)),
 ).pipe(
   Command.withDescription(
@@ -643,9 +646,6 @@ const reportMock = Command.make(
   ),
 );
 
-// The polling path for one real match: the adapter finds the account, reads
-// its recent matches and enriches the chosen one exactly as the match engine
-// does, so a change can be checked against live data before it ships.
 const reportMatch = Command.make(
   "report-match",
   {
@@ -664,13 +664,10 @@ const reportMatch = Command.make(
     out: outFlag,
   },
   Effect.fn(function* ({ target, game, index, out }) {
-    const { json } = yield* admin;
     const { riotName, riotTag } = yield* parseRiotId(target);
-    const report = yield* withGameAdapters((adapters) =>
+    const { report, adapters } = yield* withGameAdapters((loaded) =>
       Effect.gen(function* () {
-        const adapter = adapters.all.find(
-          (candidate) => candidate.game === game,
-        );
+        const adapter = loaded.all.find((candidate) => candidate.game === game);
         if (!adapter) return yield* fail(`${gameNames[game]} isn't supported.`);
         const { puuid, region } = yield* adapter
           .resolveAccount(riotName, riotTag)
@@ -681,23 +678,24 @@ const reportMatch = Command.make(
         const match = matches[index];
         if (!match) {
           return yield* fail(
-            `${riotName}#${riotTag} has ${matches.length} recent ${gameNames[game]} matches, so there is no index ${index}.`,
+            `No recent ${gameNames[game]} match at index ${index} for ${riotName}#${riotTag} (${matches.length} available).`,
           );
         }
-        const enrichment = yield* adapter
-          .enrichMatch({
-            match,
-            trackedPlayers: [{ puuid, region, previousRankSnapshots: {} }],
-          })
-          .pipe(orFail("Could not enrich the match"));
+        const enrichment = yield* enrichOrSkip(adapter, {
+          match,
+          trackedPlayers: [{ puuid, region, previousRankSnapshots: {} }],
+        });
         return {
-          tracked: [{ discordName: riotName, puuid }],
-          match: enrichment.match,
-          rankUpdates: enrichment.rankUpdates,
-        } satisfies MatchReport;
+          report: {
+            tracked: [{ discordName: riotName, puuid }],
+            match: enrichment.match,
+            rankUpdates: enrichment.rankUpdates,
+          } satisfies MatchReport,
+          adapters: loaded.all,
+        };
       }),
     );
-    yield* sendReport(json, report, out, `${gameNames[game]} match`);
+    yield* sendReport(report, adapters, out);
   }, Effect.provide(NodeHttpClient.layerUndici)),
 ).pipe(
   Command.withDescription(

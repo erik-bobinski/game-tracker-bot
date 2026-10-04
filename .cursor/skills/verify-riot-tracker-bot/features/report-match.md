@@ -1,6 +1,6 @@
 # Report match
 
-Reports one real, recent match through the same path the match engine takes when it polls: the game adapter resolves the account, reads its recent matches, enriches the chosen one (Performance Scores, RR, ranks), and the report is posted the way the bot posts it. Use it to check any change to adapters, enrichment, the card, or the embed against live data before it ships.
+Reports one real, recent match through the path the match engine takes when it polls. The game adapter resolves the account and reads its recent matches. The chosen match is enriched (Performance Scores, RR, ranks) by the same `enrichOrSkip` step the engine calls, which falls back to an unenriched report with a warning if enrichment fails. Then the report is posted the way the bot posts it. Use it to check any change to adapters, enrichment, the card, or the embed against live data before it ships.
 
 ## Sub-features
 
@@ -10,7 +10,7 @@ Reports one real, recent match through the same path the match engine takes when
 
 ## How to get to it (user POV)
 
-`pnpm admin report-match 'name#tag' --game valorant --json`
+`pnpm admin report-match 'name#tag' --game valorant --out /tmp/card.png --json` renders the card. Without `--out` the same command posts to `NOTIFICATION_CHANNEL_ID`.
 
 ## Driving it with admin CLI
 
@@ -24,14 +24,15 @@ Preconditions: `RIOT_API_KEY`, `RIOT_TFT_API_KEY`, `HENRIK_API_KEY`, isolated `D
    Riot ladders return puuids. Turn one into a riot id with `riot/account/v1/accounts/by-puuid/<puuid>` on `americas.api.riotgames.com` using the same key.
 2. Render first and look at the png: `pnpm admin report-match 'name#tag' --game <game> --out /tmp/card.png --json`. The JSON names the `matchId`. If that match isn't the mode you need, try `--index 1` or `--index 2`, or another player.
 3. Post it: drop `--out`. Then check the notification channel in a Discord client if you have one open. Otherwise the exit code and the JSON `channelId` and `matchId` are the proof.
-4. Show nothing else moved: run `pnpm admin report-mock --game <game> --out` on your branch and on a detached worktree of `master`, then `cmp` the pngs. Byte-identical mock cards mean the change only affects what it meant to.
+4. Show nothing else moved: run `pnpm admin report-mock --game <game> --out /tmp/mock-branch.png` on your branch and the same with `/tmp/mock-master.png` in a detached worktree of `master` (`git worktree add --detach /tmp/master-wt origin/master`), then `cmp /tmp/mock-branch.png /tmp/mock-master.png`. Byte-identical mock cards mean the change only affects what it meant to.
 
-Observable: exit 0 and JSON with `game`, `matchId`, and either `out` or `channelId`. Exit 3 with a one-line message for an unknown riot id, a missing game, or an `--index` past the recent matches.
+Observable: exit 0 and JSON with `game`, `matchId`, and either `out` or `channelId`. Exit 3 with a one-line message for a malformed or unknown riot id, an account with no recent matches in that game, an `--index` past the recent matches, or an unwritable `--out` path. A missing or unknown `--game` is a usage error from the argument parser: exit 1 with help text.
 
 ## Gotchas
 
 - Only an account's few most recent matches are reachable (`RECENT_MATCH_COUNT`). For a rare mode, find someone who just played it.
 - The report is written from the riot account's side, and the summary names them by riot name.
-- No rank snapshot is stored, so League LP changes don't show. Valorant RR does, because Henrik's MMR history carries the delta.
+- No rank snapshot is passed in, so League and TFT LP changes don't show. Valorant RR does, because Henrik's MMR history carries the delta.
+- Rank emojis aren't loaded, so the embed fallback shows no rank icons. Changes to emoji rendering still need the bot itself.
 - `NOTIFICATION_CHANNEL_ID` decides where the post lands. Only use the dev channel's id.
 - Nothing is written to the database, but the admin CLI still opens `DB_PATH`, so point it at a scratch file.

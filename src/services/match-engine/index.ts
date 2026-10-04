@@ -2,7 +2,7 @@ import { Context, Effect, Layer } from "effect";
 import { Database } from "../database/index.ts";
 import { Discord } from "../discord/index.ts";
 import {
-  emptyEnrichment,
+  enrichOrSkip,
   GameAdapters,
   logApiWarning,
   type GameAdapter,
@@ -99,23 +99,14 @@ const makeMatchEngine = Effect.gen(function* () {
       .sort((a, b) => a.match.date - b.match.date);
 
     for (const { adapter, match, players, currentRankSnapshots } of pending) {
-      const enrichment = yield* adapter
-        .enrichMatch({
-          match,
-          trackedPlayers: players.map(({ puuid, region }) => ({
-            puuid,
-            region,
-            previousRankSnapshots: currentRankSnapshots.get(puuid) ?? {},
-          })),
-        })
-        .pipe(
-          Effect.catchTag("GameApiError", (error) =>
-            logApiWarning(
-              "sending match report without optional enrichment",
-              error,
-            ).pipe(Effect.as(emptyEnrichment(match))),
-          ),
-        );
+      const enrichment = yield* enrichOrSkip(adapter, {
+        match,
+        trackedPlayers: players.map(({ puuid, region }) => ({
+          puuid,
+          region,
+          previousRankSnapshots: currentRankSnapshots.get(puuid) ?? {},
+        })),
+      });
       yield* discord.notifyMatch({
         tracked: players,
         match: enrichment.match,
