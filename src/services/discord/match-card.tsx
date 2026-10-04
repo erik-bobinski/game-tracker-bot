@@ -19,6 +19,7 @@ import type {
   GameId,
   MatchPlayerIdentity,
   MatchTeam,
+  PlacementPlayer,
   Puuid,
   RankUpdate,
 } from "../game/index.ts";
@@ -181,123 +182,126 @@ interface CardImages {
 // Two lines per player: who and at what rank in the middle, how they played on
 // the right. The portrait goes first, since players read it faster anyway.
 const Row = ({
+  player,
+  report,
+  images,
+  tracked,
+  mvp,
   portrait,
-  name,
-  rank,
-  rankIcon,
-  delta,
   headline,
   detail,
-  badges,
-  tracked,
 }: {
-  portrait: JSXNode;
-  name: string;
-  rank: string | undefined;
-  rankIcon: string | undefined;
-  delta: ReturnType<typeof rankDelta>;
-  headline: string | undefined;
-  detail: string | undefined;
-  badges: ReadonlyArray<{ label: string; color: string }>;
+  player: MatchPlayerIdentity;
+  report: MatchReport;
+  images: CardImages;
   tracked: boolean;
-}) => (
-  <div
-    style={{
-      display: "flex",
-      alignItems: "center",
-      position: "relative",
-      height: 58,
-      padding: "0 7px 0 5px",
-      marginTop: 4,
-      borderRadius: 6,
-      backgroundColor: tracked ? colors.tracked : colors.row,
-      borderLeft: `3px solid ${tracked ? colors.gold : colors.row}`,
-    }}
-  >
-    {badges.length > 0 ? (
-      <div style={{ display: "flex", position: "absolute", top: -5, right: 8 }}>
-        {badges.map((badge) => (
-          <Badge label={badge.label} color={badge.color} />
-        ))}
-      </div>
-    ) : null}
-    {portrait}
+  mvp?: boolean;
+  portrait: JSXNode;
+  headline: string;
+  detail?: string;
+}) => {
+  const delta = rankDelta(report.rankUpdates.get(player.puuid));
+  const rankIcon = images.ranks.get(player.puuid);
+  return (
     <div
       style={{
         display: "flex",
-        flexDirection: "column",
-        flexGrow: 1,
-        flexShrink: 1,
-        minWidth: 0,
-        marginLeft: 7,
+        alignItems: "center",
+        position: "relative",
+        height: 58,
+        padding: "0 7px 0 5px",
+        marginTop: 4,
+        borderRadius: 6,
+        backgroundColor: tracked ? colors.tracked : colors.row,
+        borderLeft: `3px solid ${tracked ? colors.gold : colors.row}`,
       }}
     >
+      {mvp || player.flair ? (
+        <div
+          style={{ display: "flex", position: "absolute", top: -5, right: 8 }}
+        >
+          {player.flair ? <Badge label={player.flair} color="#ff7a45" /> : null}
+          {mvp ? <Badge label="MVP" color={colors.gold} /> : null}
+        </div>
+      ) : null}
+      {portrait}
       <div
         style={{
-          fontSize: 14,
-          fontWeight: tracked ? 800 : 600,
-          color: colors.text,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
+          display: "flex",
+          flexDirection: "column",
+          flexGrow: 1,
+          flexShrink: 1,
+          minWidth: 0,
+          marginLeft: 7,
         }}
       >
-        {name}
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: tracked ? 800 : 600,
+            color: colors.text,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {player.riotName}
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            marginTop: 3,
+            fontSize: 11.5,
+            color: player.rank ? colors.muted : colors.faint,
+          }}
+        >
+          {rankIcon ? (
+            <img
+              src={rankIcon}
+              width={15}
+              height={15}
+              style={{ marginRight: 3 }}
+            />
+          ) : null}
+          <div style={{ flexShrink: 0 }}>{player.rank ?? "Unranked"}</div>
+          {delta ? (
+            <div
+              style={{
+                flexShrink: 0,
+                marginLeft: 5,
+                fontWeight: 600,
+                color: delta.color,
+              }}
+            >
+              {delta.text}
+            </div>
+          ) : null}
+        </div>
       </div>
       <div
         style={{
           display: "flex",
-          alignItems: "center",
-          marginTop: 3,
-          fontSize: 11.5,
-          color: rank ? colors.muted : colors.faint,
+          flexDirection: "column",
+          alignItems: "flex-end",
+          flexShrink: 0,
+          marginLeft: 6,
         }}
       >
-        {rankIcon ? (
-          <img
-            src={rankIcon}
-            width={15}
-            height={15}
-            style={{ marginRight: 3 }}
-          />
+        {headline ? (
+          <div style={{ fontSize: 14, fontWeight: 800, color: colors.text }}>
+            {headline}
+          </div>
         ) : null}
-        <div style={{ flexShrink: 0 }}>{rank ?? "Unranked"}</div>
-        {delta ? (
-          <div
-            style={{
-              flexShrink: 0,
-              marginLeft: 5,
-              fontWeight: 600,
-              color: delta.color,
-            }}
-          >
-            {delta.text}
+        {detail ? (
+          <div style={{ marginTop: 3, fontSize: 11.5, color: colors.muted }}>
+            {detail}
           </div>
         ) : null}
       </div>
     </div>
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "flex-end",
-        flexShrink: 0,
-        marginLeft: 6,
-      }}
-    >
-      {headline ? (
-        <div style={{ fontSize: 14, fontWeight: 800, color: colors.text }}>
-          {headline}
-        </div>
-      ) : null}
-      {detail ? (
-        <div style={{ marginTop: 3, fontSize: 11.5, color: colors.muted }}>
-          {detail}
-        </div>
-      ) : null}
-    </div>
-  </div>
-);
+  );
+};
 
 interface Column {
   readonly color: string;
@@ -322,7 +326,7 @@ const Card = ({
   game: GameId;
   label: string;
   details: ReadonlyArray<string | undefined>;
-  score: readonly [number, number] | undefined;
+  score?: readonly [number, number] | undefined;
   columns: ReadonlyArray<Column>;
 }) => (
   <div
@@ -469,6 +473,11 @@ const versusCard = (report: VersusReport, images: CardImages) => {
             detail: `${players.reduce((kills, player) => kills + player.kills, 0)} KILLS`,
             rows: players.map((player) => (
               <Row
+                player={player}
+                report={report}
+                images={images}
+                tracked={trackedPuuids.has(player.puuid)}
+                mvp={player.puuid === mvp}
                 portrait={
                   <Icon
                     src={images.characters.get(player.puuid)}
@@ -476,21 +485,8 @@ const versusCard = (report: VersusReport, images: CardImages) => {
                     alt={player.character}
                   />
                 }
-                name={player.riotName}
-                rank={player.rank}
-                rankIcon={images.ranks.get(player.puuid)}
-                delta={rankDelta(report.rankUpdates.get(player.puuid))}
                 headline={`${player.kills} / ${player.deaths} / ${player.assists}`}
                 detail={player.stat}
-                badges={[
-                  ...(player.flair
-                    ? [{ label: player.flair, color: "#ff7a45" }]
-                    : []),
-                  ...(player.puuid === mvp
-                    ? [{ label: "MVP", color: colors.gold }]
-                    : []),
-                ]}
-                tracked={trackedPuuids.has(player.puuid)}
               />
             )),
           },
@@ -507,6 +503,45 @@ const placementCard = (report: PlacementReport, images: CardImages) => {
   const { key, label, trackedPuuids } = placementVerdict(report);
   const players = [...match.players].sort((a, b) => a.placement - b.placement);
   const half = Math.ceil(players.length / 2);
+  const column = (
+    title: string,
+    color: string,
+    group: ReadonlyArray<PlacementPlayer>,
+  ) => ({
+    label: title,
+    color,
+    rows: group.map((player) => {
+      const tint = player.placement === 1 ? colors.gold : color;
+      return (
+        <Row
+          player={player}
+          report={report}
+          images={images}
+          tracked={trackedPuuids.has(player.puuid)}
+          portrait={
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                width: 34,
+                height: 34,
+                borderRadius: 6,
+                backgroundColor: `${tint}2e`,
+                color: tint,
+                fontSize: 18,
+                fontWeight: 800,
+              }}
+            >
+              {String(player.placement)}
+            </div>
+          }
+          headline={player.stat}
+        />
+      );
+    }),
+  });
 
   return (
     <Card
@@ -515,62 +550,14 @@ const placementCard = (report: PlacementReport, images: CardImages) => {
       game={match.game}
       label={label}
       details={[match.mode, formatDuration(match.durationSeconds)]}
-      score={undefined}
       columns={[
-        {
-          color: colors.up,
-          label: `Top ${half}`,
-          players: players.slice(0, half),
-        },
-        {
-          color: colors.down,
-          label: `Bottom ${players.length - half}`,
-          players: players.slice(half),
-        },
-      ].map(({ players, ...column }) => ({
-        ...column,
-        rows: players.map((player) => {
-          const color =
-            player.placement === 1
-              ? colors.gold
-              : player.placement <= half
-                ? colors.up
-                : colors.down;
-          return (
-            <Row
-              portrait={
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                    width: 34,
-                    height: 34,
-                    borderRadius: 6,
-                    backgroundColor: `${color}2e`,
-                    color,
-                    fontSize: 18,
-                    fontWeight: 800,
-                  }}
-                >
-                  {String(player.placement)}
-                </div>
-              }
-              name={player.riotName}
-              rank={player.rank}
-              rankIcon={images.ranks.get(player.puuid)}
-              delta={rankDelta(report.rankUpdates.get(player.puuid))}
-              headline={player.stat}
-              detail={undefined}
-              badges={
-                player.flair ? [{ label: player.flair, color: "#ff7a45" }] : []
-              }
-              tracked={trackedPuuids.has(player.puuid)}
-            />
-          );
-        }),
-      }))}
+        column(`Top ${half}`, colors.up, players.slice(0, half)),
+        column(
+          `Bottom ${players.length - half}`,
+          colors.down,
+          players.slice(half),
+        ),
+      ]}
     />
   );
 };
