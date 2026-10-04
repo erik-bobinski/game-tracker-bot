@@ -16,8 +16,17 @@ import {
   Schema,
 } from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
-import { DiscordConfig, DiscordREST, DiscordRESTLive, MemoryRateLimitStoreLive } from "dfx";
-import { registerAccount, refreshAccount, formatRefreshResult } from "../services/discord/commands.ts";
+import {
+  DiscordConfig,
+  DiscordREST,
+  DiscordRESTLive,
+  MemoryRateLimitStoreLive,
+} from "dfx";
+import {
+  registerAccount,
+  refreshAccount,
+  formatRefreshResult,
+} from "../services/discord/commands.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
 import {
   makeMatchCard,
@@ -35,7 +44,7 @@ import {
 } from "../services/game/game-adapters/index.ts";
 import { RiotApiLive } from "../services/game/game-api/lol/riot-api-client.ts";
 import { HenrikApiClientLive } from "../services/game/game-api/val/henrik-api-client.ts";
-import { gameNames, type GameId } from "../services/game/index.ts";
+import { gameIds, gameNames, type GameId } from "../services/game/index.ts";
 
 // Anything the operator caused or can fix: an unknown account, a riot id that
 // resolves to nothing, an api that wouldn't answer. Exit 2 belongs to the
@@ -148,9 +157,7 @@ const DiscordRestLive = DiscordRESTLive.pipe(
 );
 
 const withGameAdapters = <A, E>(
-  run: (
-    adapters: GameAdapters["Service"],
-  ) => Effect.Effect<A, E | AdminError>,
+  run: (adapters: GameAdapters["Service"]) => Effect.Effect<A, E | AdminError>,
 ) =>
   Effect.gen(function* () {
     const adapters = yield* GameAdapters;
@@ -161,7 +168,7 @@ const withGameAdapters = <A, E>(
       cause instanceof AdminError
         ? cause
         : new AdminError({
-            message: `This command needs RIOT_API_KEY and HENRIK_API_KEY${
+            message: `This command needs RIOT_API_KEY, RIOT_TFT_API_KEY and HENRIK_API_KEY${
               cause instanceof Error && cause.message
                 ? `: ${cause.message}`
                 : ""
@@ -348,7 +355,7 @@ const signup = Command.make(
 
     if (result === "not-found") {
       return yield* fail(
-        `No recent League or Valorant data for ${riotName}#${riotTag}; nothing was saved.`,
+        `No recent data in any supported game for ${riotName}#${riotTag}; nothing was saved.`,
       );
     }
 
@@ -454,7 +461,7 @@ const rankCheck = Command.make(
       Argument.withDescription("discord id, discord name, or riot id"),
       Argument.optional,
     ),
-    game: Flag.choice("game", ["lol", "valorant"]).pipe(
+    game: Flag.choice("game", gameIds).pipe(
       Flag.withDescription("which game's rank to look up"),
       Flag.optional,
     ),
@@ -574,7 +581,7 @@ const refresh = Command.make(
 const reportMock = Command.make(
   "report-mock",
   {
-    game: Flag.choice("game", ["lol", "valorant"]).pipe(
+    game: Flag.choice("game", gameIds).pipe(
       Flag.withDescription("which game's mock match to post"),
       Flag.withDefault("lol"),
     ),

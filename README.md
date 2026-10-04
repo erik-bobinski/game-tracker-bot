@@ -2,12 +2,12 @@
 
 A Discord bot that reports finished matches for opted-in users. Someone signs
 up with their Riot ID, and when they finish a game the bot posts a scoreboard
-embed to a channel. If several signed-up users played the same match, it posts
-once and names all of them.
+card to a channel, or a scoreboard embed if the card fails to render. If several
+signed-up users played the same match, it posts once and names all of them.
 
-The goal is to be **game agnostic**: League of Legends and Valorant are the two
-implementations, but supporting another game should mean writing one adapter,
-not touching the rest of the app.
+The goal is to be **game agnostic**: League of Legends, Valorant, and Teamfight
+Tactics are the current implementations, but supporting another game should mean
+writing one adapter, not touching the rest of the app.
 
 ## Commands
 
@@ -37,7 +37,7 @@ pnpm admin <command>
 | `pause` / `resume`                    | Stop or restart all reports                                   |
 | `rank-check <target> [--game <game>]` | Look up a tracked account's current rank                      |
 | `refresh <target>`                    | Recheck a signed-up account for games missing at signup       |
-| `report-mock [--game <game>]`         | Post a mock match report embed to the notification channel    |
+| `report-mock [--game <game>]`         | Post a mock match card to the notification channel            |
 
 `<target>` is a Discord user ID, a Discord name, or a Riot ID — whichever you
 have. Leave an argument off and the command asks for it. `--json` prints the
@@ -72,21 +72,22 @@ it as reported.
 
 ### Adding a game
 
-1. Add the game ID to `GameId` in `src/services/game/index.ts`, along with its
-   display name in `gameNames` just below it.
+1. Add the game to `gameIds` and `games` in `src/services/game/index.ts`. Display
+   names and Discord/admin choices are derived from that registry.
 2. Add an API client and decode schemas under `src/services/game/game-api/`.
 3. Implement `GameAdapter` in `src/services/game/game-adapters/`: resolve an
    account, fetch recent matches, map them to `MatchDetails`, optionally enrich
-   them, and fetch rank data.
+   them, and fetch rank data. Set `requiresMatchHistory` if an empty baseline
+   should not persist the game.
 4. Register the adapter in `GameAdaptersLive` and provide its API-client layer
    from `src/index.ts`.
-5. Add the game to the `/rank_check` choices, the admin CLI's `--game` choices,
-   and the development report mocks, then run `pnpm typecheck` and test
+5. Add a development report mock, then run `pnpm typecheck` and test
    `/dev_report`.
 
 Keep game-specific API shapes inside the client and adapter. Once they produce
 the shared types, polling, deduplication, storage, and Discord reporting should
-not need game-specific branches.
+not need game-specific branches. Match reports are a versus scoreboard or a
+placement board, switched on `match.kind`.
 
 **Failures degrade rather than crash.** One undecodable match is skipped, not
 fatal. A failed rank lookup drops the icon but still posts the report. A failed
@@ -103,12 +104,13 @@ cp .env.example .env
 
 Fill in `.env`:
 
-| Variable                  | How to get it                                                                            |
-| ------------------------- | ---------------------------------------------------------------------------------------- |
-| `DISCORD_BOT_TOKEN`       | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot |
-| `NOTIFICATION_CHANNEL_ID` | Right-click the target channel → Copy Channel ID (needs Developer Mode on)               |
-| `RIOT_API_KEY`            | [developer.riotgames.com](https://developer.riotgames.com)                               |
-| `HENRIK_API_KEY`          | [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN)                               |
+| Variable                  | How to get it                                                                                                                                       |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DISCORD_BOT_TOKEN`       | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot                                                            |
+| `NOTIFICATION_CHANNEL_ID` | Right-click the target channel → Copy Channel ID (needs Developer Mode on)                                                                          |
+| `RIOT_API_KEY`            | [developer.riotgames.com](https://developer.riotgames.com), key of a League of Legends product                                                      |
+| `RIOT_TFT_API_KEY`        | [developer.riotgames.com](https://developer.riotgames.com), key of a separate Teamfight Tactics product. Riot keys only reach their own game's APIs |
+| `HENRIK_API_KEY`          | [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN)                                                                                          |
 
 `RIOT_REGION`, `VAL_REGION` and `VAL_PLATFORM` are optional. Each account's
 region is resolved and stored at signup; these are only fallbacks.

@@ -4,11 +4,15 @@ import { gameNames } from "../game/index.ts";
 import type {
   GameId,
   MatchDetails,
-  MatchPlayer,
+  MatchPlayerIdentity,
   MatchTeam,
+  PlacementMatch,
+  PlacementPlayer,
   Puuid,
   RankInfo,
   RankUpdate,
+  VersusMatch,
+  VersusPlayer,
 } from "../game/index.ts";
 
 export interface MatchReport {
@@ -19,6 +23,10 @@ export interface MatchReport {
   readonly match: MatchDetails;
   readonly rankUpdates: ReadonlyMap<Puuid, RankUpdate>;
 }
+
+export type VersusReport = MatchReport & { readonly match: VersusMatch };
+
+export type PlacementReport = MatchReport & { readonly match: PlacementMatch };
 
 export type RankEmojis = Readonly<Record<string, string>>;
 
@@ -41,7 +49,11 @@ export const formatDuration = (seconds: number) => {
 const joinParts = (parts: ReadonlyArray<string | undefined>) =>
   parts.filter((part): part is string => Boolean(part)).join(" · ");
 
-const rankEmoji = (player: MatchPlayer, game: GameId, emojis: RankEmojis) => {
+const rankEmoji = (
+  player: MatchPlayerIdentity,
+  game: GameId,
+  emojis: RankEmojis,
+) => {
   if (!player.rankIconKey) return "";
   return (
     emojis[`${game}.${player.rankIconKey}`] ?? emojis[player.rankIconKey] ?? ""
@@ -69,9 +81,10 @@ interface RowContext {
 
 // Two lines per player: a headline to scan names by, and the numbers below it
 // as discord subtext so a ten-player board still reads top to bottom.
-const playerRows = (player: MatchPlayer, context: RowContext) => {
+const playerRows = (player: VersusPlayer, context: RowContext) => {
   const icon = rankEmoji(player, context.game, context.emojis);
-  const movement = rankMovement(context.rankUpdates.get(player.puuid));
+  const update = context.rankUpdates.get(player.puuid);
+  const movement = rankMovement(update);
   const headline = [
     icon || undefined,
     // the lol crests are per-tier, so the division goes beside them
@@ -85,7 +98,7 @@ const playerRows = (player: MatchPlayer, context: RowContext) => {
     player.stat,
     // a crest already names the rank, so only the movement is worth repeating
     icon && movement?.delta ? movement.delta : movement?.full,
-    icon ? undefined : player.rank,
+    icon || update?.current ? undefined : player.rank,
     player.flair,
     player.puuid === context.mvpPuuid ? "MVP" : undefined,
   ]);
@@ -95,7 +108,7 @@ const playerRows = (player: MatchPlayer, context: RowContext) => {
 const teamField = (
   team: MatchTeam,
   label: string,
-  players: ReadonlyArray<MatchPlayer>,
+  players: ReadonlyArray<VersusPlayer>,
   context: RowContext,
 ): Discord.RichEmbedField => ({
   name: joinParts([
@@ -108,6 +121,21 @@ const teamField = (
     .map((player) => playerRows(player, context))
     .join("\n"),
 });
+
+const ordinal = (n: number) => {
+  const mod100 = n % 100;
+  const suffix =
+    mod100 >= 11 && mod100 <= 13
+      ? "th"
+      : n % 10 === 1
+        ? "st"
+        : n % 10 === 2
+          ? "nd"
+          : n % 10 === 3
+            ? "rd"
+            : "th";
+  return `${n}${suffix}`;
+};
 
 export interface RankReport {
   readonly riotName: string;
@@ -145,7 +173,7 @@ const teamOutcome = (team: MatchTeam | undefined) =>
 // they all share, or the neutral "unknown" when tracked players were
 // opponents; trackedTeam is the first tracked player's side, and teams puts it
 // first so the people being reported on lead both scoreboards.
-export const matchVerdict = (report: MatchReport) => {
+export const matchVerdict = (report: VersusReport) => {
   const { match } = report;
   const teamOf = (puuid: Puuid) => {
     const teamId = match.players.find((player) => player.puuid === puuid)?.team;
@@ -179,7 +207,7 @@ export const teamLabel = (index: number) =>
 // "**A** and **B** won a **Competitive** game on **Ascent**.", or one clause
 // per outcome when tracked players were opponents:
 // "**A** and **B** won, **C** lost a **Competitive** game on **Ascent**."
-export const matchSummary = (report: MatchReport) => {
+const versusSummary = (report: VersusReport) => {
   const { match } = report;
   const clauses = Object.values(
     Array.groupBy(matchVerdict(report).tracked, (player) => player.outcome),
@@ -190,8 +218,8 @@ export const matchSummary = (report: MatchReport) => {
   return `${clauses.join(", ")} a **${match.mode}** game${match.map ? ` on **${match.map}**` : ""}.`;
 };
 
-export const matchEmbed = (
-  report: MatchReport,
+const versusEmbed = (
+  report: VersusReport,
   rankEmojis: RankEmojis,
 ): Discord.RichEmbed => {
   const { match } = report;
@@ -217,7 +245,7 @@ export const matchEmbed = (
   return {
     author: { name: gameNames[match.game] },
     title: joinParts([verdict.label, trackedTeam?.score?.join("–")]),
-    description: matchSummary(report),
+    description: versusSummary(report),
     color: verdict.color,
     fields,
     footer: {
@@ -228,4 +256,115 @@ export const matchEmbed = (
     },
     timestamp: new Date(match.date).toISOString(),
   };
+};
+
+const placementBoard = (
+  players: ReadonlyArray<PlacementPlayer>,
+  trackedPuuids: ReadonlySet<Puuid>,
+  game: GameId,
+  emojis: RankEmojis,
+  rankUpdates: ReadonlyMap<Puuid, RankUpdate>,
+) =>
+  [...players]
+    .sort((a, b) => a.placement - b.placement)
+    .map((player) => {
+      const rawName = `${player.riotName}#${player.riotTag}`;
+      const name = trackedPuuids.has(player.puuid) ? `**${rawName}**` : rawName;
+      const icon = rankEmoji(player, game, emojis);
+      const update = rankUpdates.get(player.puuid);
+      const prefix = icon
+        ? `${icon}${player.rankDivision ? ` \`${player.rankDivision}\`` : ""} `
+        : "";
+      return joinParts([
+        `${prefix}${name} — ${ordinal(player.placement)} Place`,
+        player.stat,
+        update?.delta !== undefined
+          ? `${update.delta >= 0 ? "+" : ""}${update.delta} ${update.unit}${update.current ? ` (${update.current})` : ""}`
+          : update?.current,
+        icon || update?.current ? undefined : player.rank,
+        player.flair,
+      ]);
+    })
+    .join("\n");
+
+export const placementVerdict = (report: PlacementReport) => {
+  const trackedPuuids = new Set(report.tracked.map(({ puuid }) => puuid));
+  const tracked = report.match.players.filter((player) =>
+    trackedPuuids.has(player.puuid),
+  );
+  const primary = tracked.length === 1 ? tracked[0] : undefined;
+  const half = Math.ceil(report.match.players.length / 2);
+  const key =
+    primary === undefined
+      ? "unknown"
+      : primary.placement <= half
+        ? "win"
+        : "loss";
+  const label = primary
+    ? `${ordinal(primary.placement)} Place`
+    : verdicts.unknown.label;
+  return { key, label, trackedPuuids, half } as const;
+};
+
+const placementSummary = (report: PlacementReport) => {
+  const placements = new Map(
+    report.match.players.map((player) => [player.puuid, player.placement]),
+  );
+  const clauses = report.tracked.flatMap(({ discordName, puuid }) => {
+    const placement = placements.get(puuid);
+    return placement === undefined
+      ? []
+      : [`**${discordName}** finished ${ordinal(placement)}`];
+  });
+  return `${clauses.join(", ")} in a **${report.match.mode}** game.`;
+};
+
+export const matchSummary = (report: MatchReport) => {
+  const { match } = report;
+  return match.kind === "versus"
+    ? versusSummary({ ...report, match })
+    : placementSummary({ ...report, match });
+};
+
+const placementEmbed = (
+  report: PlacementReport,
+  rankEmojis: RankEmojis,
+): Discord.RichEmbed => {
+  const { key, label, trackedPuuids } = placementVerdict(report);
+  const info = [
+    `Started <t:${Math.floor(report.match.date / 1000)}:t>`,
+    formatDuration(report.match.durationSeconds),
+  ];
+  return {
+    title: `${label} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
+    description: [
+      `${nameList(report.tracked.map(({ discordName }) => discordName))} just finished a **${gameNames[report.match.game]}** game`,
+      info.join(" · "),
+      "",
+      placementBoard(
+        report.match.players,
+        trackedPuuids,
+        report.match.game,
+        rankEmojis,
+        report.rankUpdates,
+      ),
+    ].join("\n"),
+    color: verdicts[key].color,
+  };
+};
+
+export const matchEmbed = (
+  report: MatchReport,
+  rankEmojis: RankEmojis,
+): Discord.RichEmbed => {
+  switch (report.match.kind) {
+    case "versus":
+      return versusEmbed({ ...report, match: report.match }, rankEmojis);
+    case "placement":
+      return placementEmbed({ ...report, match: report.match }, rankEmojis);
+    default: {
+      const _exhaustive: never = report.match;
+      throw new Error(`unhandled match kind: ${_exhaustive}`);
+    }
+  }
 };

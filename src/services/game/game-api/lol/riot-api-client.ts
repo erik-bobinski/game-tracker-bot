@@ -14,7 +14,16 @@ import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
 import * as Headers from "effect/unstable/http/Headers";
 import { Puuid } from "../../index.ts";
-import { LolLeagueEntries, LolMatch, LolMatchIds } from "./match-schema.ts";
+import {
+  LolLeagueEntries,
+  LolMatch,
+  LolMatchIds,
+} from "../lol/match-schema.ts";
+import {
+  TftLeagueEntries,
+  TftMatch,
+  TftMatchIds,
+} from "../tft/match-schema.ts";
 
 // A platformId is the shard an account lives on (riot's "platform routing
 // value"), not pc/console. match-v5 is routed by regional cluster instead, so
@@ -44,6 +53,7 @@ export class RiotApiClient extends Context.Service<
   RiotApiClient,
   {
     getAccountByRiotId: (
+      game: "lol" | "tft",
       name: string,
       tag: string,
     ) => Effect.Effect<
@@ -51,17 +61,26 @@ export class RiotApiClient extends Context.Service<
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
     getPlatformId: (
+      game: "lol" | "tft",
       puuid: Puuid,
     ) => Effect.Effect<
       string,
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
-    getRecentMatches: (
+    getLolRecentMatches: (
       puuid: Puuid,
       platformId: string | undefined,
       count: number,
     ) => Effect.Effect<
       ReadonlyArray<LolMatch>,
+      HttpClientError.HttpClientError | Schema.SchemaError
+    >;
+    getTftRecentMatches: (
+      puuid: Puuid,
+      platformId: string | undefined,
+      count: number,
+    ) => Effect.Effect<
+      ReadonlyArray<TftMatch>,
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
     getLeagueEntries: (
@@ -71,26 +90,29 @@ export class RiotApiClient extends Context.Service<
       typeof LolLeagueEntries.Type,
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
+    getTftLeagueEntries: (
+      puuid: Puuid,
+      platformId: string,
+    ) => Effect.Effect<
+      typeof TftLeagueEntries.Type,
+      HttpClientError.HttpClientError | Schema.SchemaError
+    >;
   }
 >()("app/RiotApiClient") {}
 
 export const RiotApiLive = Layer.effect(
   RiotApiClient,
   Effect.gen(function* () {
-    const apiKey = yield* Config.redacted("RIOT_API_KEY");
     // account-v1 answers for any account from any cluster, so this only picks
     // the nearest one; per-account routing comes from the stored platformId
     const defaultCluster = yield* Config.string("RIOT_REGION").pipe(
       Config.withDefault("americas"),
     );
-    const client = (yield* HttpClient.HttpClient).pipe(
+    const http = (yield* HttpClient.HttpClient).pipe(
       HttpClient.mapRequest(
         HttpClientRequest.prependUrl(
           `https://${defaultCluster}.api.riotgames.com`,
         ),
-      ),
-      HttpClient.mapRequest(
-        HttpClientRequest.setHeader("X-Riot-Token", Redacted.value(apiKey)),
       ),
       HttpClient.filterStatusOk,
       HttpClient.retryTransient({
@@ -115,10 +137,22 @@ export const RiotApiLive = Layer.effect(
         ),
       }),
     );
+    // Riot scopes each product key to one game and encrypts puuids per key,
+    // so tft calls, account lookups included, go out under the tft key
+    const withKey = (key: Redacted.Redacted) =>
+      http.pipe(
+        HttpClient.mapRequest(
+          HttpClientRequest.setHeader("X-Riot-Token", Redacted.value(key)),
+        ),
+      );
+    const clients = {
+      lol: withKey(yield* Config.redacted("RIOT_API_KEY")),
+      tft: withKey(yield* Config.redacted("RIOT_TFT_API_KEY")),
+    };
 
     const getAccountByRiotId = Effect.fn("RiotApi.getAccountByRiotId")(
-      function* (name: string, tag: string) {
-        const res = yield* client.get(
+      function* (game: "lol" | "tft", name: string, tag: string) {
+        const res = yield* clients[game].get(
           `/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`,
         );
         const json = yield* res.json;
@@ -130,10 +164,11 @@ export const RiotApiLive = Layer.effect(
     );
 
     const getPlatformId = Effect.fn("RiotApi.getPlatformId")(function* (
+      game: "lol" | "tft",
       puuid: Puuid,
     ) {
-      const res = yield* client.get(
-        `/riot/account/v1/region/by-game/lol/by-puuid/${encodeURIComponent(puuid)}`,
+      const res = yield* clients[game].get(
+        `/riot/account/v1/region/by-game/${game}/by-puuid/${encodeURIComponent(puuid)}`,
       );
       const json = yield* res.json;
       const { region } = yield* Schema.decodeUnknownEffect(
@@ -144,10 +179,14 @@ export const RiotApiLive = Layer.effect(
 
     // an unknown shard falls back to the configured cluster, which is right
     // as long as the account plays there
-    const matchGet = (platformId: string | undefined, path: string) => {
+    const matchGet = (
+      game: "lol" | "tft",
+      platformId: string | undefined,
+      path: string,
+    ) => {
       const cluster =
         (platformId ? CLUSTERS[platformId] : undefined) ?? defaultCluster;
-      return client
+      return clients[game]
         .pipe(
           HttpClient.mapRequest(
             HttpClientRequest.setUrl(
@@ -158,11 +197,12 @@ export const RiotApiLive = Layer.effect(
         .get("");
     };
 
-    const getMatch = Effect.fn("RiotApi.getMatch")(function* (
+    const getLolMatch = Effect.fn("RiotApi.getLolMatch")(function* (
       matchId: string,
       platformId: string | undefined,
     ) {
       const res = yield* matchGet(
+        "lol",
         platformId,
         `/lol/match/v5/matches/${matchId}`,
       );
@@ -170,38 +210,75 @@ export const RiotApiLive = Layer.effect(
       return yield* Schema.decodeUnknownEffect(LolMatch)(json);
     });
 
-    // Match-V5 has no bulk endpoint: fetch ids, then one call per match.
-    const getRecentMatches = Effect.fn("RiotApi.getRecentMatches")(function* (
-      puuid: Puuid,
+    const getTftMatch = Effect.fn("RiotApi.getTftMatch")(function* (
+      matchId: string,
       platformId: string | undefined,
-      count: number,
     ) {
       const res = yield* matchGet(
+        "tft",
         platformId,
-        `/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids?count=${count}`,
+        `/tft/match/v1/matches/${matchId}`,
       );
       const json = yield* res.json;
-      const matchIds = yield* Schema.decodeUnknownEffect(LolMatchIds)(json);
+      return yield* Schema.decodeUnknownEffect(TftMatch)(json);
+    });
 
-      const matches = yield* Effect.forEach(matchIds, (matchId) =>
-        getMatch(matchId, platformId).pipe(
-          Effect.catchTag("SchemaError", (error) =>
-            Effect.logWarning("skipping undecodable lol match").pipe(
-              Effect.annotateLogs({ matchId, error }),
-              Effect.as(undefined),
+    // Match-V5 has no bulk endpoint: fetch ids, then one call per match.
+    const getLolRecentMatches = Effect.fn("RiotApi.getLolRecentMatches")(
+      function* (puuid: Puuid, platformId: string | undefined, count: number) {
+        const res = yield* matchGet(
+          "lol",
+          platformId,
+          `/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids?count=${count}`,
+        );
+        const json = yield* res.json;
+        const matchIds = yield* Schema.decodeUnknownEffect(LolMatchIds)(json);
+
+        const matches = yield* Effect.forEach(matchIds, (matchId) =>
+          getLolMatch(matchId, platformId).pipe(
+            Effect.catchTag("SchemaError", (error) =>
+              Effect.logWarning("skipping undecodable lol match").pipe(
+                Effect.annotateLogs({ matchId, error }),
+                Effect.as(undefined),
+              ),
             ),
           ),
-        ),
-      );
+        );
 
-      return matches.filter((match) => match !== undefined);
-    });
+        return matches.filter((match) => match !== undefined);
+      },
+    );
+
+    const getTftRecentMatches = Effect.fn("RiotApi.getTftRecentMatches")(
+      function* (puuid: Puuid, platformId: string | undefined, count: number) {
+        const res = yield* matchGet(
+          "tft",
+          platformId,
+          `/tft/match/v1/matches/by-puuid/${encodeURIComponent(puuid)}/ids?count=${count}`,
+        );
+        const json = yield* res.json;
+        const matchIds = yield* Schema.decodeUnknownEffect(TftMatchIds)(json);
+
+        const matches = yield* Effect.forEach(matchIds, (matchId) =>
+          getTftMatch(matchId, platformId).pipe(
+            Effect.catchTag("SchemaError", (error) =>
+              Effect.logWarning("skipping undecodable tft match").pipe(
+                Effect.annotateLogs({ matchId, error }),
+                Effect.as(undefined),
+              ),
+            ),
+          ),
+        );
+
+        return matches.filter((match) => match !== undefined);
+      },
+    );
 
     const getLeagueEntries = Effect.fn("RiotApi.getLeagueEntries")(function* (
       puuid: Puuid,
       platformId: string,
     ) {
-      const shardClient = client.pipe(
+      const shardClient = clients.lol.pipe(
         HttpClient.mapRequest(
           HttpClientRequest.setUrl(
             `https://${platformId}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(puuid)}`,
@@ -214,11 +291,29 @@ export const RiotApiLive = Layer.effect(
       );
     });
 
+    const getTftLeagueEntries = Effect.fn("RiotApi.getTftLeagueEntries")(
+      function* (puuid: Puuid, platformId: string) {
+        const shardClient = clients.tft.pipe(
+          HttpClient.mapRequest(
+            HttpClientRequest.setUrl(
+              `https://${platformId}.api.riotgames.com/tft/league/v1/by-puuid/${encodeURIComponent(puuid)}`,
+            ),
+          ),
+        );
+        const res = yield* shardClient.get("");
+        return yield* Schema.decodeUnknownEffect(TftLeagueEntries)(
+          yield* res.json,
+        );
+      },
+    );
+
     return RiotApiClient.of({
       getAccountByRiotId,
       getPlatformId,
-      getRecentMatches,
+      getLolRecentMatches,
+      getTftRecentMatches,
       getLeagueEntries,
+      getTftLeagueEntries,
     });
   }),
 );

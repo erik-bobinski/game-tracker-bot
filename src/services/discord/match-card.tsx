@@ -13,10 +13,13 @@ import {
 import type { DiscordREST } from "dfx";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import satori, { type Font } from "satori";
+import type { JSXNode } from "satori/jsx";
 import { gameNames } from "../game/index.ts";
 import type {
-  MatchPlayer,
+  GameId,
+  MatchPlayerIdentity,
   MatchTeam,
+  PlacementPlayer,
   Puuid,
   RankUpdate,
 } from "../game/index.ts";
@@ -26,9 +29,12 @@ import {
   matchEmbed,
   matchSummary,
   matchVerdict,
+  placementVerdict,
   teamLabel,
   type MatchReport,
+  type PlacementReport,
   type RankEmojis,
+  type VersusReport,
 } from "./embed.ts";
 
 export class MatchCardError extends Schema.TaggedError<MatchCardError>()(
@@ -37,7 +43,7 @@ export class MatchCardError extends Schema.TaggedError<MatchCardError>()(
 ) {}
 
 // Discord shows an inline image at most 550x350, so the card is laid out near
-// that ratio with the teams side by side, then rasterised at SCALE so text
+// that ratio with two columns side by side, then rasterised at SCALE so text
 // stays sharp on high-density screens
 const WIDTH = 640;
 const PADDING = 12;
@@ -172,20 +178,24 @@ interface CardImages {
   readonly ranks: ReadonlyMap<Puuid, string>;
 }
 
-// Two lines per player: who and at what rank on the left, how they played on
-// the right. The character is the portrait, which players read faster anyway.
-const PlayerRow = ({
+const Row = ({
   player,
   report,
   images,
   tracked,
   mvp,
+  portrait,
+  headline,
+  detail,
 }: {
-  player: MatchPlayer;
+  player: MatchPlayerIdentity;
   report: MatchReport;
   images: CardImages;
   tracked: boolean;
-  mvp: boolean;
+  mvp?: boolean;
+  portrait: JSXNode;
+  headline: string;
+  detail?: string;
 }) => {
   const delta = rankDelta(report.rankUpdates.get(player.puuid));
   const rankIcon = images.ranks.get(player.puuid);
@@ -211,11 +221,7 @@ const PlayerRow = ({
           {mvp ? <Badge label="MVP" color={colors.gold} /> : null}
         </div>
       ) : null}
-      <Icon
-        src={images.characters.get(player.puuid)}
-        size={34}
-        alt={player.character}
-      />
+      {portrait}
       <div
         style={{
           display: "flex",
@@ -279,163 +285,271 @@ const PlayerRow = ({
           marginLeft: 6,
         }}
       >
-        <div style={{ fontSize: 14, fontWeight: 800, color: colors.text }}>
-          {`${player.kills} / ${player.deaths} / ${player.assists}`}
-        </div>
-        <div style={{ marginTop: 3, fontSize: 11.5, color: colors.muted }}>
-          {player.stat}
-        </div>
+        {headline ? (
+          <div style={{ fontSize: 14, fontWeight: 800, color: colors.text }}>
+            {headline}
+          </div>
+        ) : null}
+        {detail ? (
+          <div style={{ marginTop: 3, fontSize: 11.5, color: colors.muted }}>
+            {detail}
+          </div>
+        ) : null}
       </div>
     </div>
   );
 };
 
+interface Column {
+  readonly color: string;
+  readonly label: string;
+  readonly status?: string;
+  readonly detail?: string;
+  readonly rows: ReadonlyArray<JSXNode>;
+}
+
 const Card = ({
-  report,
-  images,
+  accent,
+  icon,
+  game,
+  label,
+  details,
+  score,
+  columns,
 }: {
-  report: MatchReport;
-  images: CardImages;
-}) => {
+  accent: string;
+  icon: string | undefined;
+  game: GameId;
+  label: string;
+  details: ReadonlyArray<string | undefined>;
+  score?: readonly [number, number] | undefined;
+  columns: ReadonlyArray<Column>;
+}) => (
+  <div
+    style={{
+      display: "flex",
+      flexDirection: "column",
+      width: WIDTH,
+      padding: PADDING,
+      borderRadius: 14,
+      backgroundColor: colors.card,
+      backgroundImage: `linear-gradient(180deg, ${accent}40 0%, ${colors.card} 90px)`,
+      fontFamily: "Inter",
+      color: colors.text,
+    }}
+  >
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        padding: "0 4px 10px",
+      }}
+    >
+      <Icon src={icon} size={40} alt={gameNames[game]} />
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          flexGrow: 1,
+          marginLeft: 11,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 24,
+            fontWeight: 800,
+            color: accent,
+            letterSpacing: 1.5,
+          }}
+        >
+          {label.toUpperCase()}
+        </div>
+        <div style={{ fontSize: 12, color: colors.muted, marginTop: 1 }}>
+          {details.filter(Boolean).join("  ·  ")}
+        </div>
+      </div>
+      {score ? (
+        <div style={{ display: "flex", alignItems: "center", fontWeight: 800 }}>
+          <div style={{ fontSize: 32, color: colors.text }}>
+            {String(score[0])}
+          </div>
+          <div style={{ fontSize: 22, color: colors.faint, margin: "0 8px" }}>
+            –
+          </div>
+          <div style={{ fontSize: 32, color: colors.muted }}>
+            {String(score[1])}
+          </div>
+        </div>
+      ) : null}
+    </div>
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        justifyContent: "space-between",
+        rowGap: 10,
+      }}
+    >
+      {columns.map((column) => (
+        <div style={{ display: "flex", flexDirection: "column", width: PANEL }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "0 4px",
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: 1,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                width: 3,
+                height: 11,
+                borderRadius: 2,
+                backgroundColor: column.color,
+                marginRight: 6,
+              }}
+            />
+            <div style={{ color: colors.text }}>
+              {column.label.toUpperCase()}
+            </div>
+            {column.status ? (
+              <div style={{ marginLeft: 6, color: column.color }}>
+                {column.status}
+              </div>
+            ) : null}
+            {column.detail ? (
+              <div style={{ marginLeft: 8, color: colors.faint }}>
+                {column.detail}
+              </div>
+            ) : null}
+          </div>
+          {column.rows}
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const versusCard = (report: VersusReport, images: CardImages) => {
   const { match } = report;
   const { key, verdict, trackedTeam, teams } = matchVerdict(report);
   const trackedPuuids = new Set(report.tracked.map((player) => player.puuid));
   const mvp = [...match.players].sort((a, b) => b.sortKey - a.sortKey)[0]
     ?.puuid;
-  const accent = verdictColors[key];
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        width: WIDTH,
-        padding: PADDING,
-        borderRadius: 14,
-        backgroundColor: colors.card,
-        backgroundImage: `linear-gradient(180deg, ${accent}40 0%, ${colors.card} 90px)`,
-        fontFamily: "Inter",
-        color: colors.text,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          padding: "0 4px 10px",
-        }}
-      >
-        <Icon src={images.game} size={40} alt={gameNames[match.game]} />
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            flexGrow: 1,
-            marginLeft: 11,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 24,
-              fontWeight: 800,
-              color: accent,
-              letterSpacing: 1.5,
-            }}
-          >
-            {verdict.label.toUpperCase()}
-          </div>
-          <div style={{ fontSize: 12, color: colors.muted, marginTop: 1 }}>
-            {[
-              match.mode,
-              match.map,
-              formatDuration(match.durationSeconds),
-              match.surrendered ? "Surrender" : undefined,
-            ]
-              .filter(Boolean)
-              .join("  ·  ")}
-          </div>
-        </div>
-        {trackedTeam?.score ? (
-          <div
-            style={{ display: "flex", alignItems: "center", fontWeight: 800 }}
-          >
-            <div style={{ fontSize: 32, color: colors.text }}>
-              {String(trackedTeam.score[0])}
-            </div>
-            <div style={{ fontSize: 22, color: colors.faint, margin: "0 8px" }}>
-              –
-            </div>
-            <div style={{ fontSize: 32, color: colors.muted }}>
-              {String(trackedTeam.score[1])}
-            </div>
-          </div>
-        ) : null}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          justifyContent: "space-between",
-          rowGap: 10,
-        }}
-      >
-        {teams.flatMap((team, index) => {
-          const players = match.players
-            .filter((player) => player.team === team.id)
-            .sort((a, b) => b.sortKey - a.sortKey);
-          if (players.length === 0) return [];
-          return [
+    <Card
+      accent={verdictColors[key]}
+      icon={images.game}
+      game={match.game}
+      label={verdict.label}
+      details={[
+        match.mode,
+        match.map,
+        formatDuration(match.durationSeconds),
+        match.surrendered ? "Surrender" : undefined,
+      ]}
+      score={trackedTeam?.score}
+      columns={teams.flatMap((team, index) => {
+        const players = match.players
+          .filter((player) => player.team === team.id)
+          .sort((a, b) => b.sortKey - a.sortKey);
+        if (players.length === 0) return [];
+        return [
+          {
+            color: teamColor(team),
+            label: teamLabel(index),
+            status:
+              team.won === true ? "WIN" : team.won === false ? "LOSS" : "DRAW",
+            detail: `${players.reduce((kills, player) => kills + player.kills, 0)} KILLS`,
+            rows: players.map((player) => (
+              <Row
+                player={player}
+                report={report}
+                images={images}
+                tracked={trackedPuuids.has(player.puuid)}
+                mvp={player.puuid === mvp}
+                portrait={
+                  <Icon
+                    src={images.characters.get(player.puuid)}
+                    size={34}
+                    alt={player.character}
+                  />
+                }
+                headline={`${player.kills} / ${player.deaths} / ${player.assists}`}
+                detail={player.stat}
+              />
+            )),
+          },
+        ];
+      })}
+    />
+  );
+};
+
+const placementCard = (report: PlacementReport, images: CardImages) => {
+  const { match } = report;
+  const { key, label, trackedPuuids, half } = placementVerdict(report);
+  const players = [...match.players].sort((a, b) => a.placement - b.placement);
+  const column = (
+    title: string,
+    color: string,
+    group: ReadonlyArray<PlacementPlayer>,
+  ) => ({
+    label: title,
+    color,
+    rows: group.map((player) => {
+      const tint = player.placement === 1 ? colors.gold : color;
+      return (
+        <Row
+          player={player}
+          report={report}
+          images={images}
+          tracked={trackedPuuids.has(player.puuid)}
+          portrait={
             <div
-              style={{ display: "flex", flexDirection: "column", width: PANEL }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                width: 34,
+                height: 34,
+                borderRadius: 6,
+                backgroundColor: `${tint}2e`,
+                color: tint,
+                fontSize: 18,
+                fontWeight: 800,
+              }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "0 4px",
-                  fontSize: 10,
-                  fontWeight: 800,
-                  letterSpacing: 1,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    width: 3,
-                    height: 11,
-                    borderRadius: 2,
-                    backgroundColor: teamColor(team),
-                    marginRight: 6,
-                  }}
-                />
-                <div style={{ color: colors.text }}>
-                  {teamLabel(index).toUpperCase()}
-                </div>
-                <div style={{ marginLeft: 6, color: teamColor(team) }}>
-                  {team.won === true
-                    ? "WIN"
-                    : team.won === false
-                      ? "LOSS"
-                      : "DRAW"}
-                </div>
-                <div style={{ marginLeft: 8, color: colors.faint }}>
-                  {`${players.reduce((kills, player) => kills + player.kills, 0)} KILLS`}
-                </div>
-              </div>
-              {players.map((player) => (
-                <PlayerRow
-                  player={player}
-                  report={report}
-                  images={images}
-                  tracked={trackedPuuids.has(player.puuid)}
-                  mvp={player.puuid === mvp}
-                />
-              ))}
-            </div>,
-          ];
-        })}
-      </div>
-    </div>
+              {String(player.placement)}
+            </div>
+          }
+          headline={player.stat}
+        />
+      );
+    }),
+  });
+
+  return (
+    <Card
+      accent={verdictColors[key]}
+      icon={images.game}
+      game={match.game}
+      label={label}
+      details={[match.mode, formatDuration(match.durationSeconds)]}
+      columns={[
+        column(`Top ${half}`, colors.up, players.slice(0, half)),
+        column(
+          `Bottom ${players.length - half}`,
+          colors.down,
+          players.slice(half),
+        ),
+      ]}
+    />
   );
 };
 
@@ -537,10 +651,14 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
 
   return Effect.fn("MatchCard.render")(
     function* (report: MatchReport) {
-      const icons = iconsByGame.get(report.match.game);
-      const perPlayer = (url: (player: MatchPlayer) => string | undefined) =>
+      const { match } = report;
+      const icons = iconsByGame.get(match.game);
+      const perPlayer = <P extends MatchPlayerIdentity>(
+        players: ReadonlyArray<P>,
+        url: (player: P) => string | undefined,
+      ) =>
         Effect.forEach(
-          report.match.players,
+          players,
           (player) =>
             image(url(player)).pipe(
               Effect.map((src) => [player.puuid, src] as const),
@@ -560,8 +678,11 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
       const { game, characters, ranks } = yield* Effect.all(
         {
           game: image(icons?.game),
-          characters: perPlayer((player) => player.characterIconUrl),
-          ranks: perPlayer((player) =>
+          characters: perPlayer(
+            match.kind === "versus" ? match.players : [],
+            (player) => player.characterIconUrl,
+          ),
+          ranks: perPlayer(match.players, (player: MatchPlayerIdentity) =>
             player.rankIconKey
               ? icons?.ranks.get(player.rankIconKey)
               : undefined,
@@ -570,10 +691,13 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
         { concurrency: "unbounded" },
       );
 
+      const images = { game, characters, ranks };
       const runPromise = Effect.runPromiseWith(yield* Effect.context());
       return yield* Effect.tryPromise(async () => {
         const svg = await satori(
-          <Card report={report} images={{ game, characters, ranks }} />,
+          match.kind === "versus"
+            ? versusCard({ ...report, match }, images)
+            : placementCard({ ...report, match }, images),
           {
             width: WIDTH,
             fonts,
@@ -612,8 +736,6 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
 
 export type MatchCard = Effect.Success<ReturnType<typeof makeMatchCard>>;
 
-// Posts the card under a one-line summary. A card that fails to render falls
-// back to the embed scoreboard so the match is still reported.
 export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
   {
     rest,

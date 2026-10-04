@@ -9,12 +9,12 @@ import {
 } from "./index.ts";
 import {
   EpochMillis,
-  type MatchDetails,
-  type MatchPlayer,
   type MatchTeam,
   type Puuid,
   type RankInfo,
   type Region,
+  type VersusMatch,
+  type VersusPlayer,
 } from "../index.ts";
 import {
   valMatchMode,
@@ -52,9 +52,9 @@ const rankIcons = [
 export const valMatchToDetails = (
   match: ValRawMatch,
   performanceScores?: ReadonlyMap<Puuid, number>,
-): MatchDetails => {
+): VersusMatch => {
   const rounds = Math.max(match.rounds.length, 1);
-  const players: Array<MatchPlayer> = match.players.map((player) => {
+  const players: Array<VersusPlayer> = match.players.map((player) => {
     const shots =
       player.stats.headshots + player.stats.bodyshots + player.stats.legshots;
     const acs = Math.floor(player.stats.score / rounds);
@@ -90,6 +90,7 @@ export const valMatchToDetails = (
   }));
 
   return {
+    kind: "versus",
     matchId: match.metadata.match_id,
     game: "valorant",
     date: EpochMillis.make(Date.parse(match.metadata.started_at)),
@@ -109,6 +110,7 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
 
   const adapter: GameAdapter = {
     game: "valorant",
+    requiresMatchHistory: false,
     iconUrl: new URL("../../../../assets/logo-valorant.png", import.meta.url)
       .href,
     rankIcons,
@@ -142,6 +144,7 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
       match,
       trackedPlayers,
     }) {
+      if (match.kind !== "versus") return emptyEnrichment(match);
       const region = trackedPlayers[0]?.region;
       const scored = yield* Effect.all(
         [
