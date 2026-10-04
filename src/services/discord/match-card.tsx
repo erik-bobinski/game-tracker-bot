@@ -13,12 +13,14 @@ import {
 import type { DiscordREST } from "dfx";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import satori, { type Font } from "satori";
+import type { JSXNode } from "satori/jsx";
 import { gameNames } from "../game/index.ts";
 import type {
+  GameId,
+  MatchPlayerIdentity,
   MatchTeam,
   Puuid,
   RankUpdate,
-  VersusPlayer,
 } from "../game/index.ts";
 import type { GameAdapter } from "../game/game-adapters/index.ts";
 import {
@@ -26,8 +28,11 @@ import {
   matchEmbed,
   matchSummary,
   matchVerdict,
+  placementSummary,
+  placementVerdict,
   teamLabel,
   type MatchReport,
+  type PlacementReport,
   type RankEmojis,
   type VersusReport,
 } from "./embed.ts";
@@ -173,270 +178,400 @@ interface CardImages {
   readonly ranks: ReadonlyMap<Puuid, string>;
 }
 
-// Two lines per player: who and at what rank on the left, how they played on
-// the right. The character is the portrait, which players read faster anyway.
-const PlayerRow = ({
-  player,
-  report,
-  images,
+// Two lines per player: who and at what rank in the middle, how they played on
+// the right. The portrait goes first, since players read it faster anyway.
+const Row = ({
+  portrait,
+  name,
+  rank,
+  rankIcon,
+  delta,
+  headline,
+  detail,
+  badges,
   tracked,
-  mvp,
 }: {
-  player: VersusPlayer;
-  report: VersusReport;
-  images: CardImages;
+  portrait: JSXNode;
+  name: string;
+  rank: string | undefined;
+  rankIcon: string | undefined;
+  delta: ReturnType<typeof rankDelta>;
+  headline: string | undefined;
+  detail: string | undefined;
+  badges: ReadonlyArray<{ label: string; color: string }>;
   tracked: boolean;
-  mvp: boolean;
-}) => {
-  const delta = rankDelta(report.rankUpdates.get(player.puuid));
-  const rankIcon = images.ranks.get(player.puuid);
-  return (
+}) => (
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      position: "relative",
+      height: 58,
+      padding: "0 7px 0 5px",
+      marginTop: 4,
+      borderRadius: 6,
+      backgroundColor: tracked ? colors.tracked : colors.row,
+      borderLeft: `3px solid ${tracked ? colors.gold : colors.row}`,
+    }}
+  >
+    {badges.length > 0 ? (
+      <div style={{ display: "flex", position: "absolute", top: -5, right: 8 }}>
+        {badges.map((badge) => (
+          <Badge label={badge.label} color={badge.color} />
+        ))}
+      </div>
+    ) : null}
+    {portrait}
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flexGrow: 1,
+        flexShrink: 1,
+        minWidth: 0,
+        marginLeft: 7,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 14,
+          fontWeight: tracked ? 800 : 600,
+          color: colors.text,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {name}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          marginTop: 3,
+          fontSize: 11.5,
+          color: rank ? colors.muted : colors.faint,
+        }}
+      >
+        {rankIcon ? (
+          <img
+            src={rankIcon}
+            width={15}
+            height={15}
+            style={{ marginRight: 3 }}
+          />
+        ) : null}
+        <div style={{ flexShrink: 0 }}>{rank ?? "Unranked"}</div>
+        {delta ? (
+          <div
+            style={{
+              flexShrink: 0,
+              marginLeft: 5,
+              fontWeight: 600,
+              color: delta.color,
+            }}
+          >
+            {delta.text}
+          </div>
+        ) : null}
+      </div>
+    </div>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-end",
+        flexShrink: 0,
+        marginLeft: 6,
+      }}
+    >
+      {headline ? (
+        <div style={{ fontSize: 14, fontWeight: 800, color: colors.text }}>
+          {headline}
+        </div>
+      ) : null}
+      {detail ? (
+        <div style={{ marginTop: 3, fontSize: 11.5, color: colors.muted }}>
+          {detail}
+        </div>
+      ) : null}
+    </div>
+  </div>
+);
+
+interface Column {
+  readonly color: string;
+  readonly label: string;
+  readonly status?: string;
+  readonly detail?: string;
+  readonly rows: ReadonlyArray<JSXNode>;
+}
+
+// The verdict header over two side-by-side columns of player rows
+const Card = ({
+  accent,
+  icon,
+  game,
+  label,
+  details,
+  score,
+  columns,
+}: {
+  accent: string;
+  icon: string | undefined;
+  game: GameId;
+  label: string;
+  details: ReadonlyArray<string | undefined>;
+  score: readonly [number, number] | undefined;
+  columns: ReadonlyArray<Column>;
+}) => (
+  <div
+    style={{
+      display: "flex",
+      flexDirection: "column",
+      width: WIDTH,
+      padding: PADDING,
+      borderRadius: 14,
+      backgroundColor: colors.card,
+      backgroundImage: `linear-gradient(180deg, ${accent}40 0%, ${colors.card} 90px)`,
+      fontFamily: "Inter",
+      color: colors.text,
+    }}
+  >
     <div
       style={{
         display: "flex",
         alignItems: "center",
-        position: "relative",
-        height: 58,
-        padding: "0 7px 0 5px",
-        marginTop: 4,
-        borderRadius: 6,
-        backgroundColor: tracked ? colors.tracked : colors.row,
-        borderLeft: `3px solid ${tracked ? colors.gold : colors.row}`,
+        padding: "0 4px 10px",
       }}
     >
-      {mvp || player.flair ? (
-        <div
-          style={{ display: "flex", position: "absolute", top: -5, right: 8 }}
-        >
-          {player.flair ? <Badge label={player.flair} color="#ff7a45" /> : null}
-          {mvp ? <Badge label="MVP" color={colors.gold} /> : null}
-        </div>
-      ) : null}
-      <Icon
-        src={images.characters.get(player.puuid)}
-        size={34}
-        alt={player.character}
-      />
+      <Icon src={icon} size={40} alt={gameNames[game]} />
       <div
         style={{
           display: "flex",
           flexDirection: "column",
           flexGrow: 1,
-          flexShrink: 1,
-          minWidth: 0,
-          marginLeft: 7,
+          marginLeft: 11,
         }}
       >
         <div
           style={{
-            fontSize: 14,
-            fontWeight: tracked ? 800 : 600,
-            color: colors.text,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+            fontSize: 24,
+            fontWeight: 800,
+            color: accent,
+            letterSpacing: 1.5,
           }}
         >
-          {player.riotName}
+          {label.toUpperCase()}
         </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            marginTop: 3,
-            fontSize: 11.5,
-            color: player.rank ? colors.muted : colors.faint,
-          }}
-        >
-          {rankIcon ? (
-            <img
-              src={rankIcon}
-              width={15}
-              height={15}
-              style={{ marginRight: 3 }}
-            />
-          ) : null}
-          <div style={{ flexShrink: 0 }}>{player.rank ?? "Unranked"}</div>
-          {delta ? (
+        <div style={{ fontSize: 12, color: colors.muted, marginTop: 1 }}>
+          {details.filter(Boolean).join("  ·  ")}
+        </div>
+      </div>
+      {score ? (
+        <div style={{ display: "flex", alignItems: "center", fontWeight: 800 }}>
+          <div style={{ fontSize: 32, color: colors.text }}>
+            {String(score[0])}
+          </div>
+          <div style={{ fontSize: 22, color: colors.faint, margin: "0 8px" }}>
+            –
+          </div>
+          <div style={{ fontSize: 32, color: colors.muted }}>
+            {String(score[1])}
+          </div>
+        </div>
+      ) : null}
+    </div>
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        justifyContent: "space-between",
+        rowGap: 10,
+      }}
+    >
+      {columns.map((column) => (
+        <div style={{ display: "flex", flexDirection: "column", width: PANEL }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "0 4px",
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: 1,
+            }}
+          >
             <div
               style={{
-                flexShrink: 0,
-                marginLeft: 5,
-                fontWeight: 600,
-                color: delta.color,
+                display: "flex",
+                width: 3,
+                height: 11,
+                borderRadius: 2,
+                backgroundColor: column.color,
+                marginRight: 6,
               }}
-            >
-              {delta.text}
+            />
+            <div style={{ color: colors.text }}>
+              {column.label.toUpperCase()}
             </div>
-          ) : null}
+            {column.status ? (
+              <div style={{ marginLeft: 6, color: column.color }}>
+                {column.status}
+              </div>
+            ) : null}
+            {column.detail ? (
+              <div style={{ marginLeft: 8, color: colors.faint }}>
+                {column.detail}
+              </div>
+            ) : null}
+          </div>
+          {column.rows}
         </div>
-      </div>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-end",
-          flexShrink: 0,
-          marginLeft: 6,
-        }}
-      >
-        <div style={{ fontSize: 14, fontWeight: 800, color: colors.text }}>
-          {`${player.kills} / ${player.deaths} / ${player.assists}`}
-        </div>
-        <div style={{ marginTop: 3, fontSize: 11.5, color: colors.muted }}>
-          {player.stat}
-        </div>
-      </div>
+      ))}
     </div>
-  );
-};
+  </div>
+);
 
-const Card = ({
-  report,
-  images,
-}: {
-  report: VersusReport;
-  images: CardImages;
-}) => {
+// Teams side by side with the tracked players' team first, each sorted by
+// how well its players did
+const versusCard = (report: VersusReport, images: CardImages) => {
   const { match } = report;
   const { key, verdict, trackedTeam, teams } = matchVerdict(report);
   const trackedPuuids = new Set(report.tracked.map((player) => player.puuid));
   const mvp = [...match.players].sort((a, b) => b.sortKey - a.sortKey)[0]
     ?.puuid;
-  const accent = verdictColors[key];
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        width: WIDTH,
-        padding: PADDING,
-        borderRadius: 14,
-        backgroundColor: colors.card,
-        backgroundImage: `linear-gradient(180deg, ${accent}40 0%, ${colors.card} 90px)`,
-        fontFamily: "Inter",
-        color: colors.text,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          padding: "0 4px 10px",
-        }}
-      >
-        <Icon src={images.game} size={40} alt={gameNames[match.game]} />
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            flexGrow: 1,
-            marginLeft: 11,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 24,
-              fontWeight: 800,
-              color: accent,
-              letterSpacing: 1.5,
-            }}
-          >
-            {verdict.label.toUpperCase()}
-          </div>
-          <div style={{ fontSize: 12, color: colors.muted, marginTop: 1 }}>
-            {[
-              match.mode,
-              match.map,
-              formatDuration(match.durationSeconds),
-              match.surrendered ? "Surrender" : undefined,
-            ]
-              .filter(Boolean)
-              .join("  ·  ")}
-          </div>
-        </div>
-        {trackedTeam?.score ? (
-          <div
-            style={{ display: "flex", alignItems: "center", fontWeight: 800 }}
-          >
-            <div style={{ fontSize: 32, color: colors.text }}>
-              {String(trackedTeam.score[0])}
-            </div>
-            <div style={{ fontSize: 22, color: colors.faint, margin: "0 8px" }}>
-              –
-            </div>
-            <div style={{ fontSize: 32, color: colors.muted }}>
-              {String(trackedTeam.score[1])}
-            </div>
-          </div>
-        ) : null}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          justifyContent: "space-between",
-          rowGap: 10,
-        }}
-      >
-        {teams.flatMap((team, index) => {
-          const players = match.players
-            .filter((player) => player.team === team.id)
-            .sort((a, b) => b.sortKey - a.sortKey);
-          if (players.length === 0) return [];
-          return [
-            <div
-              style={{ display: "flex", flexDirection: "column", width: PANEL }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "0 4px",
-                  fontSize: 10,
-                  fontWeight: 800,
-                  letterSpacing: 1,
-                }}
-              >
+    <Card
+      accent={verdictColors[key]}
+      icon={images.game}
+      game={match.game}
+      label={verdict.label}
+      details={[
+        match.mode,
+        match.map,
+        formatDuration(match.durationSeconds),
+        match.surrendered ? "Surrender" : undefined,
+      ]}
+      score={trackedTeam?.score}
+      columns={teams.flatMap((team, index) => {
+        const players = match.players
+          .filter((player) => player.team === team.id)
+          .sort((a, b) => b.sortKey - a.sortKey);
+        if (players.length === 0) return [];
+        return [
+          {
+            color: teamColor(team),
+            label: teamLabel(index),
+            status:
+              team.won === true ? "WIN" : team.won === false ? "LOSS" : "DRAW",
+            detail: `${players.reduce((kills, player) => kills + player.kills, 0)} KILLS`,
+            rows: players.map((player) => (
+              <Row
+                portrait={
+                  <Icon
+                    src={images.characters.get(player.puuid)}
+                    size={34}
+                    alt={player.character}
+                  />
+                }
+                name={player.riotName}
+                rank={player.rank}
+                rankIcon={images.ranks.get(player.puuid)}
+                delta={rankDelta(report.rankUpdates.get(player.puuid))}
+                headline={`${player.kills} / ${player.deaths} / ${player.assists}`}
+                detail={player.stat}
+                badges={[
+                  ...(player.flair
+                    ? [{ label: player.flair, color: "#ff7a45" }]
+                    : []),
+                  ...(player.puuid === mvp
+                    ? [{ label: "MVP", color: colors.gold }]
+                    : []),
+                ]}
+                tracked={trackedPuuids.has(player.puuid)}
+              />
+            )),
+          },
+        ];
+      })}
+    />
+  );
+};
+
+// The lobby in finishing order, top half on the left, with each player's
+// placement where a versus card shows their character
+const placementCard = (report: PlacementReport, images: CardImages) => {
+  const { match } = report;
+  const { key, label, trackedPuuids } = placementVerdict(report);
+  const players = [...match.players].sort((a, b) => a.placement - b.placement);
+  const half = Math.ceil(players.length / 2);
+
+  return (
+    <Card
+      accent={verdictColors[key]}
+      icon={images.game}
+      game={match.game}
+      label={label}
+      details={[match.mode, formatDuration(match.durationSeconds)]}
+      score={undefined}
+      columns={[
+        {
+          color: colors.up,
+          label: `Top ${half}`,
+          players: players.slice(0, half),
+        },
+        {
+          color: colors.down,
+          label: `Bottom ${players.length - half}`,
+          players: players.slice(half),
+        },
+      ].map(({ players, ...column }) => ({
+        ...column,
+        rows: players.map((player) => {
+          const color =
+            player.placement === 1
+              ? colors.gold
+              : player.placement <= half
+                ? colors.up
+                : colors.down;
+          return (
+            <Row
+              portrait={
                 <div
                   style={{
                     display: "flex",
-                    width: 3,
-                    height: 11,
-                    borderRadius: 2,
-                    backgroundColor: teamColor(team),
-                    marginRight: 6,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                    width: 34,
+                    height: 34,
+                    borderRadius: 6,
+                    backgroundColor: `${color}2e`,
+                    color,
+                    fontSize: 18,
+                    fontWeight: 800,
                   }}
-                />
-                <div style={{ color: colors.text }}>
-                  {teamLabel(index).toUpperCase()}
+                >
+                  {String(player.placement)}
                 </div>
-                <div style={{ marginLeft: 6, color: teamColor(team) }}>
-                  {team.won === true
-                    ? "WIN"
-                    : team.won === false
-                      ? "LOSS"
-                      : "DRAW"}
-                </div>
-                <div style={{ marginLeft: 8, color: colors.faint }}>
-                  {`${players.reduce((kills, player) => kills + player.kills, 0)} KILLS`}
-                </div>
-              </div>
-              {players.map((player) => (
-                <PlayerRow
-                  player={player}
-                  report={report}
-                  images={images}
-                  tracked={trackedPuuids.has(player.puuid)}
-                  mvp={player.puuid === mvp}
-                />
-              ))}
-            </div>,
-          ];
-        })}
-      </div>
-    </div>
+              }
+              name={player.riotName}
+              rank={player.rank}
+              rankIcon={images.ranks.get(player.puuid)}
+              delta={rankDelta(report.rankUpdates.get(player.puuid))}
+              headline={player.stat}
+              detail={undefined}
+              badges={
+                player.flair ? [{ label: player.flair, color: "#ff7a45" }] : []
+              }
+              tracked={trackedPuuids.has(player.puuid)}
+            />
+          );
+        }),
+      }))}
+    />
   );
 };
 
@@ -537,11 +672,15 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
   );
 
   return Effect.fn("MatchCard.render")(
-    function* (report: VersusReport) {
-      const icons = iconsByGame.get(report.match.game);
-      const perPlayer = (url: (player: VersusPlayer) => string | undefined) =>
+    function* (report: MatchReport) {
+      const { match } = report;
+      const icons = iconsByGame.get(match.game);
+      const perPlayer = <P extends MatchPlayerIdentity>(
+        players: ReadonlyArray<P>,
+        url: (player: P) => string | undefined,
+      ) =>
         Effect.forEach(
-          report.match.players,
+          players,
           (player) =>
             image(url(player)).pipe(
               Effect.map((src) => [player.puuid, src] as const),
@@ -561,8 +700,11 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
       const { game, characters, ranks } = yield* Effect.all(
         {
           game: image(icons?.game),
-          characters: perPlayer((player) => player.characterIconUrl),
-          ranks: perPlayer((player) =>
+          characters: perPlayer(
+            match.kind === "versus" ? match.players : [],
+            (player) => player.characterIconUrl,
+          ),
+          ranks: perPlayer(match.players, (player: MatchPlayerIdentity) =>
             player.rankIconKey
               ? icons?.ranks.get(player.rankIconKey)
               : undefined,
@@ -571,10 +713,13 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
         { concurrency: "unbounded" },
       );
 
+      const images = { game, characters, ranks };
       const runPromise = Effect.runPromiseWith(yield* Effect.context());
       return yield* Effect.tryPromise(async () => {
         const svg = await satori(
-          <Card report={report} images={{ game, characters, ranks }} />,
+          match.kind === "versus"
+            ? versusCard({ ...report, match }, images)
+            : placementCard({ ...report, match }, images),
           {
             width: WIDTH,
             fonts,
@@ -613,9 +758,8 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
 
 export type MatchCard = Effect.Success<ReturnType<typeof makeMatchCard>>;
 
-// Posts a versus match as the card under a one-line summary, and a placement
-// match as its embed. A card that fails to render falls back to the embed
-// scoreboard so the match is still reported.
+// Posts a match as its card under a one-line summary. A card that fails to
+// render falls back to the embed scoreboard so the match is still reported.
 export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
   {
     rest,
@@ -630,14 +774,7 @@ export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
   },
   report: MatchReport,
 ) {
-  const { match } = report;
-  if (match.kind !== "versus") {
-    return yield* rest.createMessage(channelId, {
-      embeds: [matchEmbed(report, rankEmojis)],
-    });
-  }
-  const versus = { ...report, match };
-  const png = yield* card(versus).pipe(
+  const png = yield* card(report).pipe(
     Effect.tapError((error) =>
       Effect.logError("match card render failed; posting the embed", error),
     ),
@@ -648,10 +785,14 @@ export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
       embeds: [matchEmbed(report, rankEmojis)],
     });
   }
+  const { match } = report;
   const filename = "match-report.png";
   return yield* rest
     .createMessage(channelId, {
-      content: matchSummary(versus),
+      content:
+        match.kind === "versus"
+          ? matchSummary({ ...report, match })
+          : placementSummary({ ...report, match }),
       attachments: [{ id: "0", filename }],
     })
     .pipe(

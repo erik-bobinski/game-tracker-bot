@@ -49,22 +49,52 @@ export const lolMockResponse = () => {
   const durationSeconds = 1_961;
   const blue = (
     [
-      [[103, "Ahri"], [12, 3, 9]],
-      [[222, "Jinx"], [9, 4, 11]],
-      [[412, "Thresh"], [1, 5, 22]],
-      [[64, "LeeSin"], [7, 6, 8]],
-      [[86, "Garen"], [5, 4, 6]],
+      [
+        [103, "Ahri"],
+        [12, 3, 9],
+      ],
+      [
+        [222, "Jinx"],
+        [9, 4, 11],
+      ],
+      [
+        [412, "Thresh"],
+        [1, 5, 22],
+      ],
+      [
+        [64, "LeeSin"],
+        [7, 6, 8],
+      ],
+      [
+        [86, "Garen"],
+        [5, 4, 6],
+      ],
     ] as const
   ).map(([champion, kda], index) =>
     lolParticipant(index + 1, 100, champion, kda, true),
   );
   const red = (
     [
-      [[99, "Lux"], [8, 7, 5]],
-      [[122, "Darius"], [6, 8, 3]],
-      [[117, "Lulu"], [0, 6, 14]],
-      [[81, "Ezreal"], [5, 7, 6]],
-      [[25, "Morgana"], [3, 8, 9]],
+      [
+        [99, "Lux"],
+        [8, 7, 5],
+      ],
+      [
+        [122, "Darius"],
+        [6, 8, 3],
+      ],
+      [
+        [117, "Lulu"],
+        [0, 6, 14],
+      ],
+      [
+        [81, "Ezreal"],
+        [5, 7, 6],
+      ],
+      [
+        [25, "Morgana"],
+        [3, 8, 9],
+      ],
     ] as const
   ).map(([champion, kda], index) =>
     lolParticipant(index + 6, 200, champion, kda, false),
@@ -209,14 +239,12 @@ const tftParticipant = (
   slot: number,
   placement: number,
   level: number | null,
-  damage: number | null,
 ) => ({
   puuid: `dev-tft-${slot}`,
   riotIdGameName: slot === 8 ? null : `DevPlayer${slot}`,
   riotIdTagline: slot === 8 ? null : "DEV",
   placement,
   level,
-  total_damage_to_players: damage,
 });
 
 export const tftMockResponse = () => {
@@ -224,17 +252,17 @@ export const tftMockResponse = () => {
   const durationSeconds = 1_842.6;
   const participants = (
     [
-      [1, 9, 48],
-      [2, 8, 42],
-      [3, 8, 37],
-      [4, 7, 29],
-      [5, 7, 21],
-      [6, 6, 16],
-      [7, 5, 11],
-      [8, null, null],
+      [1, 9],
+      [2, 8],
+      [3, 8],
+      [4, 7],
+      [5, 7],
+      [6, 6],
+      [7, 5],
+      [8, null],
     ] as const
-  ).map(([placement, level, damage], index) =>
-    tftParticipant(index + 1, placement, level, damage),
+  ).map(([placement, level], index) =>
+    tftParticipant(index + 1, placement, level),
   );
 
   return {

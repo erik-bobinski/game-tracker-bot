@@ -22,7 +22,6 @@ export const TftParticipant = Schema.Struct({
   riotIdTagline: withDefault(Schema.String, "????"),
   placement: Schema.Number,
   level: Schema.optionalKey(Schema.NullOr(Schema.Number)),
-  total_damage_to_players: Schema.optionalKey(Schema.NullOr(Schema.Number)),
 });
 export interface TftParticipant extends Schema.Schema.Type<
   typeof TftParticipant

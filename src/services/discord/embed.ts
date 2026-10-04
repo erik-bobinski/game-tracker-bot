@@ -27,6 +27,9 @@ export interface MatchReport {
 // reports on a team match, which get a verdict and a match card
 export type VersusReport = MatchReport & { readonly match: VersusMatch };
 
+// reports on a free-for-all match, ranked by where each player finished
+export type PlacementReport = MatchReport & { readonly match: PlacementMatch };
+
 export type RankEmojis = Readonly<Record<string, string>>;
 
 const nameList = (names: ReadonlyArray<string>) => {
@@ -286,33 +289,54 @@ const placementBoard = (
     })
     .join("\n");
 
-const placementEmbed = (
-  report: MatchReport & { match: PlacementMatch },
-  rankEmojis: RankEmojis,
-): Discord.RichEmbed => {
+// A lone tracked player's finish, where the top half counts as a win, or a
+// neutral headline when several tracked players shared the lobby.
+export const placementVerdict = (report: PlacementReport) => {
   const trackedPuuids = new Set(report.tracked.map(({ puuid }) => puuid));
   const tracked = report.match.players.filter((player) =>
     trackedPuuids.has(player.puuid),
   );
   const primary = tracked.length === 1 ? tracked[0] : undefined;
-  const verdict =
+  const key =
+    primary === undefined
+      ? "unknown"
+      : primary.placement <= report.match.players.length / 2
+        ? "win"
+        : "loss";
+  const label =
     tracked.length > 1
       ? "TFT Results"
       : primary
         ? `${ordinal(primary.placement)} Place`
-        : "Match complete";
-  const color =
-    tracked.length !== 1
-      ? 0x95a5a6
-      : primary && primary.placement <= 4
-        ? 0x57f287
-        : 0xed4245;
+        : verdicts.unknown.label;
+  return { key, label, trackedPuuids } as const;
+};
+
+// "**A** finished 4th, **B** finished 7th in a **Ranked TFT** game."
+export const placementSummary = (report: PlacementReport) => {
+  const placements = new Map(
+    report.match.players.map((player) => [player.puuid, player.placement]),
+  );
+  const clauses = report.tracked.flatMap(({ discordName, puuid }) => {
+    const placement = placements.get(puuid);
+    return placement === undefined
+      ? []
+      : [`**${discordName}** finished ${ordinal(placement)}`];
+  });
+  return `${clauses.join(", ")} in a **${report.match.mode}** game.`;
+};
+
+const placementEmbed = (
+  report: PlacementReport,
+  rankEmojis: RankEmojis,
+): Discord.RichEmbed => {
+  const { key, label, trackedPuuids } = placementVerdict(report);
   const info = [
     `Started <t:${Math.floor(report.match.date / 1000)}:t>`,
     formatDuration(report.match.durationSeconds),
   ];
   return {
-    title: `${verdict} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
+    title: `${label} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
     description: [
       `${nameList(report.tracked.map(({ discordName }) => discordName))} just finished a **${gameNames[report.match.game]}** game`,
       info.join(" · "),
@@ -325,7 +349,7 @@ const placementEmbed = (
         report.rankUpdates,
       ),
     ].join("\n"),
-    color,
+    color: verdicts[key].color,
   };
 };
 
