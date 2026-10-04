@@ -50,6 +50,7 @@ export interface VersusPlayer extends MatchPlayerIdentity {
 
 export interface PlacementPlayer extends MatchPlayerIdentity {
   readonly placement: number;
+  readonly won: boolean;
 }
 
 export interface MatchTeam {
@@ -78,8 +79,6 @@ export interface VersusMatch extends MatchBase {
 
 export interface PlacementMatch extends MatchBase {
   readonly kind: "placement";
-  /** How many of the top placements count as a win */
-  readonly winningPlacements: number;
   readonly players: ReadonlyArray<PlacementPlayer>;
 }
 

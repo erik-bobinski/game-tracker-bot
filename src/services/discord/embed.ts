@@ -293,17 +293,11 @@ export const placementVerdict = (report: PlacementReport) => {
     trackedPuuids.has(player.puuid),
   );
   const primary = tracked.length === 1 ? tracked[0] : undefined;
-  const half = Math.ceil(report.match.players.length / 2);
-  const key =
-    primary === undefined
-      ? "unknown"
-      : primary.placement <= report.match.winningPlacements
-        ? "win"
-        : "loss";
+  const key = primary === undefined ? "unknown" : primary.won ? "win" : "loss";
   const label = primary
     ? `${ordinal(primary.placement)} Place`
     : verdicts.unknown.label;
-  return { key, label, trackedPuuids, half } as const;
+  return { key, label, trackedPuuids } as const;
 };
 
 const placementSummary = (report: PlacementReport) => {

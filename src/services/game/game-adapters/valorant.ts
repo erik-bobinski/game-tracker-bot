@@ -83,7 +83,6 @@ export const valMatchToDetails = (
     return {
       ...base,
       kind: "placement",
-      winningPlacements: 1,
       players: [...match.players]
         .sort(
           (a, b) =>
@@ -94,6 +93,7 @@ export const valMatchToDetails = (
         .map((player, index) => ({
           ...identity(player),
           placement: index + 1,
+          won: winners.has(player.puuid),
           stat: `${player.stats.kills} / ${player.stats.deaths} / ${player.stats.assists}`,
         })),
     };

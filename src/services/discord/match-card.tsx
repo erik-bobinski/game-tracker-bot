@@ -492,18 +492,17 @@ const versusCard = (report: VersusReport, images: CardImages) => {
 
 const placementCard = (report: PlacementReport, images: CardImages) => {
   const { match } = report;
-  const { key, label, trackedPuuids, half } = placementVerdict(report);
+  const { key, label, trackedPuuids } = placementVerdict(report);
   const players = [...match.players].sort((a, b) => a.placement - b.placement);
-  const won = (player: PlacementPlayer) =>
-    player.placement <= match.winningPlacements;
+  const half = Math.ceil(players.length / 2);
   const column = (title: string, group: ReadonlyArray<PlacementPlayer>) => ({
     label: title,
-    color: group.every(won) ? colors.up : colors.down,
+    color: group.every((player) => player.won) ? colors.up : colors.down,
     rows: group.map((player) => {
       const tint =
         player.placement === 1
           ? colors.gold
-          : won(player)
+          : player.won
             ? colors.up
             : colors.down;
       return (
