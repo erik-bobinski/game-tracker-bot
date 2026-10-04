@@ -103,12 +103,6 @@ export class RiotApiClient extends Context.Service<
 export const RiotApiLive = Layer.effect(
   RiotApiClient,
   Effect.gen(function* () {
-    // Riot scopes each product key to one game and encrypts puuids per key,
-    // so tft calls, account lookups included, go out under the tft key
-    const apiKeys = {
-      lol: yield* Config.redacted("RIOT_API_KEY"),
-      tft: yield* Config.redacted("RIOT_TFT_API_KEY"),
-    };
     // account-v1 answers for any account from any cluster, so this only picks
     // the nearest one; per-account routing comes from the stored platformId
     const defaultCluster = yield* Config.string("RIOT_REGION").pipe(
@@ -143,23 +137,17 @@ export const RiotApiLive = Layer.effect(
         ),
       }),
     );
+    // Riot scopes each product key to one game and encrypts puuids per key,
+    // so tft calls, account lookups included, go out under the tft key
+    const withKey = (key: Redacted.Redacted) =>
+      http.pipe(
+        HttpClient.mapRequest(
+          HttpClientRequest.setHeader("X-Riot-Token", Redacted.value(key)),
+        ),
+      );
     const clients = {
-      lol: http.pipe(
-        HttpClient.mapRequest(
-          HttpClientRequest.setHeader(
-            "X-Riot-Token",
-            Redacted.value(apiKeys.lol),
-          ),
-        ),
-      ),
-      tft: http.pipe(
-        HttpClient.mapRequest(
-          HttpClientRequest.setHeader(
-            "X-Riot-Token",
-            Redacted.value(apiKeys.tft),
-          ),
-        ),
-      ),
+      lol: withKey(yield* Config.redacted("RIOT_API_KEY")),
+      tft: withKey(yield* Config.redacted("RIOT_TFT_API_KEY")),
     };
 
     const getAccountByRiotId = Effect.fn("RiotApi.getAccountByRiotId")(
