@@ -32,8 +32,12 @@ export type PlacementReport = MatchReport & { readonly match: PlacementMatch };
 
 export type RankEmojis = Readonly<Record<string, string>>;
 
+// players pick their own names, so any markdown in them is shown literally
+const boldName = (name: string) =>
+  `**${name.replace(/[\\*_~`|[\]()<>#-]/g, "\\$&")}**`;
+
 const nameList = (names: ReadonlyArray<string>) => {
-  const bolded = names.map((name) => `**${name}**`);
+  const bolded = names.map(boldName);
   const last = bolded.at(-1) ?? "";
   return bolded.length > 1
     ? `${bolded.slice(0, -1).join(", ")} and ${last}`
@@ -310,7 +314,7 @@ const placementSummary = (report: PlacementReport) => {
     const placement = placements.get(puuid);
     return placement === undefined
       ? []
-      : [`**${discordName}** finished ${ordinal(placement)}`];
+      : [`${boldName(discordName)} finished ${ordinal(placement)}`];
   });
   return `${clauses.join(", ")} in a **${report.match.mode}** game${report.match.map ? ` on **${report.match.map}**` : ""}.`;
 };

@@ -94,7 +94,7 @@ const fontFiles = [
 // catch-all. Each family is fetched whole, never subset to the text at hand:
 // satori keeps the first font it's given per family for the life of the
 // process, so a subset would leave every later name in that script as boxes.
-const notoFamilies: ReadonlyArray<readonly [RegExp, ...Array<string>]> = [
+const notoFamilies = [
   [/\p{scx=Hira}|\p{scx=Kana}/u, "Noto Sans JP"],
   [/\p{scx=Han}/u, "Noto Sans SC"],
   [/\p{scx=Hangul}/u, "Noto Sans KR"],
@@ -130,15 +130,7 @@ const notoFamilies: ReadonlyArray<readonly [RegExp, ...Array<string>]> = [
     "Noto Sans Math",
   ],
   [/./u, "Noto Sans"],
-];
-
-// twemoji names its files by codepoint, dropping the variation selector
-// unless the emoji is a zero width joined sequence
-const emojiUrl = (emoji: string) =>
-  `https://cdn.jsdelivr.net/gh/jdecked/twemoji@16.0.1/assets/svg/${Array.from(
-    emoji.includes("\u200d") ? emoji : emoji.replaceAll("\ufe0f", ""),
-    (char) => char.codePointAt(0)?.toString(16),
-  ).join("-")}.svg`;
+] as const;
 
 const rankDelta = (update: RankUpdate | undefined) =>
   update?.delta === undefined
@@ -653,9 +645,13 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
   const notoFonts = yield* Cache.makeWith(
     (family: string) =>
       Effect.gen(function* () {
-        // bold to sit with Inter's heavy weights, where the family has it
+        // bold to sit with Inter's heavy weights; google answers 400 for a
+        // family without a bold cut
         const css = yield* stylesheet(`${family}:wght@700`).pipe(
-          Effect.catch(() => stylesheet(family)),
+          Effect.catchIf(
+            (error) => error.response?.status === 400,
+            () => stylesheet(family),
+          ),
         );
         const url = /url\((.+?)\) format\('(?:truetype|opentype)'\)/.exec(
           css,
@@ -741,10 +737,21 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
             width: WIDTH,
             fonts,
             loadAdditionalAsset: (code, text) =>
-              runPromise<string | Array<Font>, never>(
-                code === "emoji"
-                  ? image(emojiUrl(text)).pipe(Effect.map((src) => src ?? []))
-                  : Effect.forEach(
+              code === "emoji"
+                ? runPromise(
+                    // twemoji names its files by codepoint, dropping the
+                    // variation selector unless the emoji is zero width joined
+                    image(
+                      `https://cdn.jsdelivr.net/gh/jdecked/twemoji@16.0.1/assets/svg/${Array.from(
+                        text.includes("\u200d")
+                          ? text
+                          : text.replaceAll("\ufe0f", ""),
+                        (char) => char.codePointAt(0)?.toString(16),
+                      ).join("-")}.svg`,
+                    ).pipe(Effect.map((src) => src ?? [])),
+                  )
+                : runPromise(
+                    Effect.forEach(
                       notoFamilies.flatMap(([script, ...families]) =>
                         script.test(text) ? families : [],
                       ),
@@ -757,7 +764,7 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
                         ),
                       { concurrency: "unbounded" },
                     ).pipe(Effect.map((fonts) => fonts.flat())),
-              ),
+                  ),
           },
         );
         return new Uint8Array(
@@ -796,12 +803,14 @@ export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
   if (Option.isNone(png)) {
     return yield* rest.createMessage(channelId, {
       embeds: [matchEmbed(report, rankEmojis)],
+      allowed_mentions: { parse: [] },
     });
   }
   const filename = "match-report.png";
   return yield* rest
     .createMessage(channelId, {
       content: matchSummary(report),
+      allowed_mentions: { parse: [] },
       attachments: [{ id: "0", filename }],
     })
     .pipe(
