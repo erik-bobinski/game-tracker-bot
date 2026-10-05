@@ -78,36 +78,58 @@ const teamColor = (team: MatchTeam) =>
       : verdictColors.draw;
 
 const fontFiles = [
-  ["latin", 400],
-  ["latin", 600],
-  ["latin", 800],
-  ["latin-ext", 400],
-  ["latin-ext", 600],
-  ["latin-ext", 800],
-  ["cyrillic", 400],
-  ["cyrillic", 600],
-  ["greek", 400],
-  ["greek", 600],
-] as const;
+  "latin",
+  "latin-ext",
+  "cyrillic",
+  "cyrillic-ext",
+  "greek",
+  "greek-ext",
+  "vietnamese",
+].flatMap((subset) =>
+  ([400, 600, 800] as const).map((weight) => [subset, weight] as const),
+);
 
-// the Noto family google fonts serves for each script satori detects outside
-// Inter, so korean or japanese riot ids render instead of empty boxes. Han
-// text arrives as "ja-JP|zh-CN|zh-TW|zh-HK"; the first listed family wins, and
-// simplified chinese covers the most shared han glyphs.
+// Inter draws latin, vietnamese, greek and cyrillic; every other script is
+// drawn from the Noto family google fonts serves for it, with Noto Sans as the
+// catch-all. Each family is fetched whole, never subset to the text at hand:
+// satori keeps the first font it's given per family for the life of the
+// process, so a subset would leave every later name in that script as boxes.
 const notoFamilies = [
-  ["zh-CN", "Noto Sans SC"],
-  ["ja-JP", "Noto Sans JP"],
-  ["ko-KR", "Noto Sans KR"],
-  ["zh-TW", "Noto Sans TC"],
-  ["zh-HK", "Noto Sans HK"],
-  ["th-TH", "Noto Sans Thai"],
-  ["ar-AR", "Noto Sans Arabic"],
-  ["he-IL", "Noto Sans Hebrew"],
-  ["bn-IN", "Noto Sans Bengali"],
-  ["ta-IN", "Noto Sans Tamil"],
-  ["te-IN", "Noto Sans Telugu"],
-  ["ml-IN", "Noto Sans Malayalam"],
-  ["unknown", "Noto Sans"],
+  [/\p{scx=Hira}|\p{scx=Kana}/u, "Noto Sans JP"],
+  [/\p{scx=Han}/u, "Noto Sans SC"],
+  [/\p{scx=Hangul}/u, "Noto Sans KR"],
+  ...[
+    "Arabic",
+    "Armenian",
+    "Bengali",
+    "Devanagari",
+    "Ethiopic",
+    "Georgian",
+    "Gujarati",
+    "Gurmukhi",
+    "Hebrew",
+    "Kannada",
+    "Khmer",
+    "Lao",
+    "Malayalam",
+    "Myanmar",
+    "Oriya",
+    "Sinhala",
+    "Tamil",
+    "Telugu",
+    "Thaana",
+    "Thai",
+  ].map(
+    (script) =>
+      [new RegExp(`\\p{scx=${script}}`, "u"), `Noto Sans ${script}`] as const,
+  ),
+  [
+    /\p{Symbol}|\p{Math}/u,
+    "Noto Sans Symbols",
+    "Noto Sans Symbols 2",
+    "Noto Sans Math",
+  ],
+  [/./u, "Noto Sans"],
 ] as const;
 
 const rankDelta = (update: RankUpdate | undefined) =>
@@ -595,7 +617,8 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
         const bytes = url.startsWith("file:")
           ? yield* Effect.tryPromise(() => readFile(new URL(url)))
           : new Uint8Array(yield* (yield* client.get(url)).arrayBuffer);
-        return `data:image/png;base64,${Encoding.encodeBase64(bytes)}`;
+        const type = url.endsWith(".svg") ? "image/svg+xml" : "image/png";
+        return `data:${type};base64,${Encoding.encodeBase64(bytes)}`;
       }).pipe(
         Effect.tapError((error) =>
           Effect.logWarning("match card icon unavailable", error).pipe(
@@ -615,14 +638,21 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
       ? Effect.undefined
       : Cache.get(images, url).pipe(Effect.orElseSucceed(() => undefined));
 
-  // keyed by family and text, since google fonts serves only the glyphs asked for
-  const scriptFonts = yield* Cache.makeWith(
-    ({ family, text }: { readonly family: string; readonly text: string }) =>
+  const stylesheet = (family: string) =>
+    client
+      .get("https://fonts.googleapis.com/css2", { urlParams: { family } })
+      .pipe(Effect.flatMap((response) => response.text));
+  const notoFonts = yield* Cache.makeWith(
+    (family: string) =>
       Effect.gen(function* () {
-        const css = yield* (yield* client.get(
-          "https://fonts.googleapis.com/css2",
-          { urlParams: { family: `${family}:wght@700`, text } },
-        )).text;
+        // bold to sit with Inter's heavy weights; google answers 400 for a
+        // family without a bold cut
+        const css = yield* stylesheet(`${family}:wght@700`).pipe(
+          Effect.catchIf(
+            (error) => error.response?.status === 400,
+            () => stylesheet(family),
+          ),
+        );
         const url = /url\((.+?)\) format\('(?:truetype|opentype)'\)/.exec(
           css,
         )?.[1];
@@ -633,12 +663,12 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
       }).pipe(
         Effect.tapError((error) =>
           Effect.logWarning("match card font unavailable", error).pipe(
-            Effect.annotateLogs({ family, text }),
+            Effect.annotateLogs({ family }),
           ),
         ),
       ),
     {
-      capacity: 256,
+      capacity: 64,
       timeToLive: (exit) =>
         Exit.isSuccess(exit) ? Duration.infinity : Duration.minutes(10),
     },
@@ -706,26 +736,35 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
           {
             width: WIDTH,
             fonts,
-            loadAdditionalAsset: (code, text) => {
-              const codes = code.split("|");
-              const family = notoFamilies.find(([script]) =>
-                codes.includes(script),
-              )?.[1];
-              if (!family) return Promise.resolve([]);
-              return runPromise(
-                Cache.get(scriptFonts, { family, text }).pipe(
-                  Effect.map((data) => [
-                    {
-                      name: family,
-                      data,
-                      weight: 700 as const,
-                      style: "normal" as const,
-                    },
-                  ]),
-                  Effect.orElseSucceed(() => []),
-                ),
-              );
-            },
+            loadAdditionalAsset: (code, text) =>
+              code === "emoji"
+                ? runPromise(
+                    // twemoji names its files by codepoint, dropping the
+                    // variation selector unless the emoji is zero width joined
+                    image(
+                      `https://cdn.jsdelivr.net/gh/jdecked/twemoji@16.0.1/assets/svg/${Array.from(
+                        text.includes("\u200d")
+                          ? text
+                          : text.replaceAll("\ufe0f", ""),
+                        (char) => char.codePointAt(0)?.toString(16),
+                      ).join("-")}.svg`,
+                    ).pipe(Effect.map((src) => src ?? [])),
+                  )
+                : runPromise(
+                    Effect.forEach(
+                      notoFamilies.flatMap(([script, ...families]) =>
+                        script.test(text) ? families : [],
+                      ),
+                      (family) =>
+                        Cache.get(notoFonts, family).pipe(
+                          Effect.map((data) => [
+                            { name: family, data, style: "normal" as const },
+                          ]),
+                          Effect.orElseSucceed(() => []),
+                        ),
+                      { concurrency: "unbounded" },
+                    ).pipe(Effect.map((fonts) => fonts.flat())),
+                  ),
           },
         );
         return new Uint8Array(
@@ -764,12 +803,14 @@ export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
   if (Option.isNone(png)) {
     return yield* rest.createMessage(channelId, {
       embeds: [matchEmbed(report, rankEmojis)],
+      allowed_mentions: { parse: [] },
     });
   }
   const filename = "match-report.png";
   return yield* rest
     .createMessage(channelId, {
       content: matchSummary(report),
+      allowed_mentions: { parse: [] },
       attachments: [{ id: "0", filename }],
     })
     .pipe(
