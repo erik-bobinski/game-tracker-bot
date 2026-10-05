@@ -113,9 +113,40 @@ const makeDiscord = Effect.gen(function* () {
 
   const card = yield* makeMatchCard(gameAdapters.all);
 
+  const guildId = yield* rest.getChannel(channelId).pipe(
+    Effect.map((channel) =>
+      "guild_id" in channel ? channel.guild_id : undefined,
+    ),
+    Effect.catch((error) =>
+      Effect.logWarning(
+        "notification channel's server unavailable; reports use usernames",
+        error,
+      ).pipe(Effect.as(undefined)),
+    ),
+  );
+
+  // players read as their nickname in the reporting server, or their username
+  // when they have none or can't be looked up
+  const serverName = (player: MatchReport["tracked"][number]) =>
+    guildId && player.discordUserId
+      ? rest.getGuildMember(guildId, player.discordUserId).pipe(
+          Effect.map((member) => ({
+            ...player,
+            discordName: member.nick ?? member.user.username,
+          })),
+          Effect.orElseSucceed(() => player),
+        )
+      : Effect.succeed(player);
+
   const notifyMatch = Effect.fn("Discord.notifyMatch")(
     function* (report: MatchReport) {
-      yield* postMatchReport({ rest, channelId, card, rankEmojis }, report);
+      const tracked = yield* Effect.forEach(report.tracked, serverName, {
+        concurrency: "unbounded",
+      });
+      yield* postMatchReport(
+        { rest, channelId, card, rankEmojis },
+        { ...report, tracked },
+      );
     },
     Effect.mapError(
       (cause) => new DiscordError({ operation: "notifyMatch", cause }),

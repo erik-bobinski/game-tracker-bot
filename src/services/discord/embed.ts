@@ -18,6 +18,8 @@ import type {
 export interface MatchReport {
   readonly tracked: ReadonlyArray<{
     readonly discordName: string;
+    // mock and admin reports have no real discord user to look up
+    readonly discordUserId?: string;
     readonly puuid: Puuid;
   }>;
   readonly match: MatchDetails;
