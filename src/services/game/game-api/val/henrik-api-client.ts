@@ -6,7 +6,6 @@ import * as HttpClientError from "effect/unstable/http/HttpClientError";
 import { Puuid, type MatchId, type ResolvedAccount } from "../../index.ts";
 import {
   ValAccountResponse,
-  ValMatchResponse,
   ValMatchesResponse,
   ValMmrHistoryResponse,
   ValMmrResponse,
@@ -38,13 +37,6 @@ export class HenrikApiClient extends Context.Service<
       count: number,
     ) => Effect.Effect<
       ReadonlyArray<ValRawMatch>,
-      HttpClientError.HttpClientError | Schema.SchemaError
-    >;
-    getMatch: (
-      matchId: MatchId,
-      region: string | undefined,
-    ) => Effect.Effect<
-      ValRawMatch,
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
     getPerformanceScores: (
@@ -122,19 +114,6 @@ export const HenrikApiClientLive = Layer.effect(
       },
     );
 
-    const getMatch = Effect.fn("HenrikApiClient.getMatch")(function* (
-      matchId: MatchId,
-      region: string | undefined,
-    ) {
-      const res = yield* client.get(
-        `/valorant/v4/match/${region ?? defaultRegion}/${matchId}`,
-      );
-      const json = yield* res.json;
-      const { data } =
-        yield* Schema.decodeUnknownEffect(ValMatchResponse)(json);
-      return data;
-    });
-
     // rounded Performance Score per player, from riot's own match payload;
     // players without one are left out
     const getPerformanceScores = Effect.fn(
@@ -199,7 +178,6 @@ export const HenrikApiClientLive = Layer.effect(
     return HenrikApiClient.of({
       getAccountByRiotId,
       getRecentMatches,
-      getMatch,
       getPerformanceScores,
       getRank,
       getMmrHistory,

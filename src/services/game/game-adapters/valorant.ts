@@ -152,6 +152,10 @@ export const valMatchToDetails = (
 
 export const makeValorantGameAdapter = Effect.gen(function* () {
   const henrikClient = yield* HenrikApiClient;
+  // henrik's single match endpoint, asked right after a match ends, can return
+  // names blank that the polled match history already has, so reports are
+  // scored from the polled record
+  const polledHistories = new Map<Puuid, ReadonlyArray<ValRawMatch>>();
 
   const adapter: GameAdapter = {
     game: "valorant",
@@ -172,6 +176,7 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
           region,
           RECENT_MATCH_COUNT,
         );
+        polledHistories.set(puuid, matches);
         return matches
           .filter((match) => match.metadata.is_completed)
           .map((match) => valMatchToDetails(match));
@@ -191,21 +196,30 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
     }) {
       if (match.kind !== "versus") return emptyEnrichment(match);
       const region = trackedPlayers[0]?.region;
-      const scored = yield* Effect.all(
-        [
-          henrikClient.getMatch(match.matchId, region),
-          henrikClient.getPerformanceScores(match.matchId, region),
-        ],
-        { concurrency: 2 },
-      ).pipe(
-        Effect.map(([raw, scores]) => valMatchToDetails(raw, scores)),
-        Effect.catch((error) =>
-          logApiWarning("valorant performance scores unavailable", error).pipe(
-            Effect.annotateLogs({ matchId: match.matchId }),
-            Effect.as(match),
-          ),
-        ),
-      );
+      const polled = trackedPlayers
+        .flatMap(({ puuid }) => polledHistories.get(puuid) ?? [])
+        .find(
+          (raw) =>
+            raw.metadata.is_completed &&
+            raw.metadata.match_id === match.matchId,
+        );
+      const scored =
+        polled === undefined
+          ? match
+          : yield* henrikClient
+              .getPerformanceScores(match.matchId, region)
+              .pipe(
+                Effect.map((scores) => valMatchToDetails(polled, scores)),
+                Effect.catch((error) =>
+                  logApiWarning(
+                    "valorant performance scores unavailable",
+                    error,
+                  ).pipe(
+                    Effect.annotateLogs({ matchId: match.matchId }),
+                    Effect.as(match),
+                  ),
+                ),
+              );
       const enrichment = emptyEnrichment(scored);
       if (scored.mode !== "Competitive") return enrichment;
 
