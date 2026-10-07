@@ -85,8 +85,6 @@ export const ValMatchesResponse = HenrikResponse(
   Schema.Array(LenientValRawMatch),
 );
 
-export const ValMatchResponse = HenrikResponse(ValRawMatch);
-
 // TempValueF is Riot's placeholder name for Performance Score; modes without
 // Performance Score omit it or the whole scores object
 export const ValPerformanceScoresResponse = HenrikResponse(

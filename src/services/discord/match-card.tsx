@@ -30,6 +30,7 @@ import {
   matchSummary,
   matchVerdict,
   placementVerdict,
+  playerName,
   teamLabel,
   type MatchReport,
   type PlacementReport,
@@ -202,6 +203,7 @@ interface CardImages {
 
 const Row = ({
   player,
+  name,
   report,
   images,
   tracked,
@@ -211,6 +213,7 @@ const Row = ({
   detail,
 }: {
   player: MatchPlayerIdentity;
+  name: string;
   report: MatchReport;
   images: CardImages;
   tracked: boolean;
@@ -269,7 +272,7 @@ const Row = ({
             textOverflow: "ellipsis",
           }}
         >
-          {player.riotName}
+          {name}
         </div>
         {label ? (
           <div
@@ -497,6 +500,7 @@ const versusCard = (report: VersusReport, images: CardImages) => {
             rows: players.map((player) => (
               <Row
                 player={player}
+                name={playerName(player)}
                 report={report}
                 images={images}
                 tracked={trackedPuuids.has(player.puuid)}
@@ -537,6 +541,7 @@ const placementCard = (report: PlacementReport, images: CardImages) => {
       return (
         <Row
           player={player}
+          name={playerName(player)}
           report={report}
           images={images}
           tracked={trackedPuuids.has(player.puuid)}

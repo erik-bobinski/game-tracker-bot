@@ -36,6 +36,10 @@ export type RankEmojis = Readonly<Record<string, string>>;
 const boldName = (name: string) =>
   `**${name.replace(/[\\*_~`|[\]()<>#-]/g, "\\$&")}**`;
 
+export const playerName = (
+  player: MatchPlayerIdentity & { readonly character?: string },
+) => player.riotName || player.character || "Unknown player";
+
 const nameList = (names: ReadonlyArray<string>) => {
   const bolded = names.map(boldName);
   const last = bolded.at(-1) ?? "";
@@ -91,11 +95,12 @@ const playerRows = (player: VersusPlayer, context: RowContext) => {
   const icon = rankEmoji(player, context.game, context.emojis);
   const update = context.rankUpdates.get(player.puuid);
   const movement = rankMovement(update);
+  const name = playerName(player);
   const headline = [
     icon || undefined,
     // the lol crests are per-tier, so the division goes beside them
     icon && player.rankDivision ? `\`${player.rankDivision}\`` : undefined,
-    `${context.trackedPuuids.has(player.puuid) ? `**${player.riotName}**` : player.riotName} — ${player.character}`,
+    `${context.trackedPuuids.has(player.puuid) ? `**${name}**` : name}${player.riotName ? ` — ${player.character}` : ""}`,
   ]
     .filter((token): token is string => Boolean(token))
     .join(" ");
@@ -274,7 +279,9 @@ const placementBoard = (
   [...players]
     .sort((a, b) => a.placement - b.placement)
     .map((player) => {
-      const rawName = `${player.riotName}#${player.riotTag}`;
+      const rawName = player.riotName
+        ? `${player.riotName}#${player.riotTag}`
+        : playerName(player);
       const name = trackedPuuids.has(player.puuid) ? `**${rawName}**` : rawName;
       const icon = rankEmoji(player, game, emojis);
       const update = rankUpdates.get(player.puuid);
