@@ -13,6 +13,7 @@ import {
 import type {
   MatchDetails,
   MatchId,
+  MatchPlayerIdentity,
   MatchTeam,
   Puuid,
   RankInfo,
@@ -209,6 +210,39 @@ export const riotValMatchToDetails = (
   };
 };
 
+// Riot doesn't let a VALORANT player's data reach other players unless they
+// opted in, so everyone in the match who isn't tracked is shown by their agent
+// alone, without name or rank.
+const anonymous = <P extends MatchPlayerIdentity>({
+  rank,
+  rankIconKey,
+  rankDivision,
+  ...player
+}: P) => ({ ...player, riotName: "", riotTag: "" });
+
+const onlyOptedInNamed = (
+  match: MatchDetails,
+  trackedPlayers: ReadonlyArray<{ readonly puuid: Puuid }>,
+): MatchDetails => {
+  const optedIn = new Set(trackedPlayers.map((player) => player.puuid));
+  switch (match.kind) {
+    case "versus":
+      return {
+        ...match,
+        players: match.players.map((player) =>
+          optedIn.has(player.puuid) ? player : anonymous(player),
+        ),
+      };
+    case "placement":
+      return {
+        ...match,
+        players: match.players.map((player) =>
+          optedIn.has(player.puuid) ? player : anonymous(player),
+        ),
+      };
+  }
+};
+
 export const makeValorantGameAdapter = Effect.gen(function* () {
   const client = yield* RiotValApiClient;
   // an account's shard comes from riot at signup, so this only covers rows
@@ -267,7 +301,9 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
       match,
       trackedPlayers,
     }) {
-      const enrichment = emptyEnrichment(match);
+      const enrichment = emptyEnrichment(
+        onlyOptedInNamed(match, trackedPlayers),
+      );
       if (match.mode !== queueNames[COMPETITIVE]) return enrichment;
       const levels = new Map(
         [...tierNames].map(([tier, name]) => [name, tier] as const),

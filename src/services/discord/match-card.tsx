@@ -224,9 +224,10 @@ const Row = ({
 }) => {
   const delta = rankDelta(report.rankUpdates.get(player.puuid));
   const rankIcon = images.ranks.get(player.puuid);
+  // a player shown without a name was left anonymous, not unranked
   const label =
     player.rank ??
-    (report.match.players.some((candidate) => candidate.rank)
+    (player.riotName && report.match.players.some((candidate) => candidate.rank)
       ? "Unranked"
       : undefined);
   return (
