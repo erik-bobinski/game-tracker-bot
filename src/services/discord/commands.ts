@@ -8,8 +8,7 @@ import {
   type GameAdapters,
 } from "../game/game-adapters/index.ts";
 import { discordGameChoices, GameId, gameNames } from "../game/index.ts";
-import type { PollingState } from "../polling/state.ts";
-import type { DiscordError } from "./index.ts";
+import type { DiscordError, ReportTarget } from "./index.ts";
 import { rankEmbed, type MatchReport } from "./embed.ts";
 import { devCommands } from "./dev-commands.ts";
 
@@ -17,8 +16,8 @@ export interface CommandDeps {
   readonly database: Database["Service"];
   readonly gameAdapters: GameAdapters["Service"];
   readonly rest: Effect.Success<typeof DiscordREST>;
-  readonly pollingState: PollingState["Service"];
   readonly notifyMatch: (
+    target: ReportTarget,
     report: MatchReport,
   ) => Effect.Effect<void, DiscordError>;
 }
@@ -33,6 +32,16 @@ export const reply = (
 // discord needs <= 3s to respond, the follow-up edits this placeholder
 export const deferredReply: Discord.CreateInteractionResponseRequest = {
   type: Discord.InteractionCallbackTypes.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+};
+
+// every command acts on the server it's run in, so none work in DMs
+export const inServers = {
+  contexts: [Discord.InteractionContextType.GUILD],
+} as const;
+
+// server settings can still hand these to other roles
+const forManagers = {
+  default_member_permissions: Number(Discord.Permissions.ManageGuild),
 };
 
 // Pre-reports current matches so the first poll doesn't repost old games.
@@ -147,7 +156,8 @@ const signup = (deps: CommandDeps) =>
   Ix.global(
     {
       name: "signup",
-      description: "Get your riot account's match results reported",
+      description: "Get your riot account's match results reported here",
+      ...inServers,
       options: [
         {
           type: Discord.ApplicationCommandOptionType.STRING,
@@ -168,22 +178,32 @@ const signup = (deps: CommandDeps) =>
         const riotName = i.optionValue("riot_name");
         const riotTag = i.optionValue("riot_tag");
         const user = i.interaction.member?.user ?? i.interaction.user;
+        const guildId = i.interaction.guild_id;
 
-        if (!user) return reply("Couldn't tell who ran that command :(");
-
-        const existing = yield* deps.database
-          .hasAccount(user.id)
-          .pipe(
-            Effect.catch((error) =>
-              Effect.logError("signup lookup failed", error).pipe(
-                Effect.as(undefined),
-              ),
-            ),
-          );
-        if (existing === undefined) {
-          return reply("Signup failed, try again in a bit :(");
+        if (!user || !guildId) {
+          return reply("Couldn't tell who ran that command :(");
         }
-        if (existing) return reply("You're already signed up, dummy");
+
+        const [existing, guild] = yield* Effect.all([
+          deps.database.getAccount(user.id),
+          deps.database.getGuild(guildId),
+        ]);
+        const setupHint = guild?.channelId
+          ? ""
+          : "\nReports start once a server admin picks a channel with `/setup`.";
+
+        // riot ids ignore case, so this is the account they already track
+        if (
+          existing &&
+          existing.riotName.toLowerCase() === riotName.toLowerCase() &&
+          existing.riotTag.toLowerCase() === riotTag.toLowerCase()
+        ) {
+          if (existing.guildIds.includes(guildId)) {
+            return reply("You're already signed up, dummy");
+          }
+          yield* deps.database.subscribe({ guildId, discordUserId: user.id });
+          return reply(`**${user.username}** just signed up!${setupHint}`);
+        }
 
         const followUp = (content: string) =>
           deps.rest.updateOriginalWebhookMessage(
@@ -198,12 +218,15 @@ const signup = (deps: CommandDeps) =>
             discordName: user.username,
             riotName,
             riotTag,
+            guildIds: [guildId],
           });
 
           return yield* followUp(
-            result === "ok"
-              ? `**${user.username}** just signed up!`
-              : "Couldn't find recent account data for that Riot ID :(",
+            result === "not-found"
+              ? "Couldn't find recent account data for that Riot ID :("
+              : existing
+                ? `**${user.username}** switched to ${riotName}#${riotTag}.${setupHint}`
+                : `**${user.username}** just signed up!${setupHint}`,
           );
         }).pipe(
           Effect.catch((error) =>
@@ -219,25 +242,45 @@ const signup = (deps: CommandDeps) =>
 
         yield* Effect.forkDetach(register);
         return deferredReply;
-      }),
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logError("signup lookup failed", error).pipe(
+            Effect.as(reply("Signup failed, try again in a bit :(")),
+          ),
+        ),
+      ),
   );
 
 const signout = ({ database }: CommandDeps) =>
   Ix.global(
     {
       name: "signout",
-      description: "Stop tracking all your data",
+      description:
+        "Stop reporting your matches here (your data goes with the last server)",
+      ...inServers,
     },
     (i) =>
       Effect.gen(function* () {
         const user = i.interaction.member?.user ?? i.interaction.user;
-        if (!user) return reply("Couldn't tell who ran that command :(");
+        const guildId = i.interaction.guild_id;
+        if (!user || !guildId) {
+          return reply("Couldn't tell who ran that command :(");
+        }
 
-        const existing = yield* database.hasAccount(user.id);
-        if (!existing) return reply("You're not signed up.");
+        const account = yield* database.getAccount(user.id);
+        if (!account?.guildIds.includes(guildId)) {
+          return reply("You're not signed up here.");
+        }
 
-        yield* database.deleteAccount(user.id);
-        return reply(`**${user.username}** signed out, all data deleted.`);
+        const { accountDeleted } = yield* database.leaveGuild({
+          guildId,
+          discordUserId: user.id,
+        });
+        return reply(
+          accountDeleted
+            ? `**${user.username}** signed out, all data deleted.`
+            : `**${user.username}** signed out of this server's reports.`,
+        );
       }).pipe(
         Effect.catch((error) =>
           Effect.logError("signout failed", error).pipe(
@@ -247,15 +290,79 @@ const signout = ({ database }: CommandDeps) =>
       ),
   );
 
-const pause = ({ pollingState }: CommandDeps) =>
+const setup = ({ database, rest }: CommandDeps) =>
+  Ix.global(
+    {
+      name: "setup",
+      description: "Pick the channel match reports are posted in",
+      ...inServers,
+      ...forManagers,
+      options: [
+        {
+          type: Discord.ApplicationCommandOptionType.CHANNEL,
+          name: "channel",
+          description: "where match reports go",
+          required: true,
+          channel_types: [
+            Discord.ChannelTypes.GUILD_TEXT,
+            Discord.ChannelTypes.GUILD_ANNOUNCEMENT,
+          ],
+        },
+      ],
+    },
+    (i) =>
+      Effect.gen(function* () {
+        const guildId = i.interaction.guild_id;
+        if (!guildId) return reply("This only works in a server.");
+        const channelId = i.optionValue("channel");
+
+        // posting now shows missing permissions here, instead of as
+        // reports that never arrive
+        const posted = yield* rest
+          .createMessage(channelId, {
+            content:
+              "Match reports will be posted here. Run `/signup` to have yours included.",
+          })
+          .pipe(
+            Effect.as(true),
+            Effect.catch((error) =>
+              Effect.logWarning("setup channel unusable", error).pipe(
+                Effect.as(false),
+              ),
+            ),
+          );
+        if (!posted) {
+          return reply(
+            `I can't post in <#${channelId}>. Let me view it, send messages, embed links and attach files there, then run this again.`,
+          );
+        }
+
+        yield* database.updateGuild(guildId, { channelId });
+        return reply(`Match reports will be posted in <#${channelId}>.`);
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logError("setup failed", error).pipe(
+            Effect.as(reply("Setup failed, try again in a bit :(")),
+          ),
+        ),
+      ),
+  );
+
+const pause = ({ database }: CommandDeps) =>
   Ix.global(
     {
       name: "pause",
-      description: "Pause all match reports (the bot will appear as idle)",
+      description: "Pause match reports in this server",
+      ...inServers,
+      ...forManagers,
     },
-    () =>
-      pollingState.setPaused(true).pipe(
-        Effect.as(reply("Match reports paused.")),
+    (i) =>
+      Effect.gen(function* () {
+        const guildId = i.interaction.guild_id;
+        if (!guildId) return reply("This only works in a server.");
+        yield* database.updateGuild(guildId, { paused: true });
+        return reply("Match reports paused.");
+      }).pipe(
         Effect.catch((error) =>
           Effect.logError("pause failed", error).pipe(
             Effect.as(reply("Pause failed, try again in a bit :(")),
@@ -264,15 +371,21 @@ const pause = ({ pollingState }: CommandDeps) =>
       ),
   );
 
-const resume = ({ pollingState }: CommandDeps) =>
+const resume = ({ database }: CommandDeps) =>
   Ix.global(
     {
       name: "resume",
-      description: "Resume all match reports (the bot will appear as online)",
+      description: "Resume match reports in this server",
+      ...inServers,
+      ...forManagers,
     },
-    () =>
-      pollingState.setPaused(false).pipe(
-        Effect.as(reply("Match reports resumed.")),
+    (i) =>
+      Effect.gen(function* () {
+        const guildId = i.interaction.guild_id;
+        if (!guildId) return reply("This only works in a server.");
+        yield* database.updateGuild(guildId, { paused: false });
+        return reply("Match reports resumed.");
+      }).pipe(
         Effect.catch((error) =>
           Effect.logError("resume failed", error).pipe(
             Effect.as(reply("Resume failed, try again in a bit :(")),
@@ -287,6 +400,7 @@ const refresh = (deps: CommandDeps) =>
       name: "refresh",
       description:
         "Recheck your Riot ID for games that weren't found at signup",
+      ...inServers,
     },
     (i) =>
       Effect.gen(function* () {
@@ -331,7 +445,8 @@ const rankCheck = (deps: CommandDeps) =>
   Ix.global(
     {
       name: "rank_check",
-      description: "Check a signed-up user's rank",
+      description: "Check the rank of someone signed up here",
+      ...inServers,
       options: [
         {
           type: Discord.ApplicationCommandOptionType.USER,
@@ -351,6 +466,7 @@ const rankCheck = (deps: CommandDeps) =>
     (i) =>
       Effect.gen(function* () {
         const userId = i.optionValue("user");
+        const guildId = i.interaction.guild_id;
         const game = yield* Schema.decodeUnknownEffect(GameId)(
           i.optionValue("game"),
         );
@@ -360,10 +476,16 @@ const rankCheck = (deps: CommandDeps) =>
           () => "That user",
         );
 
+        // only people who chose to be reported in this server can be looked up
         const account = yield* deps.database.getAccount(userId);
-        const gameState = account?.games[game];
+        const gameState =
+          guildId && account?.guildIds.includes(guildId)
+            ? account.games[game]
+            : undefined;
         if (!account || !gameState) {
-          return reply(`**${target}** isn't signed up for ${gameNames[game]}.`);
+          return reply(
+            `**${target}** isn't signed up for ${gameNames[game]} here.`,
+          );
         }
 
         const adapter = deps.gameAdapters.all.find(
@@ -428,6 +550,7 @@ export const commands = (deps: CommandDeps, devMode: boolean) => {
   const base = Ix.builder
     .add(signup(deps))
     .add(signout(deps))
+    .add(setup(deps))
     .add(pause(deps))
     .add(resume(deps))
     .add(refresh(deps))

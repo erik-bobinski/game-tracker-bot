@@ -1,9 +1,13 @@
 # riot-tracker-bot
 
 A Discord bot that reports finished matches for opted-in users. Someone signs
-up with their Riot ID, and when they finish a game the bot posts a scoreboard
-card to a channel, or a scoreboard embed if the card fails to render. If several
-signed-up users played the same match, it posts once and names all of them.
+up with their Riot ID in a server, and when they finish a game the bot posts a
+scoreboard card to the channel that server picked, or a scoreboard embed if the
+card fails to render. If several signed-up users played the same match, each
+server gets one post naming the ones who signed up there.
+
+One bot process serves every server it's in. A Riot account is polled once no
+matter how many servers report it, so API usage grows with players, not servers.
 
 The goal is to be **game agnostic**: League of Legends, Valorant, and Teamfight
 Tactics are the current implementations, but supporting another game should mean
@@ -11,13 +15,17 @@ writing one adapter, not touching the rest of the app.
 
 ## Commands
 
-| Command                          | What it does                                                 |
-| -------------------------------- | ------------------------------------------------------------ |
-| `/signup <riot_name> <riot_tag>` | Start reporting your matches                                 |
-| `/signout`                       | Stop tracking and delete your data                           |
-| `/rank_check <user> <game>`      | Post someone's current rank with their tier emblem           |
-| `/pause` / `/resume`             | Stop or restart all reports (the bot goes idle while paused) |
-| `/refresh`                       | Recheck your Riot ID for games that were missing at signup   |
+| Command                          | What it does                                                                       |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `/setup <channel>`               | Pick the channel this server's reports go to (Manage Server)                       |
+| `/signup <riot_name> <riot_tag>` | Start reporting your matches in this server, or switch your Riot ID                |
+| `/signout`                       | Stop reporting your matches here; your data is deleted when no server reports them |
+| `/rank_check <user> <game>`      | Post the current rank of someone signed up here, with their tier emblem            |
+| `/pause` / `/resume`             | Stop or restart this server's reports (Manage Server)                              |
+| `/refresh`                       | Recheck your Riot ID for games that were missing at signup                         |
+
+Commands only work in servers. Server admins can hand `/setup`, `/pause` and
+`/resume` to other roles under Server Settings → Integrations.
 
 ## Admin CLI
 
@@ -29,15 +37,19 @@ railway ssh --service riot-tracker-bot
 pnpm admin <command>
 ```
 
-| Command                               | What it does                                                  |
-| ------------------------------------- | ------------------------------------------------------------- |
-| `status`                              | Polling state, the database in use, and every tracked account |
-| `signup <riot-id> --discord-id <id>`  | Track a Riot account on someone's behalf                      |
-| `signout <target>`                    | Stop tracking an account and delete its data                  |
-| `pause` / `resume`                    | Stop or restart all reports                                   |
-| `rank-check <target> [--game <game>]` | Look up a tracked account's current rank                      |
-| `refresh <target>`                    | Recheck a signed-up account for games missing at signup       |
-| `report-mock [--game <game>]`         | Post a mock match card to the notification channel            |
+| Command                                                 | What it does                                                         |
+| ------------------------------------------------------- | -------------------------------------------------------------------- |
+| `status`                                                | Polling state, the database in use, every server and tracked account |
+| `signup <riot-id> --discord-id <id> [--guild <id>]`     | Track a Riot account on someone's behalf, reporting in that server   |
+| `signout <target>`                                      | Stop tracking an account everywhere and delete its data              |
+| `setup <guild-id> --channel <id> [--adopt]`             | Set a server's report channel; `--adopt` adds accounts in no server  |
+| `pause` / `resume`                                      | Stop or restart all reports, in every server                         |
+| `rank-check <target> [--game <game>]`                   | Look up a tracked account's current rank                             |
+| `refresh <target>`                                      | Recheck a signed-up account for games missing at signup              |
+| `report-mock [--game <game>] [--channel <id>]`          | Post a mock match card                                               |
+| `report-match <riot-id> --game <game> [--channel <id>]` | Report a real recent match through the polling pipeline              |
+
+Posting commands use `--channel`, or `NOTIFICATION_CHANNEL_ID` without it.
 
 `<target>` is a Discord user ID, a Discord name, or a Riot ID — whichever you
 have. Leave an argument off and the command asks for it. `--json` prints the
@@ -54,7 +66,7 @@ src/
   index.ts                     layer wiring and entry point
   admin/                       the admin CLI, a second entry point
   services/
-    polling/                   ticks every minute, respects the pause flag
+    polling/                   ticks every minute, respects the global pause flag
     match-engine/              the core loop, see below
     game/
       index.ts                 game-agnostic domain types
@@ -65,10 +77,18 @@ src/
 ```
 
 **The match engine** is where it comes together. Each tick it loads every
-account, asks each game adapter for that account's recent matches, drops the
-ones already reported, and collapses matches shared by multiple users into a
-single entry. Then it enriches each match (rank lookups), posts it, and records
-it as reported.
+account that some unpaused server with a channel reports, and polls the ones
+that are due: someone who just played is polled every minute, then less often
+the longer they stay idle, down to every 15 minutes. A poll asks the game
+adapter for the ids of the account's recent matches, one request, and drops the
+ones already reported. Each new match is fetched once, however many tracked
+players were in it, then enriched (rank lookups) and posted once per server,
+naming the players who signed up there, and recorded as reported.
+
+**Riot rate limits** are respected per key and routing host. The client reads
+the limits off each response's `X-App-Rate-Limit` header and paces requests
+under them, so swapping a personal key for a production one raises the ceiling
+without code changes.
 
 ### Adding a game
 
@@ -76,9 +96,9 @@ it as reported.
    names and Discord/admin choices are derived from that registry.
 2. Add an API client and decode schemas under `src/services/game/game-api/`.
 3. Implement `GameAdapter` in `src/services/game/game-adapters/`: resolve an
-   account, fetch recent matches, map them to `MatchDetails`, optionally enrich
-   them, and fetch rank data. Set `requiresMatchHistory` if an empty baseline
-   should not persist the game.
+   account, list its recent match ids in one request, fetch a match and map it
+   to `MatchDetails`, optionally enrich it, and fetch rank data. Set
+   `requiresMatchHistory` if an empty baseline should not persist the game.
 4. Register the adapter in `GameAdaptersLive` and provide its API-client layer
    from `src/index.ts`.
 5. Add a development report mock, then run `pnpm typecheck` and test
@@ -91,7 +111,10 @@ placement board, switched on `match.kind`.
 
 **Failures degrade rather than crash.** One undecodable match is skipped, not
 fatal. A failed rank lookup drops the icon but still posts the report. A failed
-poll is logged and retried on the next tick.
+poll is logged and retried on the next tick. A server whose post fails doesn't
+hold up the others; if its channel was deleted or the bot lost access, the
+channel is unset until someone runs `/setup` again. When the bot is removed from
+a server, that server's signups go with it.
 
 ## Setup
 
@@ -107,7 +130,7 @@ Fill in `.env`:
 | Variable                  | How to get it                                                                                                                                       |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DISCORD_BOT_TOKEN`       | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot                                                            |
-| `NOTIFICATION_CHANNEL_ID` | Right-click the target channel → Copy Channel ID (needs Developer Mode on)                                                                          |
+| `NOTIFICATION_CHANNEL_ID` | Optional. Where the admin CLI posts test reports without `--channel`: right-click a channel → Copy Channel ID (needs Developer Mode on)             |
 | `RIOT_API_KEY`            | [developer.riotgames.com](https://developer.riotgames.com), key of a League of Legends product                                                      |
 | `RIOT_TFT_API_KEY`        | [developer.riotgames.com](https://developer.riotgames.com), key of a separate Teamfight Tactics product. Riot keys only reach their own game's APIs |
 | `HENRIK_API_KEY`          | [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN)                                                                                          |
@@ -115,12 +138,22 @@ Fill in `.env`:
 `RIOT_REGION`, `VAL_REGION` and `VAL_PLATFORM` are optional. Each account's
 region is resolved and stored at signup; these are only fallbacks.
 
-Invite the bot with the `bot` and `applications.commands` scopes, and give it
-permission to send messages in your notification channel. Commands register
+Invite the bot with the `bot` and `applications.commands` scopes, then run
+`/setup` in your server to pick the report channel; the bot needs to view it,
+send messages, embed links and attach files there. Commands register
 themselves on startup.
 
 ```sh
 pnpm start
+```
+
+### Moving off the single-channel setup
+
+Before multi-server support, every account reported to `NOTIFICATION_CHANNEL_ID`.
+After upgrading, those accounts report in no server until they're adopted:
+
+```sh
+pnpm admin setup <server-id> --channel <channel-id> --adopt
 ```
 
 ## Local development

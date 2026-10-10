@@ -1,8 +1,10 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
 import {
+  EpochMillis,
   GameId,
   type MatchDetails,
+  type MatchId,
   type Puuid,
   type RankInfo,
   type RankSnapshots,
@@ -14,7 +16,8 @@ import { makeLolGameAdapter } from "./lol.ts";
 import { makeTftGameAdapter } from "./tft.ts";
 import { makeValorantGameAdapter } from "./valorant.ts";
 
-// Cap per-poll fetches; we poll every minute so 3 is plenty.
+// How many of an account's newest matches a poll looks at. Nobody is polled
+// less than every 15 minutes, too short to finish more than one game.
 export const RECENT_MATCH_COUNT = 3;
 
 export class GameApiError extends Schema.TaggedError<GameApiError>()(
@@ -75,10 +78,18 @@ export interface GameAdapter {
     HttpClientError.HttpClientError | Schema.SchemaError
   >;
 
-  readonly getRecentMatches: (
+  // Newest first. Every poll calls this, so it should cost one request; the
+  // match itself is only fetched once it turns out to be new.
+  readonly getRecentMatchIds: (
     puuid: Puuid,
     region: Region | undefined,
-  ) => Effect.Effect<ReadonlyArray<MatchDetails>, GameApiError>;
+  ) => Effect.Effect<ReadonlyArray<MatchId>, GameApiError>;
+
+  // undefined for a match that can't be decoded, which a retry won't fix
+  readonly getMatch: (
+    matchId: MatchId,
+    region: Region | undefined,
+  ) => Effect.Effect<MatchDetails | undefined, GameApiError>;
 
   readonly enrichMatch: (input: {
     readonly match: MatchDetails;
@@ -131,50 +142,56 @@ export const enrichOrSkip = (
       ),
     );
 
-const toGameState = (
-  puuid: Puuid,
-  region: Region | undefined,
-  matches: ReadonlyArray<MatchDetails>,
-) => ({
-  puuid,
-  reportedMatches: matches.map((match) => ({
-    matchId: match.matchId,
-    date: match.date,
-  })),
-  // matches carry the platformId they were played on, which covers
-  // accounts the region lookup couldn't resolve
-  region: region ?? matches[0]?.routingRegion,
-  rankSnapshots: {},
-});
-
-// Used at signup and by /refresh.
+// Used at signup and by /refresh. The current matches count as reported, so
+// the first poll doesn't repost old games.
 export const resolveGameState = (
   adapter: GameAdapter,
   riotName: string,
   riotTag: string,
 ) =>
   adapter.resolveAccount(riotName, riotTag).pipe(
-    Effect.flatMap(({ puuid, region }) => {
-      const recent = adapter.getRecentMatches(puuid, region);
-      if (!adapter.requiresMatchHistory) {
-        return recent.pipe(
-          Effect.catchTag("GameApiError", (error) =>
-            logApiWarning("baseline match fetch failed", error).pipe(
-              Effect.as([]),
+    Effect.flatMap(({ puuid, region }) =>
+      Effect.gen(function* () {
+        const matchIds = yield* adapter
+          .getRecentMatchIds(puuid, region)
+          .pipe(
+            Effect.catchTag("GameApiError", (error) =>
+              adapter.requiresMatchHistory
+                ? Effect.fail(error)
+                : logApiWarning("baseline match fetch failed", error).pipe(
+                    Effect.as([]),
+                  ),
             ),
-          ),
-          Effect.map((matches) => toGameState(puuid, region, matches)),
-        );
-      }
+          );
+        if (adapter.requiresMatchHistory && matchIds.length === 0) {
+          return undefined;
+        }
 
-      return recent.pipe(
-        Effect.map((matches) =>
-          matches.length === 0
-            ? undefined
-            : toGameState(puuid, region, matches),
-        ),
-      );
-    }),
+        // only the newest match is fetched: its date is when they last
+        // played, which sets how often they're polled
+        const newest = matchIds[0]
+          ? yield* adapter
+              .getMatch(matchIds[0], region)
+              .pipe(
+                Effect.catchTag("GameApiError", (error) =>
+                  logApiWarning("baseline match fetch failed", error).pipe(
+                    Effect.as(undefined),
+                  ),
+                ),
+              )
+          : undefined;
+        const date = newest?.date ?? EpochMillis.make(0);
+
+        return {
+          puuid,
+          reportedMatches: matchIds.map((matchId) => ({ matchId, date })),
+          // matches carry the platformId they were played on, which covers
+          // accounts the region lookup couldn't resolve
+          region: region ?? newest?.routingRegion,
+          rankSnapshots: {},
+        };
+      }),
+    ),
   );
 
 export class GameAdapters extends Context.Service<

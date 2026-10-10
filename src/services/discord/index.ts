@@ -34,14 +34,24 @@ export class DiscordError extends Schema.TaggedError<DiscordError>()(
   { operation: Schema.String, cause: Schema.Defect() },
 ) {}
 
+export interface ReportTarget {
+  readonly guildId: string;
+  readonly channelId: string;
+}
+
 export class Discord extends Context.Service<
   Discord,
   {
     readonly notifyMatch: (
+      target: ReportTarget,
       report: MatchReport,
     ) => Effect.Effect<void, DiscordError>;
   }
 >()("app/Discord") {}
+
+// Unknown Channel and Missing Access: the channel is gone, or the bot was
+// shut out of it or its server, and no retry will reach it
+const unreachableChannelCodes = new Set([10003, 50001]);
 
 // fetch, not undici: the undici client can't send the multipart body a match
 // card is uploaded in
@@ -65,7 +75,6 @@ const makeDiscord = Effect.gen(function* () {
   const database = yield* Database;
   const gameAdapters = yield* GameAdapters;
   const pollingState = yield* PollingState;
-  const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
   const devMode = yield* Config.boolean("DEV_MODE").pipe(
     Config.withDefault(false),
   );
@@ -114,26 +123,13 @@ const makeDiscord = Effect.gen(function* () {
   const card = yield* makeMatchCard(gameAdapters.all);
 
   const notifyMatch = Effect.fn("Discord.notifyMatch")(
-    function* (report: MatchReport) {
-      // looked up per report, so one failed lookup only costs that report
-      // its nicknames
-      const guildId = yield* rest.getChannel(channelId).pipe(
-        Effect.map((channel) =>
-          "guild_id" in channel ? channel.guild_id : undefined,
-        ),
-        Effect.catch((error) =>
-          Effect.logWarning(
-            "notification channel's server unavailable; reporting usernames",
-            error,
-          ).pipe(Effect.as(undefined)),
-        ),
-      );
+    function* ({ guildId, channelId }: ReportTarget, report: MatchReport) {
       // players read as their nickname in the reporting server, else their
       // username, else the name they signed up with
       const tracked = yield* Effect.forEach(
         report.tracked,
         (player) =>
-          guildId && player.discordUserId
+          player.discordUserId
             ? rest.getGuildMember(guildId, player.discordUserId).pipe(
                 Effect.map((member) => ({
                   ...player,
@@ -157,6 +153,23 @@ const makeDiscord = Effect.gen(function* () {
       yield* postMatchReport(
         { rest, channelId, card, rankEmojis },
         { ...report, tracked },
+      ).pipe(
+        Effect.tapError((error) =>
+          error._tag === "ErrorResponse" &&
+          unreachableChannelCodes.has(error.data.code)
+            ? database
+                .clearChannel(channelId)
+                .pipe(
+                  Effect.andThen(
+                    Effect.logWarning(
+                      "report channel unreachable; unset until /setup picks one",
+                    ),
+                  ),
+                  Effect.annotateLogs({ guildId, channelId }),
+                  Effect.ignore,
+                )
+            : Effect.void,
+        ),
       );
     },
     Effect.mapError(
@@ -164,12 +177,38 @@ const makeDiscord = Effect.gen(function* () {
     ),
   );
 
+  // Only a removal leaves `unavailable` unset; an outage sets it.
+  yield* gateway
+    .handleDispatch("GUILD_DELETE", (guild) =>
+      guild.unavailable
+        ? Effect.void
+        : database.deleteGuild(guild.id).pipe(
+            Effect.flatMap(({ accountsDeleted }) =>
+              Effect.logInfo("removed from server").pipe(
+                Effect.annotateLogs({ guildId: guild.id, accountsDeleted }),
+              ),
+            ),
+            Effect.catch((error) =>
+              Effect.logError("removed server cleanup failed", error),
+            ),
+          ),
+    )
+    .pipe(Effect.forkScoped);
+  yield* gateway
+    .handleDispatch("CHANNEL_DELETE", (channel) =>
+      database
+        .clearChannel(channel.id)
+        .pipe(
+          Effect.catch((error) =>
+            Effect.logError("deleted channel cleanup failed", error),
+          ),
+        ),
+    )
+    .pipe(Effect.forkScoped);
+
   // registering forks the interaction loop and syncs the commands with discord.
   yield* registry.register(
-    commands(
-      { database, gameAdapters, rest, pollingState, notifyMatch },
-      devMode,
-    ),
+    commands({ database, gameAdapters, rest, notifyMatch }, devMode),
   );
   yield* Effect.logInfo("slash commands registered").pipe(
     Effect.annotateLogs({ devMode }),

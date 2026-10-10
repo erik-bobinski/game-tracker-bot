@@ -13,17 +13,10 @@ import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
 import * as Headers from "effect/unstable/http/Headers";
-import { Puuid } from "../../index.ts";
-import {
-  LolLeagueEntries,
-  LolMatch,
-  LolMatchIds,
-} from "../lol/match-schema.ts";
-import {
-  TftLeagueEntries,
-  TftMatch,
-  TftMatchIds,
-} from "../tft/match-schema.ts";
+import { RateLimiter } from "effect/unstable/persistence";
+import { MatchId, Puuid } from "../../index.ts";
+import { LolLeagueEntries, LolMatch } from "../lol/match-schema.ts";
+import { TftLeagueEntries, TftMatch } from "../tft/match-schema.ts";
 
 // A platformId is the shard an account lives on (riot's "platform routing
 // value"), not pc/console. match-v5 is routed by regional cluster instead, so
@@ -49,6 +42,31 @@ const CLUSTERS: Record<string, string> = {
   vn2: "sea",
 };
 
+// Riot limits a key on each routing host over several windows at once, and
+// every response states them, as "requests:seconds" pairs. A host that hasn't
+// answered yet gets a personal key's limits, the lowest any key has.
+const PERSONAL_KEY_LIMITS = "20:1,100:120";
+
+// Riot counts each window from whenever its first request lands, so pacing has
+// to hold for any stretch of that length, not just ours. A bucket a tenth of
+// the limit deep, refilled at 80% of the limit's rate, lets through at most
+// 90% of it in any such stretch.
+const parseLimits = (header: string) =>
+  header.split(",").flatMap((pair) => {
+    const [requests, seconds] = pair.split(":").map(Number);
+    if (!requests || !seconds) return [];
+    const burst = Math.max(1, Math.floor(requests / 10));
+    return [
+      {
+        seconds,
+        burst,
+        refill: Duration.seconds((burst * seconds) / (requests * 0.8)),
+      },
+    ];
+  });
+
+const MatchIds = Schema.Array(MatchId);
+
 export class RiotApiClient extends Context.Service<
   RiotApiClient,
   {
@@ -67,22 +85,24 @@ export class RiotApiClient extends Context.Service<
       string,
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
-    getLolRecentMatches: (
+    getMatchIds: (
+      game: "lol" | "tft",
       puuid: Puuid,
       platformId: string | undefined,
       count: number,
     ) => Effect.Effect<
-      ReadonlyArray<LolMatch>,
+      ReadonlyArray<MatchId>,
       HttpClientError.HttpClientError | Schema.SchemaError
     >;
-    getTftRecentMatches: (
-      puuid: Puuid,
+    // undefined when the match doesn't decode
+    getLolMatch: (
+      matchId: MatchId,
       platformId: string | undefined,
-      count: number,
-    ) => Effect.Effect<
-      ReadonlyArray<TftMatch>,
-      HttpClientError.HttpClientError | Schema.SchemaError
-    >;
+    ) => Effect.Effect<LolMatch | undefined, HttpClientError.HttpClientError>;
+    getTftMatch: (
+      matchId: MatchId,
+      platformId: string | undefined,
+    ) => Effect.Effect<TftMatch | undefined, HttpClientError.HttpClientError>;
     getLeagueEntries: (
       puuid: Puuid,
       platformId: string,
@@ -108,46 +128,76 @@ export const RiotApiLive = Layer.effect(
     const defaultCluster = yield* Config.string("RIOT_REGION").pipe(
       Config.withDefault("americas"),
     );
-    const http = (yield* HttpClient.HttpClient).pipe(
-      HttpClient.mapRequest(
-        HttpClientRequest.prependUrl(
-          `https://${defaultCluster}.api.riotgames.com`,
-        ),
-      ),
-      HttpClient.filterStatusOk,
-      HttpClient.retryTransient({
-        times: 5,
-        schedule: Schedule.exponential("1 second").pipe(
-          Schedule.modifyDelay(({ duration, input }) => {
-            const header =
-              HttpClientError.isHttpClientError(input) &&
-              input.response !== undefined
-                ? Option.getOrUndefined(
-                    Headers.get(input.response.headers, "retry-after"),
-                  )
-                : undefined;
-            const seconds = Number(header);
-            const wait =
-              Number.isFinite(seconds) && seconds > 0
-                ? Duration.min(Duration.seconds(seconds), Duration.seconds(15))
-                : Duration.zero;
-            return Effect.succeed(Duration.max(duration, wait));
-          }),
-          Schedule.jittered,
-        ),
-      }),
-    );
+    const base = yield* HttpClient.HttpClient;
+    const limiter = yield* RateLimiter.RateLimiter;
+
     // Riot scopes each product key to one game and encrypts puuids per key,
-    // so tft calls, account lookups included, go out under the tft key
-    const withKey = (key: Redacted.Redacted) =>
-      http.pipe(
+    // so tft calls, account lookups included, go out under the tft key. Each
+    // key has its own limits, and every attempt, retries included, waits its
+    // turn under them.
+    const keyedClient = (game: "lol" | "tft", key: Redacted.Redacted) => {
+      const limitsByHost = new Map<string, ReturnType<typeof parseLimits>>();
+      return base.pipe(
+        HttpClient.transform((send, request) =>
+          Effect.gen(function* () {
+            const host = new URL(request.url).host;
+            const limits =
+              limitsByHost.get(host) ?? parseLimits(PERSONAL_KEY_LIMITS);
+            for (const { seconds, burst, refill } of limits) {
+              // the in-memory store can't fail
+              yield* RateLimiter.sleep(limiter, {
+                key: `riot:${game}:${host}:${seconds}`,
+                algorithm: "token-bucket",
+                limit: burst,
+                window: refill,
+              }).pipe(Effect.orDie);
+            }
+            const response = yield* send;
+            const header = Headers.get(response.headers, "x-app-rate-limit");
+            if (Option.isSome(header)) {
+              limitsByHost.set(host, parseLimits(header.value));
+            }
+            return response;
+          }),
+        ),
+        HttpClient.filterStatusOk,
+        HttpClient.retryTransient({
+          times: 5,
+          schedule: Schedule.exponential("1 second").pipe(
+            Schedule.modifyDelay(({ duration, input }) => {
+              const header =
+                HttpClientError.isHttpClientError(input) &&
+                input.response !== undefined
+                  ? Option.getOrUndefined(
+                      Headers.get(input.response.headers, "retry-after"),
+                    )
+                  : undefined;
+              const seconds = Number(header);
+              const wait =
+                Number.isFinite(seconds) && seconds > 0
+                  ? Duration.min(
+                      Duration.seconds(seconds),
+                      Duration.seconds(15),
+                    )
+                  : Duration.zero;
+              return Effect.succeed(Duration.max(duration, wait));
+            }),
+            Schedule.jittered,
+          ),
+        }),
+        HttpClient.mapRequest(
+          HttpClientRequest.prependUrl(
+            `https://${defaultCluster}.api.riotgames.com`,
+          ),
+        ),
         HttpClient.mapRequest(
           HttpClientRequest.setHeader("X-Riot-Token", Redacted.value(key)),
         ),
       );
+    };
     const clients = {
-      lol: withKey(yield* Config.redacted("RIOT_API_KEY")),
-      tft: withKey(yield* Config.redacted("RIOT_TFT_API_KEY")),
+      lol: keyedClient("lol", yield* Config.redacted("RIOT_API_KEY")),
+      tft: keyedClient("tft", yield* Config.redacted("RIOT_TFT_API_KEY")),
     };
 
     const getAccountByRiotId = Effect.fn("RiotApi.getAccountByRiotId")(
@@ -197,8 +247,26 @@ export const RiotApiLive = Layer.effect(
         .get("");
     };
 
+    const getMatchIds = Effect.fn("RiotApi.getMatchIds")(function* (
+      game: "lol" | "tft",
+      puuid: Puuid,
+      platformId: string | undefined,
+      count: number,
+    ) {
+      const path =
+        game === "lol"
+          ? "/lol/match/v5/matches/by-puuid"
+          : "/tft/match/v1/matches/by-puuid";
+      const res = yield* matchGet(
+        game,
+        platformId,
+        `${path}/${encodeURIComponent(puuid)}/ids?count=${count}`,
+      );
+      return yield* Schema.decodeUnknownEffect(MatchIds)(yield* res.json);
+    });
+
     const getLolMatch = Effect.fn("RiotApi.getLolMatch")(function* (
-      matchId: string,
+      matchId: MatchId,
       platformId: string | undefined,
     ) {
       const res = yield* matchGet(
@@ -206,12 +274,18 @@ export const RiotApiLive = Layer.effect(
         platformId,
         `/lol/match/v5/matches/${matchId}`,
       );
-      const json = yield* res.json;
-      return yield* Schema.decodeUnknownEffect(LolMatch)(json);
+      return yield* Schema.decodeUnknownEffect(LolMatch)(yield* res.json).pipe(
+        Effect.catchTag("SchemaError", (error) =>
+          Effect.logWarning("skipping undecodable lol match").pipe(
+            Effect.annotateLogs({ matchId, error }),
+            Effect.as(undefined),
+          ),
+        ),
+      );
     });
 
     const getTftMatch = Effect.fn("RiotApi.getTftMatch")(function* (
-      matchId: string,
+      matchId: MatchId,
       platformId: string | undefined,
     ) {
       const res = yield* matchGet(
@@ -219,60 +293,15 @@ export const RiotApiLive = Layer.effect(
         platformId,
         `/tft/match/v1/matches/${matchId}`,
       );
-      const json = yield* res.json;
-      return yield* Schema.decodeUnknownEffect(TftMatch)(json);
+      return yield* Schema.decodeUnknownEffect(TftMatch)(yield* res.json).pipe(
+        Effect.catchTag("SchemaError", (error) =>
+          Effect.logWarning("skipping undecodable tft match").pipe(
+            Effect.annotateLogs({ matchId, error }),
+            Effect.as(undefined),
+          ),
+        ),
+      );
     });
-
-    // Match-V5 has no bulk endpoint: fetch ids, then one call per match.
-    const getLolRecentMatches = Effect.fn("RiotApi.getLolRecentMatches")(
-      function* (puuid: Puuid, platformId: string | undefined, count: number) {
-        const res = yield* matchGet(
-          "lol",
-          platformId,
-          `/lol/match/v5/matches/by-puuid/${encodeURIComponent(puuid)}/ids?count=${count}`,
-        );
-        const json = yield* res.json;
-        const matchIds = yield* Schema.decodeUnknownEffect(LolMatchIds)(json);
-
-        const matches = yield* Effect.forEach(matchIds, (matchId) =>
-          getLolMatch(matchId, platformId).pipe(
-            Effect.catchTag("SchemaError", (error) =>
-              Effect.logWarning("skipping undecodable lol match").pipe(
-                Effect.annotateLogs({ matchId, error }),
-                Effect.as(undefined),
-              ),
-            ),
-          ),
-        );
-
-        return matches.filter((match) => match !== undefined);
-      },
-    );
-
-    const getTftRecentMatches = Effect.fn("RiotApi.getTftRecentMatches")(
-      function* (puuid: Puuid, platformId: string | undefined, count: number) {
-        const res = yield* matchGet(
-          "tft",
-          platformId,
-          `/tft/match/v1/matches/by-puuid/${encodeURIComponent(puuid)}/ids?count=${count}`,
-        );
-        const json = yield* res.json;
-        const matchIds = yield* Schema.decodeUnknownEffect(TftMatchIds)(json);
-
-        const matches = yield* Effect.forEach(matchIds, (matchId) =>
-          getTftMatch(matchId, platformId).pipe(
-            Effect.catchTag("SchemaError", (error) =>
-              Effect.logWarning("skipping undecodable tft match").pipe(
-                Effect.annotateLogs({ matchId, error }),
-                Effect.as(undefined),
-              ),
-            ),
-          ),
-        );
-
-        return matches.filter((match) => match !== undefined);
-      },
-    );
 
     const getLeagueEntries = Effect.fn("RiotApi.getLeagueEntries")(function* (
       puuid: Puuid,
@@ -310,10 +339,15 @@ export const RiotApiLive = Layer.effect(
     return RiotApiClient.of({
       getAccountByRiotId,
       getPlatformId,
-      getLolRecentMatches,
-      getTftRecentMatches,
+      getMatchIds,
+      getLolMatch,
+      getTftMatch,
       getLeagueEntries,
       getTftLeagueEntries,
     });
   }),
+).pipe(
+  Layer.provide(
+    RateLimiter.layer.pipe(Layer.provide(RateLimiter.layerStoreMemory)),
+  ),
 );

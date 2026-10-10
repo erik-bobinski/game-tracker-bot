@@ -15,6 +15,7 @@ import { valMatchToDetails } from "../game/game-adapters/valorant.ts";
 import type { MatchReport } from "./embed.ts";
 import {
   deferredReply,
+  inServers,
   registerAccount,
   reply,
   type CommandDeps,
@@ -373,6 +374,7 @@ const devReport = (deps: CommandDeps) =>
     {
       name: "dev_report",
       description: "[dev] Post a match report built from mock api responses",
+      ...inServers,
       options: [
         {
           type: Discord.ApplicationCommandOptionType.STRING,
@@ -388,8 +390,13 @@ const devReport = (deps: CommandDeps) =>
         const game = yield* Schema.decodeUnknownEffect(GameId)(
           i.optionValue("game"),
         );
+        const guildId = i.interaction.guild_id;
+        const channelId = i.interaction.channel?.id;
+        if (!guildId || !channelId)
+          return reply("This only works in a server.");
         const report = yield* buildMockMatchReport(game);
-        yield* deps.notifyMatch(report);
+        // posted where it was asked for, set up or not
+        yield* deps.notifyMatch({ guildId, channelId }, report);
         return reply("Mock match report sent.");
       }).pipe(
         Effect.catch((error) =>
@@ -414,6 +421,7 @@ const devSignup = (deps: CommandDeps) =>
     {
       name: "dev_signup",
       description: "[dev] Track a riot account for a fake or real discord user",
+      ...inServers,
       options: [
         {
           type: Discord.ApplicationCommandOptionType.STRING,
@@ -455,6 +463,8 @@ const devSignup = (deps: CommandDeps) =>
           },
         );
 
+        const guildId = i.interaction.guild_id;
+        if (!guildId) return reply("This only works in a server.");
         const existing = yield* deps.database.hasAccount(discordUserId);
         if (existing) return reply(`Already tracking **${discordName}**.`);
 
@@ -470,6 +480,7 @@ const devSignup = (deps: CommandDeps) =>
           discordName,
           riotName,
           riotTag,
+          guildIds: [guildId],
         }).pipe(
           Effect.flatMap((result) =>
             followUp(

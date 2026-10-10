@@ -3,6 +3,7 @@ import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
 import { riotRankDisplay, riotRankIcons } from "../game-api/riot/ranks.ts";
 import type { TftLeagueEntry, TftMatch } from "../game-api/tft/match-schema.ts";
 import type {
+  MatchId,
   PlacementMatch,
   PlacementPlayer,
   Puuid,
@@ -120,22 +121,32 @@ export const makeTftGameAdapter = Effect.gen(function* () {
       const region = yield* riotClient.getPlatformId("tft", puuid);
       return { puuid, region };
     }),
-    getRecentMatches: Effect.fn("GameAdapter.tft.getRecentMatches")(
+    getRecentMatchIds: Effect.fn("GameAdapter.tft.getRecentMatchIds")(
       function* (puuid: Puuid, region: Region | undefined) {
-        const matches = yield* riotClient.getTftRecentMatches(
+        return yield* riotClient.getMatchIds(
+          "tft",
           puuid,
           region,
           RECENT_MATCH_COUNT,
         );
-        return matches.map(tftMatchToDetails);
       },
       Effect.mapError(
         (cause) =>
           new GameApiError({
             game: "tft",
-            operation: "getRecentMatches",
+            operation: "getRecentMatchIds",
             cause,
           }),
+      ),
+    ),
+    getMatch: Effect.fn("GameAdapter.tft.getMatch")(
+      function* (matchId: MatchId, region: Region | undefined) {
+        const match = yield* riotClient.getTftMatch(matchId, region);
+        return match && tftMatchToDetails(match);
+      },
+      Effect.mapError(
+        (cause) =>
+          new GameApiError({ game: "tft", operation: "getMatch", cause }),
       ),
     ),
     enrichMatch: Effect.fn("GameAdapter.tft.enrichMatch")(function* ({

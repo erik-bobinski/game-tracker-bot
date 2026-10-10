@@ -1,4 +1,4 @@
-import { Config, Context, Effect, Layer, Schema } from "effect";
+import { Config, Context, Effect, Layer, Option, Schema } from "effect";
 import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-node";
 import { SqlSchema } from "effect/unstable/sql";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
@@ -43,11 +43,22 @@ export interface Account {
   readonly riotName: string;
   readonly riotTag: string;
   readonly games: Partial<Record<GameId, GameState>>;
+  // the discord servers this account's matches are reported in
+  readonly guildIds: ReadonlyArray<string>;
+}
+
+export interface Guild {
+  readonly guildId: string;
+  // unset until someone runs /setup, and again if the channel goes away
+  readonly channelId: string | undefined;
+  readonly paused: boolean;
 }
 
 export class Database extends Context.Service<
   Database,
   {
+    // inserts the account or replaces its riot account, adding its servers to
+    // the ones it already reports in
     readonly addAccount: (
       account: Account,
     ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
@@ -68,6 +79,43 @@ export class Database extends Context.Service<
     ) => Effect.Effect<boolean, SqlError | Schema.SchemaError>;
     readonly deleteAccount: (
       discordUserId: string,
+    ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    readonly subscribe: (input: {
+      readonly guildId: string;
+      readonly discordUserId: string;
+    }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    // an account left reporting in no server is deleted, as a full signout
+    readonly leaveGuild: (input: {
+      readonly guildId: string;
+      readonly discordUserId: string;
+    }) => Effect.Effect<
+      { readonly accountDeleted: boolean },
+      SqlError | Schema.SchemaError
+    >;
+    readonly getGuilds: () => Effect.Effect<
+      ReadonlyArray<Guild>,
+      SqlError | Schema.SchemaError
+    >;
+    readonly getGuild: (
+      guildId: string,
+    ) => Effect.Effect<Guild | undefined, SqlError | Schema.SchemaError>;
+    readonly updateGuild: (
+      guildId: string,
+      update: {
+        readonly channelId?: string | undefined;
+        readonly paused?: boolean | undefined;
+      },
+    ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    // for when the bot leaves a server; its accounts leave it too
+    readonly deleteGuild: (
+      guildId: string,
+    ) => Effect.Effect<
+      { readonly accountsDeleted: number },
+      SqlError | Schema.SchemaError
+    >;
+    // unsets the channel of whichever server reports into it
+    readonly clearChannel: (
+      channelId: string,
     ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
     readonly clearReportedMatches: () => Effect.Effect<
       void,
@@ -206,6 +254,31 @@ const migrations = SqliteMigrator.fromRecord({
     const sql = yield* SqlClient;
     yield* sql`ALTER TABLE account_games ADD COLUMN rank_snapshots TEXT NOT NULL DEFAULT '{}'`;
   }),
+  // Accounts stay global, one per discord user, so a riot account shared by
+  // several servers is still polled once; servers only choose where it posts.
+  "5_create_guilds": Effect.gen(function* () {
+    const sql = yield* SqlClient;
+
+    yield* sql`
+      CREATE TABLE guilds (
+        guild_id TEXT PRIMARY KEY NOT NULL,
+        channel_id TEXT,
+        paused INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    yield* sql`
+      CREATE TABLE guild_accounts (
+        guild_id TEXT NOT NULL
+          REFERENCES guilds (guild_id) ON DELETE CASCADE,
+        discord_user_id TEXT NOT NULL
+          REFERENCES accounts (discord_user_id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (guild_id, discord_user_id)
+      )
+    `;
+  }),
 });
 
 export const databasePath = Config.string("DB_PATH").pipe(
@@ -341,10 +414,12 @@ const makeDatabase = Effect.gen(function* () {
     }
   }
 
-  const insertAccountRow = SqlSchema.void({
+  // an upsert rather than INSERT OR REPLACE, whose delete would cascade to the
+  // account's servers
+  const upsertAccountRow = SqlSchema.void({
     Request: AccountRow,
     execute: (account) => sql`
-      INSERT OR REPLACE INTO accounts (
+      INSERT INTO accounts (
         discord_user_id,
         discord_name,
         riot_name,
@@ -355,8 +430,41 @@ const makeDatabase = Effect.gen(function* () {
         ${account.riotName},
         ${account.riotTag}
       )
+      ON CONFLICT (discord_user_id) DO UPDATE SET
+        discord_name = excluded.discord_name,
+        riot_name = excluded.riot_name,
+        riot_tag = excluded.riot_tag
     `,
   });
+
+  const SubscriptionRow = Schema.Struct({
+    guildId: Schema.String,
+    discordUserId: Schema.String,
+  });
+
+  const insertGuildRow = SqlSchema.void({
+    Request: Schema.Struct({ guildId: Schema.String }),
+    execute: ({ guildId }) => sql`
+      INSERT INTO guilds (guild_id) VALUES (${guildId})
+      ON CONFLICT (guild_id) DO NOTHING
+    `,
+  });
+
+  const insertSubscriptionRow = SqlSchema.void({
+    Request: SubscriptionRow,
+    execute: ({ guildId, discordUserId }) => sql`
+      INSERT INTO guild_accounts (guild_id, discord_user_id)
+      VALUES (${guildId}, ${discordUserId})
+      ON CONFLICT (guild_id, discord_user_id) DO NOTHING
+    `,
+  });
+
+  const subscribe = Effect.fn("Database.subscribe")(function* (
+    subscription: typeof SubscriptionRow.Type,
+  ) {
+    yield* insertGuildRow(subscription);
+    yield* insertSubscriptionRow(subscription);
+  }, sql.withTransaction);
 
   const insertGameRow = SqlSchema.void({
     Request: GameRow,
@@ -382,7 +490,12 @@ const makeDatabase = Effect.gen(function* () {
   const addAccount = Effect.fn("Database.addAccount")(function* (
     account: Account,
   ) {
-    yield* insertAccountRow(account);
+    yield* upsertAccountRow(account);
+    // a new riot id replaces every game the previous one tracked
+    yield* deleteGameRows({ discordUserId: account.discordUserId });
+    for (const guildId of account.guildIds) {
+      yield* subscribe({ guildId, discordUserId: account.discordUserId });
+    }
     for (const [game, state] of Object.entries(account.games)) {
       if (state === undefined || !state?.puuid) continue;
       yield* insertGameRow({
@@ -440,11 +553,30 @@ const makeDatabase = Effect.gen(function* () {
     `,
   });
 
+  const subscriptionRowsQuery = SqlSchema.findAll({
+    Request: Schema.Struct({}),
+    Result: SubscriptionRow,
+    execute: () => sql`
+      SELECT guild_id AS "guildId", discord_user_id AS "discordUserId"
+      FROM guild_accounts
+      ORDER BY created_at
+    `,
+  });
+
   const getAccounts = Effect.fn("Database.getAccounts")(function* () {
-    const [accountRows, gameRows] = yield* Effect.all([
+    const [accountRows, gameRows, subscriptionRows] = yield* Effect.all([
       accountRowsQuery({}),
       gameRowsQuery({}),
+      subscriptionRowsQuery({}),
     ]);
+
+    const guildsByUser = new Map<string, Array<string>>();
+    for (const { guildId, discordUserId } of subscriptionRows) {
+      guildsByUser.set(discordUserId, [
+        ...(guildsByUser.get(discordUserId) ?? []),
+        guildId,
+      ]);
+    }
 
     const gamesByUser = new Map<string, Partial<Record<GameId, GameState>>>();
 
@@ -462,6 +594,7 @@ const makeDatabase = Effect.gen(function* () {
     return accountRows.map((row): Account => ({
       ...row,
       games: gamesByUser.get(row.discordUserId) ?? {},
+      guildIds: guildsByUser.get(row.discordUserId) ?? [],
     }));
   });
 
@@ -503,12 +636,178 @@ const makeDatabase = Effect.gen(function* () {
     `,
   });
 
+  const deleteSubscriptionRows = SqlSchema.void({
+    Request: Schema.Struct({ discordUserId: Schema.String }),
+    execute: ({ discordUserId }) => sql`
+      DELETE FROM guild_accounts WHERE discord_user_id = ${discordUserId}
+    `,
+  });
+
   const deleteAccount = Effect.fn("Database.deleteAccount")(function* (
     discordUserId: string,
   ) {
+    yield* deleteSubscriptionRows({ discordUserId });
     yield* deleteGameRows({ discordUserId });
     yield* deleteAccountRow({ discordUserId });
   }, sql.withTransaction);
+
+  // Of these users, the ones no server reports for anymore are deleted.
+  const unsubscribedQuery = SqlSchema.findAll({
+    Request: Schema.Struct({ discordUserIds: Schema.Array(Schema.String) }),
+    Result: Schema.Struct({ discordUserId: Schema.String }),
+    execute: ({ discordUserIds }) => sql`
+      SELECT discord_user_id AS "discordUserId"
+      FROM accounts
+      WHERE ${sql.in("discord_user_id", discordUserIds)}
+        AND discord_user_id NOT IN (SELECT discord_user_id FROM guild_accounts)
+    `,
+  });
+
+  const pruneAccounts = Effect.fn("Database.pruneAccounts")(function* (
+    discordUserIds: ReadonlyArray<string>,
+  ) {
+    if (discordUserIds.length === 0) return 0;
+    const orphans = yield* unsubscribedQuery({ discordUserIds });
+    for (const { discordUserId } of orphans) {
+      yield* deleteAccount(discordUserId);
+    }
+    return orphans.length;
+  });
+
+  const deleteSubscriptionRow = SqlSchema.void({
+    Request: SubscriptionRow,
+    execute: ({ guildId, discordUserId }) => sql`
+      DELETE FROM guild_accounts
+      WHERE guild_id = ${guildId} AND discord_user_id = ${discordUserId}
+    `,
+  });
+
+  const leaveGuild = Effect.fn("Database.leaveGuild")(function* (
+    subscription: typeof SubscriptionRow.Type,
+  ) {
+    yield* deleteSubscriptionRow(subscription);
+    const deleted = yield* pruneAccounts([subscription.discordUserId]);
+    return { accountDeleted: deleted > 0 };
+  }, sql.withTransaction);
+
+  const GuildRow = Schema.Struct({
+    guildId: Schema.String,
+    channelId: Schema.NullOr(Schema.String),
+    // sqlite has no boolean type, map the flag from 0 or 1
+    paused: Schema.Number,
+  });
+
+  const toGuild = (row: typeof GuildRow.Type): Guild => ({
+    guildId: row.guildId,
+    channelId: row.channelId ?? undefined,
+    paused: row.paused !== 0,
+  });
+
+  const guildRowsQuery = SqlSchema.findAll({
+    Request: Schema.Struct({}),
+    Result: GuildRow,
+    execute: () => sql`
+      SELECT guild_id AS "guildId", channel_id AS "channelId", paused
+      FROM guilds
+      ORDER BY created_at
+    `,
+  });
+
+  const getGuilds = Effect.fn("Database.getGuilds")(function* () {
+    const rows = yield* guildRowsQuery({});
+    return rows.map(toGuild);
+  });
+
+  const guildRowQuery = SqlSchema.findOneOption({
+    Request: Schema.Struct({ guildId: Schema.String }),
+    Result: GuildRow,
+    execute: ({ guildId }) => sql`
+      SELECT guild_id AS "guildId", channel_id AS "channelId", paused
+      FROM guilds
+      WHERE guild_id = ${guildId}
+    `,
+  });
+
+  const getGuild = Effect.fn("Database.getGuild")(function* (guildId: string) {
+    const row = yield* guildRowQuery({ guildId });
+    return Option.getOrUndefined(Option.map(row, toGuild));
+  });
+
+  const updateGuildRow = SqlSchema.void({
+    Request: GuildRow,
+    execute: (row) => sql`
+      UPDATE guilds
+      SET channel_id = ${row.channelId}, paused = ${row.paused}
+      WHERE guild_id = ${row.guildId}
+    `,
+  });
+
+  const updateGuild = Effect.fn("Database.updateGuild")(function* (
+    guildId: string,
+    update: {
+      readonly channelId?: string | undefined;
+      readonly paused?: boolean | undefined;
+    },
+  ) {
+    yield* insertGuildRow({ guildId });
+    const current = yield* getGuild(guildId);
+    const channelId =
+      "channelId" in update ? update.channelId : current?.channelId;
+    const paused = update.paused ?? current?.paused ?? false;
+    yield* updateGuildRow({
+      guildId,
+      channelId: channelId ?? null,
+      paused: paused ? 1 : 0,
+    });
+  }, sql.withTransaction);
+
+  const guildMembersQuery = SqlSchema.findAll({
+    Request: Schema.Struct({ guildId: Schema.String }),
+    Result: Schema.Struct({ discordUserId: Schema.String }),
+    execute: ({ guildId }) => sql`
+      SELECT discord_user_id AS "discordUserId"
+      FROM guild_accounts
+      WHERE guild_id = ${guildId}
+    `,
+  });
+
+  const deleteGuildRows = SqlSchema.void({
+    Request: Schema.Struct({ guildId: Schema.String }),
+    execute: ({ guildId }) => sql`
+      DELETE FROM guild_accounts WHERE guild_id = ${guildId}
+    `,
+  });
+
+  const deleteGuildRow = SqlSchema.void({
+    Request: Schema.Struct({ guildId: Schema.String }),
+    execute: ({ guildId }) =>
+      sql`DELETE FROM guilds WHERE guild_id = ${guildId}`,
+  });
+
+  const deleteGuild = Effect.fn("Database.deleteGuild")(function* (
+    guildId: string,
+  ) {
+    const members = yield* guildMembersQuery({ guildId });
+    yield* deleteGuildRows({ guildId });
+    yield* deleteGuildRow({ guildId });
+    const accountsDeleted = yield* pruneAccounts(
+      members.map((member) => member.discordUserId),
+    );
+    return { accountsDeleted };
+  }, sql.withTransaction);
+
+  const clearChannelQuery = SqlSchema.void({
+    Request: Schema.Struct({ channelId: Schema.String }),
+    execute: ({ channelId }) => sql`
+      UPDATE guilds SET channel_id = NULL WHERE channel_id = ${channelId}
+    `,
+  });
+
+  const clearChannel = Effect.fn("Database.clearChannel")(function* (
+    channelId: string,
+  ) {
+    yield* clearChannelQuery({ channelId });
+  });
 
   const clearReportedMatchesQuery = SqlSchema.void({
     Request: Schema.Struct({}),
@@ -617,6 +916,13 @@ const makeDatabase = Effect.gen(function* () {
     getAccount,
     hasAccount,
     deleteAccount,
+    subscribe,
+    leaveGuild,
+    getGuilds,
+    getGuild,
+    updateGuild,
+    deleteGuild,
+    clearChannel,
     clearReportedMatches,
     markMatchAsReported,
     getPollingPaused,

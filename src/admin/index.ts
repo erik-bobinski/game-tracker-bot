@@ -201,7 +201,7 @@ const withDiscordRest = <A, E>(
       cause instanceof AdminError
         ? cause
         : new AdminError({
-            message: `This command needs DISCORD_BOT_TOKEN and NOTIFICATION_CHANNEL_ID${
+            message: `This command needs DISCORD_BOT_TOKEN${
               cause instanceof Error && cause.message
                 ? `: ${cause.message}`
                 : ""
@@ -231,6 +231,9 @@ const status = Command.make(
     const paused = yield* database
       .getPollingPaused()
       .pipe(orFail("Could not read the polling flag"));
+    const guilds = yield* database
+      .getGuilds()
+      .pipe(orFail("Could not read servers"));
     const path = yield* databasePath;
 
     const rows = list.map((account) => {
@@ -243,49 +246,86 @@ const status = Command.make(
         discordName: account.discordName,
         riotId: riotId(account),
         games,
+        guildIds: account.guildIds,
         lastReportedAt:
           dates.length === 0
             ? undefined
             : new Date(Math.max(...dates)).toISOString(),
       };
     });
+    const guildRows = guilds.map((guild) => ({
+      ...guild,
+      accounts: list.filter((account) =>
+        account.guildIds.includes(guild.guildId),
+      ).length,
+    }));
 
-    // header plus one line per account, every column but the last padded out
-    const table = [
-      ["DISCORD", "DISCORD ID", "RIOT ID", "GAMES", "LAST REPORT"],
-      ...rows.map((row) => [
-        row.discordName,
-        row.discordUserId,
-        row.riotId,
-        row.games.join(", ") || "-",
-        row.lastReportedAt?.replace("T", " ").slice(0, 16) ?? "never",
-      ]),
-    ];
-    const widths = table.reduce<Array<number>>(
-      (acc, row) =>
-        row.map((cell, index) => Math.max(acc[index] ?? 0, cell.length)),
-      [],
-    );
+    // header plus one line per row, every column but the last padded out
+    const table = (cells: ReadonlyArray<ReadonlyArray<string>>) => {
+      const widths = cells.reduce<Array<number>>(
+        (acc, row) =>
+          row.map((cell, index) => Math.max(acc[index] ?? 0, cell.length)),
+        [],
+      );
+      return cells.map((row) =>
+        row
+          .map((cell, index) =>
+            index === row.length - 1 ? cell : cell.padEnd(widths[index] ?? 0),
+          )
+          .join("  "),
+      );
+    };
 
     yield* emit(
       json,
-      { pollingPaused: paused, databasePath: path, accounts: rows },
+      {
+        pollingPaused: paused,
+        databasePath: path,
+        guilds: guildRows,
+        accounts: rows,
+      },
       [
         `Polling:   ${paused ? "paused" : "active"}`,
+        `Servers:   ${guilds.length}`,
         `Accounts:  ${list.length}`,
         `Database:  ${path}`,
         "",
+        ...(guildRows.length === 0
+          ? ["No servers have signed anyone up yet."]
+          : table([
+              ["SERVER ID", "CHANNEL ID", "REPORTS", "ACCOUNTS"],
+              ...guildRows.map((guild) => [
+                guild.guildId,
+                guild.channelId ?? "-",
+                guild.channelId
+                  ? guild.paused
+                    ? "paused"
+                    : "on"
+                  : "no channel",
+                String(guild.accounts),
+              ]),
+            ])),
+        "",
         ...(rows.length === 0
           ? ["No accounts are signed up yet."]
-          : table.map((row) =>
-              row
-                .map((cell, index) =>
-                  index === row.length - 1
-                    ? cell
-                    : cell.padEnd(widths[index] ?? 0),
-                )
-                .join("  "),
-            )),
+          : table([
+              [
+                "DISCORD",
+                "DISCORD ID",
+                "RIOT ID",
+                "GAMES",
+                "SERVERS",
+                "LAST REPORT",
+              ],
+              ...rows.map((row) => [
+                row.discordName,
+                row.discordUserId,
+                row.riotId,
+                row.games.join(", ") || "-",
+                String(row.guildIds.length),
+                row.lastReportedAt?.replace("T", " ").slice(0, 16) ?? "never",
+              ]),
+            ])),
       ],
     );
   }),
@@ -312,8 +352,14 @@ const signup = Command.make(
       ),
       Flag.optional,
     ),
+    guild: Flag.string("guild").pipe(
+      Flag.withDescription(
+        "discord server id to report in; without one, nothing is reported",
+      ),
+      Flag.optional,
+    ),
   },
-  Effect.fn(function* ({ target, discordId, discordName }) {
+  Effect.fn(function* ({ target, discordId, discordName, guild }) {
     const { json } = yield* admin;
     const database = yield* Database;
 
@@ -353,6 +399,7 @@ const signup = Command.make(
           discordName: Option.getOrElse(discordName, () => riotName),
           riotName,
           riotTag,
+          guildIds: Option.toArray(guild),
         },
       ).pipe(orFail("Signup failed")),
     );
@@ -381,10 +428,61 @@ const signup = Command.make(
   Command.withDescription("Track a riot account on a discord user's behalf"),
   Command.withExamples([
     {
-      command: "admin signup syan#NA1 --discord-id 195042765893632000",
-      description: "Sign someone up without them running /signup",
+      command:
+        "admin signup syan#NA1 --discord-id 195042765893632000 --guild 1196263431012073472",
+      description: "Sign someone up in a server without them running /signup",
     },
   ]),
+);
+
+const setup = Command.make(
+  "setup",
+  {
+    guildId: Argument.string("guild-id").pipe(
+      Argument.withDescription("discord server id"),
+    ),
+    channelId: Flag.string("channel").pipe(
+      Flag.withDescription("channel id to post that server's reports in"),
+    ),
+    adopt: Flag.boolean("adopt").pipe(
+      Flag.withDescription(
+        "also report every account that reports in no server here, e.g. after moving off the single-channel setup",
+      ),
+    ),
+  },
+  Effect.fn(function* ({ guildId, channelId, adopt }) {
+    const { json } = yield* admin;
+    const database = yield* Database;
+    yield* database
+      .updateGuild(guildId, { channelId })
+      .pipe(orFail("Could not save the channel"));
+
+    const adopted = adopt
+      ? (yield* accounts).filter((account) => account.guildIds.length === 0)
+      : [];
+    for (const account of adopted) {
+      yield* database
+        .subscribe({ guildId, discordUserId: account.discordUserId })
+        .pipe(orFail(`Could not add ${account.discordName}`));
+    }
+
+    yield* emit(
+      json,
+      {
+        guildId,
+        channelId,
+        adopted: adopted.map((account) => account.discordUserId),
+      },
+      [
+        `Server ${guildId} reports in channel ${channelId}.`,
+        ...(adopt ? [`Adopted ${adopted.length} accounts.`] : []),
+      ],
+    );
+  }),
+).pipe(
+  Command.withDescription(
+    "Set the channel a server's reports go to, as /setup does, without the test post",
+  ),
 );
 
 const signout = Command.make(
@@ -586,6 +684,7 @@ const sendReport = Effect.fn("Admin.sendReport")(function* (
   report: MatchReport,
   adapters: ReadonlyArray<GameAdapter>,
   out: Option.Option<string>,
+  channel: Option.Option<string>,
 ) {
   const { json } = yield* admin;
   const { game, matchId } = report.match;
@@ -604,7 +703,13 @@ const sendReport = Effect.fn("Admin.sendReport")(function* (
     ]);
   }
 
-  const channelId = yield* Config.nonEmptyString("NOTIFICATION_CHANNEL_ID");
+  const channelId = yield* Option.match(channel, {
+    onNone: () =>
+      Config.nonEmptyString("NOTIFICATION_CHANNEL_ID").pipe(
+        orFail("Pass --channel, or set NOTIFICATION_CHANNEL_ID"),
+      ),
+    onSome: Effect.succeed,
+  });
   yield* withDiscordRest((rest) =>
     postMatchReport({ rest, channelId, card, rankEmojis: {} }, report).pipe(
       orFail("Could not post match report"),
@@ -622,6 +727,13 @@ const outFlag = Flag.path("out").pipe(
   Flag.optional,
 );
 
+const channelFlag = Flag.string("channel").pipe(
+  Flag.withDescription(
+    "channel id to post in (defaults to NOTIFICATION_CHANNEL_ID)",
+  ),
+  Flag.optional,
+);
+
 const reportMock = Command.make(
   "report-mock",
   {
@@ -630,15 +742,16 @@ const reportMock = Command.make(
       Flag.withDefault("lol"),
     ),
     out: outFlag,
+    channel: channelFlag,
   },
-  Effect.fn(function* ({ game, out }) {
+  Effect.fn(function* ({ game, out, channel }) {
     const report = yield* buildMockMatchReport(game).pipe(
       orFail("Could not build mock match report"),
     );
     const adapters = yield* withGameAdapters((loaded) =>
       Effect.succeed(loaded.all),
     );
-    yield* sendReport(report, adapters, out);
+    yield* sendReport(report, adapters, out, channel);
   }, Effect.provide(NodeHttpClient.layerUndici)),
 ).pipe(
   Command.withDescription(
@@ -662,8 +775,9 @@ const reportMatch = Command.make(
       Flag.withDefault(0),
     ),
     out: outFlag,
+    channel: channelFlag,
   },
-  Effect.fn(function* ({ target, game, index, out }) {
+  Effect.fn(function* ({ target, game, index, out, channel }) {
     const { riotName, riotTag } = yield* parseRiotId(target);
     const { report, adapters } = yield* withGameAdapters((loaded) =>
       Effect.gen(function* () {
@@ -672,15 +786,19 @@ const reportMatch = Command.make(
         const { puuid, region } = yield* adapter
           .resolveAccount(riotName, riotTag)
           .pipe(orFail(`Could not find ${riotName}#${riotTag}`));
-        const matches = yield* adapter
-          .getRecentMatches(puuid, region)
+        const matchIds = yield* adapter
+          .getRecentMatchIds(puuid, region)
           .pipe(orFail("Could not read recent matches"));
-        const match = matches[index];
-        if (!match) {
+        const matchId = matchIds[index];
+        if (!matchId) {
           return yield* fail(
-            `No recent ${gameNames[game]} match at index ${index} for ${riotName}#${riotTag} (${matches.length} available).`,
+            `No recent ${gameNames[game]} match at index ${index} for ${riotName}#${riotTag} (${matchIds.length} available).`,
           );
         }
+        const match = yield* adapter
+          .getMatch(matchId, region)
+          .pipe(orFail(`Could not read match ${matchId}`));
+        if (!match) return yield* fail(`Match ${matchId} doesn't decode.`);
         const enrichment = yield* enrichOrSkip(adapter, {
           match,
           trackedPlayers: [{ puuid, region, previousRankSnapshots: {} }],
@@ -695,7 +813,7 @@ const reportMatch = Command.make(
         };
       }),
     );
-    yield* sendReport(report, adapters, out);
+    yield* sendReport(report, adapters, out, channel);
   }, Effect.provide(NodeHttpClient.layerUndici)),
 ).pipe(
   Command.withDescription(
@@ -715,6 +833,7 @@ const cli = admin.pipe(
     status,
     signup,
     signout,
+    setup,
     pause,
     resume,
     rankCheck,

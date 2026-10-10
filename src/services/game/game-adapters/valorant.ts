@@ -10,6 +10,7 @@ import {
 import {
   EpochMillis,
   type MatchDetails,
+  type MatchId,
   type MatchTeam,
   type Puuid,
   type RankInfo,
@@ -169,7 +170,9 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
     ) {
       return yield* henrikClient.getAccountByRiotId(name, tag);
     }),
-    getRecentMatches: Effect.fn("GameAdapter.valorant.getRecentMatches")(
+    // henrik's history sends whole matches, so ids cost the same one request
+    // and getMatch reads the match back from it
+    getRecentMatchIds: Effect.fn("GameAdapter.valorant.getRecentMatchIds")(
       function* (puuid: Puuid, region: Region | undefined) {
         const matches = yield* henrikClient.getRecentMatches(
           puuid,
@@ -179,17 +182,30 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
         polledHistories.set(puuid, matches);
         return matches
           .filter((match) => match.metadata.is_completed)
-          .map((match) => valMatchToDetails(match));
+          .map((match) => match.metadata.match_id);
       },
       Effect.mapError(
         (cause) =>
           new GameApiError({
             game: "valorant",
-            operation: "getRecentMatches",
+            operation: "getRecentMatchIds",
             cause,
           }),
       ),
     ),
+    getMatch: Effect.fn("GameAdapter.valorant.getMatch")(function* (
+      matchId: MatchId,
+    ) {
+      const polled = [...polledHistories.values()]
+        .flat()
+        .find((raw) => raw.metadata.match_id === matchId);
+      if (polled) return valMatchToDetails(polled);
+      return yield* new GameApiError({
+        game: "valorant",
+        operation: "getMatch",
+        cause: new Error("match isn't in any polled history"),
+      });
+    }),
     enrichMatch: Effect.fn("GameAdapter.valorant.enrichMatch")(function* ({
       match,
       trackedPlayers,

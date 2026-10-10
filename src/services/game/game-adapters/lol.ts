@@ -9,6 +9,7 @@ import {
   type GameAdapter,
 } from "./index.ts";
 import type {
+  MatchId,
   Puuid,
   RankInfo,
   RankSnapshots,
@@ -124,22 +125,32 @@ export const makeLolGameAdapter = Effect.gen(function* () {
         );
       return { puuid, region };
     }),
-    getRecentMatches: Effect.fn("GameAdapter.lol.getRecentMatches")(
+    getRecentMatchIds: Effect.fn("GameAdapter.lol.getRecentMatchIds")(
       function* (puuid: Puuid, region: Region | undefined) {
-        const matches = yield* riotClient.getLolRecentMatches(
+        return yield* riotClient.getMatchIds(
+          "lol",
           puuid,
           region,
           RECENT_MATCH_COUNT,
         );
-        return matches.map(lolMatchToDetails);
       },
       Effect.mapError(
         (cause) =>
           new GameApiError({
             game: "lol",
-            operation: "getRecentMatches",
+            operation: "getRecentMatchIds",
             cause,
           }),
+      ),
+    ),
+    getMatch: Effect.fn("GameAdapter.lol.getMatch")(
+      function* (matchId: MatchId, region: Region | undefined) {
+        const match = yield* riotClient.getLolMatch(matchId, region);
+        return match && lolMatchToDetails(match);
+      },
+      Effect.mapError(
+        (cause) =>
+          new GameApiError({ game: "lol", operation: "getMatch", cause }),
       ),
     ),
     enrichMatch: Effect.fn("GameAdapter.lol.enrichMatch")(function* ({
