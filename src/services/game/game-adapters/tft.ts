@@ -110,6 +110,7 @@ export const makeTftGameAdapter = Effect.gen(function* () {
   const adapter: GameAdapter = {
     game: "tft",
     requiresMatchHistory: true,
+    requiresOptIn: false,
     iconUrl:
       "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/content/src/leagueclient/gamemodeassets/tft/img/game-select-icon-active.png",
     rankIcons: riotRankIcons,

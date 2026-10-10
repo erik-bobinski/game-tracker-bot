@@ -1,5 +1,7 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Config, Context, Effect, Layer, Schema } from "effect";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
+import { HenrikApiClientLive } from "../game-api/val/henrik-api-client.ts";
+import { RiotValApiLive } from "../game-api/val/riot-val-client.ts";
 import {
   EpochMillis,
   GameId,
@@ -15,6 +17,7 @@ import {
 import { makeLolGameAdapter } from "./lol.ts";
 import { makeTftGameAdapter } from "./tft.ts";
 import { makeValorantGameAdapter } from "./valorant.ts";
+import { makeHenrikValorantAdapter } from "./valorant-henrik.ts";
 
 // How many of an account's newest matches a poll looks at. Nobody is polled
 // less than every 15 minutes, too short to finish more than one game.
@@ -67,6 +70,9 @@ export const logApiError = (message: string, error: unknown) =>
 export interface GameAdapter {
   readonly game: GameId;
   readonly requiresMatchHistory: boolean;
+  // A game riot only shares a player's data for once they've signed in with
+  // riot (RSO) to opt in. Signing up by riot id skips it; /link adds it.
+  readonly requiresOptIn: boolean;
   readonly iconUrl: string;
   readonly rankIcons: ReadonlyArray<RankIcon>;
 
@@ -201,15 +207,37 @@ export class GameAdapters extends Context.Service<
   }
 >()("app/GameAdapters") {}
 
+class ValorantAdapter extends Context.Service<ValorantAdapter, GameAdapter>()(
+  "app/ValorantAdapter",
+) {}
+
+// VALORANT comes from riot's own api once a VALORANT product key is set, and
+// from HenrikDev's unofficial one until riot approves that key. Riot encrypts
+// puuids per key, so accounts signed up through henrik have to /link again.
+const ValorantAdapterLive = Layer.unwrap(
+  Config.string("RIOT_VAL_API_KEY").pipe(
+    Config.withDefault(""),
+    Effect.map((key) =>
+      key
+        ? Layer.effect(ValorantAdapter, makeValorantGameAdapter).pipe(
+            Layer.provide(RiotValApiLive),
+          )
+        : Layer.effect(ValorantAdapter, makeHenrikValorantAdapter).pipe(
+            Layer.provide(HenrikApiClientLive),
+          ),
+    ),
+  ),
+);
+
 export const GameAdaptersLive = Layer.effect(
   GameAdapters,
   Effect.gen(function* () {
     const all: ReadonlyArray<GameAdapter> = [
       yield* makeLolGameAdapter,
-      yield* makeValorantGameAdapter,
+      yield* ValorantAdapter,
       yield* makeTftGameAdapter,
     ];
 
     return GameAdapters.of({ all });
   }),
-);
+).pipe(Layer.provide(ValorantAdapterLive));

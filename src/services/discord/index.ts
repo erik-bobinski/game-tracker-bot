@@ -24,6 +24,7 @@ import {
 import { Database } from "../database/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import { PollingState } from "../polling/state.ts";
+import { Rso } from "../rso/index.ts";
 import { commands } from "./commands.ts";
 import type { MatchReport } from "./embed.ts";
 import { makeMatchCard, postMatchReport } from "./match-card.tsx";
@@ -46,8 +47,22 @@ export class Discord extends Context.Service<
       target: ReportTarget,
       report: MatchReport,
     ) => Effect.Effect<void, DiscordError>;
+    // the bot's name, and the link that adds it to a server
+    readonly application: {
+      readonly name: string;
+      readonly inviteUrl: string;
+    };
   }
 >()("app/Discord") {}
+
+// what posting a report takes: seeing the channel, sending, the card as an
+// attachment or the embed it falls back to, and rank emojis
+const reportPermissions =
+  DiscordApi.Permissions.ViewChannel |
+  DiscordApi.Permissions.SendMessages |
+  DiscordApi.Permissions.EmbedLinks |
+  DiscordApi.Permissions.AttachFiles |
+  DiscordApi.Permissions.UseExternalEmojis;
 
 // Unknown Channel and Missing Access: the channel is gone, or the bot was
 // shut out of it or its server, and no retry will reach it
@@ -75,6 +90,7 @@ const makeDiscord = Effect.gen(function* () {
   const database = yield* Database;
   const gameAdapters = yield* GameAdapters;
   const pollingState = yield* PollingState;
+  const rso = yield* Rso;
   const devMode = yield* Config.boolean("DEV_MODE").pipe(
     Config.withDefault(false),
   );
@@ -208,7 +224,7 @@ const makeDiscord = Effect.gen(function* () {
 
   // registering forks the interaction loop and syncs the commands with discord.
   yield* registry.register(
-    commands({ database, gameAdapters, rest, notifyMatch }, devMode),
+    commands({ database, gameAdapters, rest, notifyMatch, rso }, devMode),
   );
   yield* Effect.logInfo("slash commands registered").pipe(
     Effect.annotateLogs({ devMode }),
@@ -230,7 +246,15 @@ const makeDiscord = Effect.gen(function* () {
     })
     .pipe(Effect.forkScoped);
 
-  return Discord.of({ notifyMatch });
+  const application = yield* rest.getMyOauth2Application();
+
+  return Discord.of({
+    notifyMatch,
+    application: {
+      name: application.name,
+      inviteUrl: `https://discord.com/oauth2/authorize?client_id=${application.id}&scope=bot+applications.commands&permissions=${reportPermissions}`,
+    },
+  });
 });
 
 export const DiscordLive = Layer.effect(Discord, makeDiscord).pipe(

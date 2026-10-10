@@ -11,7 +11,7 @@ import { TftMatch } from "../game/game-api/tft/match-schema.ts";
 import { ValRawMatch } from "../game/game-api/val/match-schema.ts";
 import { lolMatchToDetails } from "../game/game-adapters/lol.ts";
 import { tftMatchToDetails } from "../game/game-adapters/tft.ts";
-import { valMatchToDetails } from "../game/game-adapters/valorant.ts";
+import { valMatchToDetails } from "../game/game-adapters/valorant-henrik.ts";
 import type { MatchReport } from "./embed.ts";
 import {
   deferredReply,

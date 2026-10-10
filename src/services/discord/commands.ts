@@ -1,5 +1,5 @@
-import { Discord, DiscordREST, Ix } from "dfx";
-import { Effect, Option, Schema } from "effect";
+import { Discord, DiscordREST, Ix, UI } from "dfx";
+import { DateTime, Effect, Option, Schema } from "effect";
 import type { Account, Database } from "../database/index.ts";
 import {
   logApiError,
@@ -8,6 +8,7 @@ import {
   type GameAdapters,
 } from "../game/game-adapters/index.ts";
 import { discordGameChoices, GameId, gameNames } from "../game/index.ts";
+import type { Rso, RsoLink } from "../rso/index.ts";
 import type { DiscordError, ReportTarget } from "./index.ts";
 import { rankEmbed, type MatchReport } from "./embed.ts";
 import { devCommands } from "./dev-commands.ts";
@@ -20,6 +21,7 @@ export interface CommandDeps {
     target: ReportTarget,
     report: MatchReport,
   ) => Effect.Effect<void, DiscordError>;
+  readonly rso: Rso["Service"];
 }
 
 export const reply = (
@@ -44,41 +46,106 @@ const forManagers = {
   default_member_permissions: Number(Discord.Permissions.ManageGuild),
 };
 
-// Pre-reports current matches so the first poll doesn't repost old games.
-// Only needs the two services, so the admin cli can call it too.
-export const registerAccount = (
-  { database, gameAdapters }: Pick<CommandDeps, "database" | "gameAdapters">,
-  input: Omit<Account, "games">,
+// The games a riot id plays, each with its current matches pre-reported so the
+// first poll doesn't repost old games. Games that need an opt-in are only
+// looked up for someone who signed in with riot.
+const resolveGames = (
+  gameAdapters: GameAdapters["Service"],
+  riotId: { readonly riotName: string; readonly riotTag: string },
+  optedIn: boolean,
 ) =>
   Effect.gen(function* () {
+    // kept as the record of when they opted in
+    const optedInAt = optedIn
+      ? DateTime.formatIso(yield* DateTime.now)
+      : undefined;
     // a riot id may exist in only one game, so each lookup fails on its own
     const resolved = yield* Effect.forEach(
-      gameAdapters.all,
+      gameAdapters.all.filter((adapter) => optedIn || !adapter.requiresOptIn),
       (adapter) =>
-        resolveGameState(adapter, input.riotName, input.riotTag).pipe(
+        resolveGameState(adapter, riotId.riotName, riotId.riotTag).pipe(
           Effect.map((state) =>
-            state ? { game: adapter.game, state } : undefined,
+            state
+              ? [
+                  {
+                    game: adapter.game,
+                    state: adapter.requiresOptIn
+                      ? { ...state, optedInAt }
+                      : state,
+                  },
+                ]
+              : [],
           ),
           // a failed lookup is not the same as "no such account", but
           // both leave this game untracked
           Effect.catch((error) =>
             logApiWarning("resolveAccount failed", error).pipe(
               Effect.annotateLogs({ game: adapter.game }),
-              Effect.as(undefined),
+              Effect.as([]),
             ),
           ),
         ),
       { concurrency: "unbounded" },
     );
+    return resolved.flat();
+  });
+
+// Only needs the two services, so the admin cli can call it too.
+export const registerAccount = (
+  { database, gameAdapters }: Pick<CommandDeps, "database" | "gameAdapters">,
+  input: Omit<Account, "games">,
+  { optedIn = false }: { readonly optedIn?: boolean } = {},
+) =>
+  Effect.gen(function* () {
+    const resolved = yield* resolveGames(gameAdapters, input, optedIn);
+    if (resolved.length === 0) return "not-found" as const;
 
     const games: Account["games"] = {};
-    for (const entry of resolved) {
-      if (entry) games[entry.game] = entry.state;
+    for (const { game, state } of resolved) games[game] = state;
+    yield* database.addAccount({ ...input, games });
+    return "ok" as const;
+  });
+
+// After a riot sign-in: adds the games that needed it to the account, or,
+// for someone who hadn't signed up, signs them up with the riot id they
+// signed in as.
+export const linkAccount = (
+  deps: Pick<CommandDeps, "database" | "gameAdapters">,
+  link: {
+    readonly discordUserId: string;
+    readonly discordName: string;
+    readonly guildId: string;
+  },
+  riotId: { readonly riotName: string; readonly riotTag: string },
+) =>
+  Effect.gen(function* () {
+    const account = yield* deps.database.getAccount(link.discordUserId);
+    if (!account) {
+      return yield* registerAccount(
+        deps,
+        { ...link, ...riotId, guildIds: [link.guildId] },
+        { optedIn: true },
+      );
     }
 
-    if (Object.keys(games).length === 0) return "not-found" as const;
+    const found = yield* resolveGames(
+      { all: deps.gameAdapters.all.filter((adapter) => adapter.requiresOptIn) },
+      riotId,
+      true,
+    );
+    if (found.length === 0) return "not-found" as const;
 
-    yield* database.addAccount({ ...input, games });
+    for (const { game, state } of found) {
+      yield* deps.database.addGame({
+        discordUserId: link.discordUserId,
+        game,
+        state,
+      });
+    }
+    yield* deps.database.subscribe({
+      guildId: link.guildId,
+      discordUserId: link.discordUserId,
+    });
     return "ok" as const;
   });
 
@@ -96,8 +163,10 @@ export const refreshAccount = (
       .filter((adapter) => account.games[adapter.game] !== undefined)
       .map((adapter) => adapter.game);
 
+    // games that need an opt-in are added by signing in with riot, not by id
     const unresolved = gameAdapters.all.filter(
-      (adapter) => account.games[adapter.game] === undefined,
+      (adapter) =>
+        account.games[adapter.game] === undefined && !adapter.requiresOptIn,
     );
 
     const resolved = yield* Effect.forEach(
@@ -152,7 +221,8 @@ export const formatRefreshResult = (result: {
   return lines.join("\n");
 };
 
-const signup = (deps: CommandDeps) =>
+// `linkHint` points at /link when some game can only be added by signing in
+const signup = (deps: CommandDeps, linkHint: string) =>
   Ix.global(
     {
       name: "signup",
@@ -202,7 +272,9 @@ const signup = (deps: CommandDeps) =>
             return reply("You're already signed up, dummy");
           }
           yield* deps.database.subscribe({ guildId, discordUserId: user.id });
-          return reply(`**${user.username}** just signed up!${setupHint}`);
+          return reply(
+            `**${user.username}** just signed up!${setupHint}${linkHint}`,
+          );
         }
 
         const followUp = (content: string) =>
@@ -225,8 +297,8 @@ const signup = (deps: CommandDeps) =>
             result === "not-found"
               ? "Couldn't find recent account data for that Riot ID :("
               : existing
-                ? `**${user.username}** switched to ${riotName}#${riotTag}.${setupHint}`
-                : `**${user.username}** just signed up!${setupHint}`,
+                ? `**${user.username}** switched to ${riotName}#${riotTag}.${setupHint}${linkHint}`
+                : `**${user.username}** just signed up!${setupHint}${linkHint}`,
           );
         }).pipe(
           Effect.catch((error) =>
@@ -249,6 +321,51 @@ const signup = (deps: CommandDeps) =>
           ),
         ),
       ),
+  );
+
+// Riot only lets some games' data be shown for players who signed in with riot
+// to opt in. The sign-in link carries who asked for it, so it's only shown to
+// them.
+const link = (
+  signInUrl: (link: RsoLink) => Effect.Effect<string>,
+  games: string,
+) =>
+  Ix.global(
+    {
+      name: "link",
+      description: `Sign in with Riot to get your ${games} matches reported here`,
+      ...inServers,
+    },
+    (i) =>
+      Effect.gen(function* () {
+        const user = i.interaction.member?.user ?? i.interaction.user;
+        const guildId = i.interaction.guild_id;
+        if (!user || !guildId) {
+          return reply("Couldn't tell who ran that command :(");
+        }
+
+        const url = yield* signInUrl({
+          discordUserId: user.id,
+          discordName: user.username,
+          guildId,
+        });
+        return {
+          type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `Sign in with Riot to get your ${games} matches reported here. Linking makes your match data visible to the members of the servers you sign up in. This link is only for you and works for 15 minutes.`,
+            flags: Discord.MessageFlags.Ephemeral,
+            components: [
+              UI.row([
+                UI.button({
+                  style: Discord.ButtonStyleTypes.LINK,
+                  label: "Sign in with Riot",
+                  url,
+                }),
+              ]),
+            ],
+          },
+        } satisfies Discord.CreateInteractionResponseRequest;
+      }),
   );
 
 const signout = ({ database }: CommandDeps) =>
@@ -492,6 +609,11 @@ const rankCheck = (deps: CommandDeps) =>
           (candidate) => candidate.game === game,
         );
         if (!adapter) return reply(`${gameNames[game]} isn't supported.`);
+        if (adapter.requiresOptIn && !gameState.optedInAt) {
+          return reply(
+            `**${target}** hasn't linked their Riot account for ${gameNames[game]}.`,
+          );
+        }
 
         const followUp = (
           payload: Discord.IncomingWebhookUpdateRequestPartial,
@@ -547,16 +669,33 @@ const rankCheck = (deps: CommandDeps) =>
   );
 
 export const commands = (deps: CommandDeps, devMode: boolean) => {
+  const optInGames = listGameNames(
+    deps.gameAdapters.all
+      .filter((adapter) => adapter.requiresOptIn)
+      .map((adapter) => adapter.game),
+  );
+  // /link only exists once riot grants a sign-in client
+  const signInUrl =
+    Option.isSome(deps.rso) && optInGames
+      ? deps.rso.value.signInUrl
+      : undefined;
+
   const base = Ix.builder
-    .add(signup(deps))
+    .add(
+      signup(
+        deps,
+        signInUrl ? `\nRun \`/link\` to add ${optInGames} as well.` : "",
+      ),
+    )
     .add(signout(deps))
     .add(setup(deps))
     .add(pause(deps))
     .add(resume(deps))
     .add(refresh(deps))
     .add(rankCheck(deps));
+  const withLink = signInUrl ? base.add(link(signInUrl, optInGames)) : base;
 
-  return (devMode ? base.concat(devCommands(deps)) : base).catchAllCause(
-    Effect.logError,
-  );
+  return (
+    devMode ? withLink.concat(devCommands(deps)) : withLink
+  ).catchAllCause(Effect.logError);
 };

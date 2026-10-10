@@ -35,6 +35,8 @@ export interface GameState {
   // riot platformId for lol ("na1"), henrik region for val ("na")
   readonly region: string | undefined;
   readonly rankSnapshots: RankSnapshots;
+  // when they signed in with riot to opt in, for games that need it
+  readonly optedInAt?: string | undefined;
 }
 
 export interface Account {
@@ -157,6 +159,7 @@ const GameRow = Schema.Struct({
   // null for accounts signed up before the region column existed
   region: Schema.NullOr(Schema.String),
   rankSnapshots: RankSnapshotsJson,
+  optedInAt: Schema.NullOr(Schema.String),
 });
 
 const LegacyAccount = Schema.Struct({
@@ -278,6 +281,11 @@ const migrations = SqliteMigrator.fromRecord({
         PRIMARY KEY (guild_id, discord_user_id)
       )
     `;
+  }),
+  // riot asks apps to be able to show when each player opted in
+  "6_add_opted_in_at": Effect.gen(function* () {
+    const sql = yield* SqlClient;
+    yield* sql`ALTER TABLE account_games ADD COLUMN opted_in_at TEXT`;
   }),
 });
 
@@ -475,14 +483,16 @@ const makeDatabase = Effect.gen(function* () {
         puuid,
         reported_matches,
         region,
-        rank_snapshots
+        rank_snapshots,
+        opted_in_at
       ) VALUES (
         ${row.discordUserId},
         ${row.game},
         ${row.puuid},
         ${row.reportedMatches},
         ${row.region},
-        ${row.rankSnapshots}
+        ${row.rankSnapshots},
+        ${row.optedInAt}
       )
     `,
   });
@@ -505,6 +515,7 @@ const makeDatabase = Effect.gen(function* () {
         reportedMatches: state.reportedMatches,
         region: state.region ?? null,
         rankSnapshots: state.rankSnapshots,
+        optedInAt: state.optedInAt ?? null,
       });
     }
   }, sql.withTransaction);
@@ -521,6 +532,7 @@ const makeDatabase = Effect.gen(function* () {
       reportedMatches: input.state.reportedMatches,
       region: input.state.region ?? null,
       rankSnapshots: input.state.rankSnapshots,
+      optedInAt: input.state.optedInAt ?? null,
     });
   });
 
@@ -548,7 +560,8 @@ const makeDatabase = Effect.gen(function* () {
         puuid,
         reported_matches AS "reportedMatches",
         region,
-        rank_snapshots AS "rankSnapshots"
+        rank_snapshots AS "rankSnapshots",
+        opted_in_at AS "optedInAt"
       FROM account_games
     `,
   });
@@ -587,6 +600,7 @@ const makeDatabase = Effect.gen(function* () {
         reportedMatches: row.reportedMatches,
         region: row.region ?? undefined,
         rankSnapshots: row.rankSnapshots,
+        optedInAt: row.optedInAt ?? undefined,
       };
       gamesByUser.set(row.discordUserId, games);
     }

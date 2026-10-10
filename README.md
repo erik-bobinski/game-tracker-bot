@@ -23,9 +23,12 @@ writing one adapter, not touching the rest of the app.
 | `/rank_check <user> <game>`      | Post the current rank of someone signed up here, with their tier emblem            |
 | `/pause` / `/resume`             | Stop or restart this server's reports (Manage Server)                              |
 | `/refresh`                       | Recheck your Riot ID for games that were missing at signup                         |
+| `/link`                          | Sign in with Riot to add games Riot only shares with consent (VALORANT)            |
 
 Commands only work in servers. Server admins can hand `/setup`, `/pause` and
-`/resume` to other roles under Server Settings → Integrations.
+`/resume` to other roles under Server Settings → Integrations. `/link` only
+exists once the bot has a Riot Sign On client, see
+[VALORANT through Riot's API](#valorant-through-riots-api).
 
 ## Admin CLI
 
@@ -74,6 +77,8 @@ src/
       game-api/                raw API clients and decode schemas
     discord/                   gateway, slash commands, embeds
     database/                  SQLite, migrations, account storage
+    rso/                       Riot Sign On, for games that need a player's opt-in
+    web/                       public pages, and where Riot's sign-in returns to
 ```
 
 **The match engine** is where it comes together. Each tick it loads every
@@ -98,7 +103,9 @@ without code changes.
 3. Implement `GameAdapter` in `src/services/game/game-adapters/`: resolve an
    account, list its recent match ids in one request, fetch a match and map it
    to `MatchDetails`, optionally enrich it, and fetch rank data. Set
-   `requiresMatchHistory` if an empty baseline should not persist the game.
+   `requiresMatchHistory` if an empty baseline should not persist the game, and
+   `requiresOptIn` if the game's data may only be shown for players who signed
+   in with Riot.
 4. Register the adapter in `GameAdaptersLive` and provide its API-client layer
    from `src/index.ts`.
 5. Add a development report mock, then run `pnpm typecheck` and test
@@ -133,7 +140,8 @@ Fill in `.env`:
 | `NOTIFICATION_CHANNEL_ID` | Optional. Where the admin CLI posts test reports without `--channel`: right-click a channel → Copy Channel ID (needs Developer Mode on)             |
 | `RIOT_API_KEY`            | [developer.riotgames.com](https://developer.riotgames.com), key of a League of Legends product                                                      |
 | `RIOT_TFT_API_KEY`        | [developer.riotgames.com](https://developer.riotgames.com), key of a separate Teamfight Tactics product. Riot keys only reach their own game's APIs |
-| `HENRIK_API_KEY`          | [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN)                                                                                          |
+| `HENRIK_API_KEY`          | [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN). Only used until `RIOT_VAL_API_KEY` is set                                               |
+| `PORT`                    | Optional, default 3000. The web server's port; Railway sets it                                                                                      |
 
 `RIOT_REGION`, `VAL_REGION` and `VAL_PLATFORM` are optional. Each account's
 region is resolved and stored at signup; these are only fallbacks.
@@ -146,6 +154,28 @@ themselves on startup.
 ```sh
 pnpm start
 ```
+
+The web server serves the bot's public pages at `/`, `/terms` and `/privacy`,
+which Discord and Riot ask for when a bot goes public.
+
+### VALORANT through Riot's API
+
+Until Riot grants a VALORANT production key, VALORANT comes from HenrikDev's
+unofficial API, whose free tier only covers a few dozen players. Riot only
+issues VALORANT keys to approved products, and only lets a player's data be
+shown once they sign in with Riot (RSO) to opt in. With the key and an RSO
+client, set:
+
+| Variable            | What it is                                                                         |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| `RIOT_VAL_API_KEY`  | Key of a VALORANT product. Switches VALORANT to Riot's API                         |
+| `RSO_CLIENT_ID`     | The product's RSO client, which turns on `/link`                                   |
+| `RSO_CLIENT_SECRET` | Its secret, which also signs the sign-in links                                     |
+| `PUBLIC_URL`        | The bot's public address; register `<PUBLIC_URL>/rso/callback` as the redirect URI |
+
+Players then run `/link` to sign in with Riot. Riot encrypts player ids per key,
+so VALORANT signups made through Henrik stop polling until their owners
+`/link`, which replaces them.
 
 ### Moving off the single-channel setup
 

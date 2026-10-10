@@ -73,6 +73,8 @@ const makeMatchEngine = Effect.gen(function* () {
         const state = account.games[adapter.game];
         const guildIds = account.guildIds.filter((id) => channels.has(id));
         if (!state || guildIds.length === 0) return [];
+        // e.g. a valorant signup from before riot's api, until they /link
+        if (adapter.requiresOptIn && !state.optedInAt) return [];
         currentRankSnapshots.set(state.puuid, state.rankSnapshots);
 
         const lastReportedAt = Math.max(

@@ -46,7 +46,6 @@ import {
   type GameAdapter,
 } from "../services/game/game-adapters/index.ts";
 import { RiotApiLive } from "../services/game/game-api/lol/riot-api-client.ts";
-import { HenrikApiClientLive } from "../services/game/game-api/val/henrik-api-client.ts";
 import { gameIds, gameNames, type GameId } from "../services/game/index.ts";
 
 // Anything the operator caused or can fix: an unknown account, a riot id that
@@ -148,11 +147,8 @@ const resolveAccount = (
   });
 
 const GameLive = GameAdaptersLive.pipe(
-  Layer.provide(
-    Layer.mergeAll(RiotApiLive, HenrikApiClientLive).pipe(
-      Layer.provide(NodeHttpClient.layerUndici),
-    ),
-  ),
+  Layer.provide(RiotApiLive),
+  Layer.provide(NodeHttpClient.layerUndici),
 );
 
 const DiscordRestLive = DiscordRESTLive.pipe(
@@ -178,7 +174,7 @@ const withGameAdapters = <A, E>(
       cause instanceof AdminError
         ? cause
         : new AdminError({
-            message: `This command needs RIOT_API_KEY, RIOT_TFT_API_KEY and HENRIK_API_KEY${
+            message: `This command needs RIOT_API_KEY, RIOT_TFT_API_KEY, and RIOT_VAL_API_KEY or HENRIK_API_KEY${
               cause instanceof Error && cause.message
                 ? `: ${cause.message}`
                 : ""
