@@ -156,7 +156,9 @@ pnpm start
 ```
 
 The web server serves the bot's public pages at `/`, `/terms` and `/privacy`,
-which Discord and Riot ask for when a bot goes public.
+which Discord and Riot ask for when a bot goes public. Riot verifies a
+production applicant's site with a string, which `RIOT_VERIFICATION` serves at
+`/riot.txt`.
 
 ### VALORANT through Riot's API
 

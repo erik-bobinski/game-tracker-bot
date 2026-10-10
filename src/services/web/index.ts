@@ -49,6 +49,17 @@ const Routes = HttpRouter.use((router) =>
       "/privacy",
       HttpServerResponse.html(privacyPage(site)),
     );
+    // the string riot hands a production applicant to prove they own the site
+    const riotVerification = yield* Config.string("RIOT_VERIFICATION").pipe(
+      Config.withDefault(""),
+    );
+    if (riotVerification) {
+      yield* router.add(
+        "GET",
+        "/riot.txt",
+        HttpServerResponse.text(riotVerification),
+      );
+    }
     if (Option.isNone(rso)) return;
 
     // where riot sends someone back to after they sign in through /link
