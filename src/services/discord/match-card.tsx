@@ -486,9 +486,9 @@ const versusCard = (report: VersusReport, images: CardImages) => {
       ]}
       score={trackedTeam?.score}
       columns={teams.flatMap((team, index) => {
-        const players = match.players
-          .filter((player) => player.team === team.id)
-          .sort((a, b) => b.sortKey - a.sortKey);
+        const players = match.players.filter(
+          (player) => player.team === team.id,
+        );
         if (players.length === 0) return [];
         return [
           {
