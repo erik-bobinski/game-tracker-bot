@@ -145,7 +145,7 @@ export const valMatchToDetails = (
     surrendered: match.rounds.some(
       (round) => round.result.toLowerCase() === "surrendered",
     ),
-    players,
+    players: players.sort((a, b) => b.sortKey - a.sortKey),
     teams,
   };
 };
