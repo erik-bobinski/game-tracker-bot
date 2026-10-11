@@ -47,9 +47,15 @@ const STATIC_ASSETS =
 const GAME_DATA =
   "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default";
 
+const LANES = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
+
 export const lolMatchToDetails = (match: LolMatch): VersusMatch => {
-  const players: Array<VersusPlayer> = match.info.participants.map(
-    (participant) => {
+  // modes without lanes give everyone "", so the stable sort keeps Riot's order
+  const players: Array<VersusPlayer> = [...match.info.participants]
+    .sort(
+      (a, b) => LANES.indexOf(a.teamPosition) - LANES.indexOf(b.teamPosition),
+    )
+    .map((participant) => {
       const multiKill =
         participant.largestMultiKill >= 5
           ? "Penta Kill"
@@ -72,8 +78,7 @@ export const lolMatchToDetails = (match: LolMatch): VersusMatch => {
           Math.max(participant.deaths, 1),
         ...(multiKill ? { flair: multiKill } : {}),
       };
-    },
-  );
+    });
 
   const teams = [100, 200].map((teamId) => ({
     id: String(teamId),
