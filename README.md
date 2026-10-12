@@ -49,6 +49,7 @@ pnpm admin <command>
 | `pause` / `resume`                                      | Stop or restart all reports, in every server                         |
 | `rank-check <target> [--game <game>]`                   | Look up a tracked account's current rank                             |
 | `refresh <target>`                                      | Recheck a signed-up account for games missing at signup              |
+| `rekey <lol\|tft>`                                      | Move a game's accounts to its current Riot key, see below            |
 | `report-mock [--game <game>] [--channel <id>]`          | Post a mock match card                                               |
 | `report-match <riot-id> --game <game> [--channel <id>]` | Report a real recent match through the polling pipeline              |
 
@@ -178,6 +179,16 @@ client, set:
 Players then run `/link` to sign in with Riot. Riot encrypts player ids per key,
 so VALORANT signups made through Henrik stop polling until their owners
 `/link`, which replaces them.
+
+### Switching to a new Riot key
+
+Riot encrypts player ids per product key, so after moving LoL or TFT to another
+key, such as a production one, the stored accounts stop polling until they're
+moved over. With the new key in `RIOT_API_KEY` or `RIOT_TFT_API_KEY`:
+
+```sh
+RIOT_PREVIOUS_KEY=<the key they were stored under> pnpm admin rekey lol
+```
 
 ### Moving off the single-channel setup
 
