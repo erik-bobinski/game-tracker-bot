@@ -127,10 +127,7 @@ const teamField = (
     team.won === true ? "Win" : undefined,
     team.score?.[0] === undefined ? undefined : String(team.score[0]),
   ]),
-  value: [...players]
-    .sort((a, b) => b.sortKey - a.sortKey)
-    .map((player) => playerRows(player, context))
-    .join("\n"),
+  value: players.map((player) => playerRows(player, context)).join("\n"),
 });
 
 const ordinal = (n: number) => {

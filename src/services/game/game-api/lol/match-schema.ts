@@ -36,6 +36,8 @@ export const LolParticipant = Schema.Struct({
   // 5 = penta, 4 = quadra, ... used for the "flair" callout
   largestMultiKill: Schema.Number,
   gameEndedInSurrender: withDefault(Schema.Boolean, false),
+  // TOP | JUNGLE | MIDDLE | BOTTOM | UTILITY, "" in modes without lanes
+  teamPosition: withDefault(Schema.String, ""),
 });
 export interface LolParticipant extends Schema.Schema.Type<
   typeof LolParticipant

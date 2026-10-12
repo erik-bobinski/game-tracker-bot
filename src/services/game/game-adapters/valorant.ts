@@ -205,7 +205,8 @@ export const riotValMatchToDetails = (
         round.roundResultCode === "Surrendered" ||
         round.roundResult === "Surrendered",
     ),
-    players: versusPlayers,
+    // scoreboard order: best score first
+    players: versusPlayers.sort((a, b) => b.sortKey - a.sortKey),
     teams,
   };
 };
