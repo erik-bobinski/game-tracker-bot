@@ -16,6 +16,7 @@ Preconditions: `RIOT_API_KEY`, `RIOT_TFT_API_KEY`, `HENRIK_API_KEY`, isolated `D
 
 - Action: `pnpm admin signup <riot-id> --discord-id verify-agent-user --json`
 - Observable: JSON includes `games` array with at least one entry, or exit non-zero with a clear error.
+- Without `--guild <server-id>` the account reports in no server, so the bot never polls it. Pass one to exercise polling; see [Servers](./servers.md).
 
 ## Gotchas
 
