@@ -69,6 +69,10 @@ export class Database extends Context.Service<
       readonly game: GameId;
       readonly state: GameState;
     }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    readonly removeGames: (input: {
+      readonly discordUserId: string;
+      readonly games: ReadonlyArray<GameId>;
+    }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
     readonly getAccounts: () => Effect.Effect<
       ReadonlyArray<Account>,
       SqlError | Schema.SchemaError
@@ -643,6 +647,17 @@ const makeDatabase = Effect.gen(function* () {
     `,
   });
 
+  const removeGames = SqlSchema.void({
+    Request: Schema.Struct({
+      discordUserId: Schema.String,
+      games: Schema.Array(GameId),
+    }),
+    execute: ({ discordUserId, games }) => sql`
+      DELETE FROM account_games
+      WHERE discord_user_id = ${discordUserId} AND ${sql.in("game", games)}
+    `,
+  });
+
   const deleteAccountRow = SqlSchema.void({
     Request: Schema.Struct({ discordUserId: Schema.String }),
     execute: ({ discordUserId }) => sql`
@@ -926,6 +941,7 @@ const makeDatabase = Effect.gen(function* () {
   return Database.of({
     addAccount,
     addGame,
+    removeGames,
     getAccounts,
     getAccount,
     hasAccount,
