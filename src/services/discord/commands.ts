@@ -36,6 +36,14 @@ export const reply = (
   data: { content },
 });
 
+// only the person who ran the command sees it
+const privateReply = (
+  content: string,
+): Discord.CreateInteractionResponseRequest => ({
+  type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
+  data: { content, flags: Discord.MessageFlags.Ephemeral },
+});
+
 // discord needs <= 3s to respond, the follow-up edits this placeholder
 export const deferredReply: Discord.CreateInteractionResponseRequest = {
   type: Discord.InteractionCallbackTypes.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
@@ -645,17 +653,17 @@ const track = ({ database, gameAdapters }: CommandDeps) =>
     (i) =>
       Effect.gen(function* () {
         const user = i.interaction.member?.user ?? i.interaction.user;
-        if (!user) return reply("Couldn't tell who ran that command :(");
+        if (!user) return privateReply("Couldn't tell who ran that command :(");
 
         const account = yield* database.getAccount(user.id);
-        if (!account) return reply("Run `/signup` first.");
+        if (!account) return privateReply("Run `/signup` first.");
 
         const reported = reportedGames(gameAdapters, account);
         const pickable = gameAdapters.all
           .map((adapter) => adapter.game)
           .filter((game) => !reported.includes(game));
         if (pickable.length === 0) {
-          return reply("You're already tracking every game.");
+          return privateReply("You're already tracking every game.");
         }
         return {
           type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -664,7 +672,7 @@ const track = ({ database, gameAdapters }: CommandDeps) =>
       }).pipe(
         Effect.catch((error) =>
           Effect.logError("track lookup failed", error).pipe(
-            Effect.as(reply("Track failed, try again in a bit :(")),
+            Effect.as(privateReply("Track failed, try again in a bit :(")),
           ),
         ),
       ),
@@ -681,16 +689,16 @@ const untrack = ({ database }: CommandDeps) =>
     (i) =>
       Effect.gen(function* () {
         const user = i.interaction.member?.user ?? i.interaction.user;
-        if (!user) return reply("Couldn't tell who ran that command :(");
+        if (!user) return privateReply("Couldn't tell who ran that command :(");
 
         const account = yield* database.getAccount(user.id);
-        if (!account) return reply("You're not signed up.");
+        if (!account) return privateReply("You're not signed up.");
 
         const tracked = gameIds.filter(
           (game) => account.games[game] !== undefined,
         );
         if (tracked.length === 0)
-          return reply("You're not tracking any games.");
+          return privateReply("You're not tracking any games.");
         return {
           type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
           data: gamePicker("untrack", tracked),
@@ -698,7 +706,7 @@ const untrack = ({ database }: CommandDeps) =>
       }).pipe(
         Effect.catch((error) =>
           Effect.logError("untrack lookup failed", error).pipe(
-            Effect.as(reply("Untrack failed, try again in a bit :(")),
+            Effect.as(privateReply("Untrack failed, try again in a bit :(")),
           ),
         ),
       ),
