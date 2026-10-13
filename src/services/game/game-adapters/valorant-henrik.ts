@@ -141,7 +141,6 @@ export const makeHenrikValorantAdapter = Effect.gen(function* () {
 
   const adapter: GameAdapter = {
     game: "valorant",
-    requiresMatchHistory: false,
     requiresOptIn: false,
     iconUrl: valorantIconUrl,
     rankIcons: valorantRankIcons,

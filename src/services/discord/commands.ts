@@ -7,7 +7,12 @@ import {
   resolveGameState,
   type GameAdapters,
 } from "../game/game-adapters/index.ts";
-import { discordGameChoices, GameId, gameNames } from "../game/index.ts";
+import {
+  discordGameChoices,
+  GameId,
+  gameIds,
+  gameNames,
+} from "../game/index.ts";
 import type { Rso, RsoLink } from "../rso/index.ts";
 import type { DiscordError, ReportTarget } from "./index.ts";
 import { rankEmbed, type MatchReport } from "./embed.ts";
@@ -31,6 +36,14 @@ export const reply = (
   data: { content },
 });
 
+// only the person who ran the command sees it
+const privateReply = (
+  content: string,
+): Discord.CreateInteractionResponseRequest => ({
+  type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
+  data: { content, flags: Discord.MessageFlags.Ephemeral },
+});
+
 // discord needs <= 3s to respond, the follow-up edits this placeholder
 export const deferredReply: Discord.CreateInteractionResponseRequest = {
   type: Discord.InteractionCallbackTypes.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
@@ -46,8 +59,8 @@ const forManagers = {
   default_member_permissions: Number(Discord.Permissions.ManageGuild),
 };
 
-// The games a riot id plays, each with its current matches pre-reported so the
-// first poll doesn't repost old games. Games that need an opt-in are only
+// The given games for a riot id, each with its current matches pre-reported so
+// the first poll doesn't repost old games. Games that need an opt-in are only
 // looked up for someone who signed in with riot.
 const resolveGames = (
   gameAdapters: GameAdapters["Service"],
@@ -64,18 +77,12 @@ const resolveGames = (
       gameAdapters.all.filter((adapter) => optedIn || !adapter.requiresOptIn),
       (adapter) =>
         resolveGameState(adapter, riotId.riotName, riotId.riotTag).pipe(
-          Effect.map((state) =>
-            state
-              ? [
-                  {
-                    game: adapter.game,
-                    state: adapter.requiresOptIn
-                      ? { ...state, optedInAt }
-                      : state,
-                  },
-                ]
-              : [],
-          ),
+          Effect.map((state) => [
+            {
+              game: adapter.game,
+              state: adapter.requiresOptIn ? { ...state, optedInAt } : state,
+            },
+          ]),
           // a failed lookup is not the same as "no such account", but
           // both leave this game untracked
           Effect.catch((error) =>
@@ -90,19 +97,39 @@ const resolveGames = (
     return resolved.flat();
   });
 
-// Only needs the two services, so the admin cli can call it too.
+// Only needs the two services, so the admin cli can call it too. Players pick
+// their games, so only the ones passed in are tracked.
 export const registerAccount = (
   { database, gameAdapters }: Pick<CommandDeps, "database" | "gameAdapters">,
   input: Omit<Account, "games">,
+  games: ReadonlyArray<GameId>,
   { optedIn = false }: { readonly optedIn?: boolean } = {},
 ) =>
   Effect.gen(function* () {
-    const resolved = yield* resolveGames(gameAdapters, input, optedIn);
-    if (resolved.length === 0) return "not-found" as const;
+    // any game finding the riot id proves it exists
+    const exists = yield* Effect.firstSuccessOf(
+      gameAdapters.all.map((adapter) =>
+        adapter.resolveAccount(input.riotName, input.riotTag),
+      ),
+    ).pipe(
+      Effect.as(true),
+      Effect.catch((error) =>
+        logApiWarning("riot id lookup failed", error).pipe(Effect.as(false)),
+      ),
+    );
+    if (!exists) return "not-found" as const;
 
-    const games: Account["games"] = {};
-    for (const { game, state } of resolved) games[game] = state;
-    yield* database.addAccount({ ...input, games });
+    const resolved = yield* resolveGames(
+      {
+        all: gameAdapters.all.filter((adapter) => games.includes(adapter.game)),
+      },
+      input,
+      optedIn,
+    );
+
+    const states: Account["games"] = {};
+    for (const { game, state } of resolved) states[game] = state;
+    yield* database.addAccount({ ...input, games: states });
     return "ok" as const;
   });
 
@@ -119,20 +146,21 @@ export const linkAccount = (
   riotId: { readonly riotName: string; readonly riotTag: string },
 ) =>
   Effect.gen(function* () {
+    // signing in is how they pick these games
+    const optInAdapters = deps.gameAdapters.all.filter(
+      (adapter) => adapter.requiresOptIn,
+    );
     const account = yield* deps.database.getAccount(link.discordUserId);
     if (!account) {
       return yield* registerAccount(
         deps,
         { ...link, ...riotId, guildIds: [link.guildId] },
+        optInAdapters.map((adapter) => adapter.game),
         { optedIn: true },
       );
     }
 
-    const found = yield* resolveGames(
-      { all: deps.gameAdapters.all.filter((adapter) => adapter.requiresOptIn) },
-      riotId,
-      true,
-    );
+    const found = yield* resolveGames({ all: optInAdapters }, riotId, true);
     if (found.length === 0) return "not-found" as const;
 
     for (const { game, state } of found) {
@@ -152,30 +180,44 @@ export const linkAccount = (
 const listGameNames = (games: ReadonlyArray<GameId>) =>
   games.map((game) => gameNames[game]).join(", ");
 
-// Rechecks every adapter for a signed-up user. Already-tracked games
-// keep their reported matches; only newly found games are inserted.
-export const refreshAccount = (
-  { database, gameAdapters }: Pick<CommandDeps, "database" | "gameAdapters">,
+// A game that needs a riot sign-in only reports once they've signed in, even
+// if an older signup left a row for it.
+const reportedGames = (
+  gameAdapters: GameAdapters["Service"],
   account: Account,
 ) =>
+  gameAdapters.all
+    .filter((adapter) => {
+      const state = account.games[adapter.game];
+      return state && (!adapter.requiresOptIn || state.optedInAt);
+    })
+    .map((adapter) => adapter.game);
+
+// Adds the picked games an account doesn't report yet. The ones that need a
+// riot sign-in are left to /link.
+export const trackGames = (
+  { database, gameAdapters }: Pick<CommandDeps, "database" | "gameAdapters">,
+  account: Account,
+  games: ReadonlyArray<GameId>,
+) =>
   Effect.gen(function* () {
-    const tracked = gameAdapters.all
-      .filter((adapter) => account.games[adapter.game] !== undefined)
+    const reported = reportedGames(gameAdapters, account);
+    const alreadyTracked = games.filter((game) => reported.includes(game));
+    const wanted = gameAdapters.all.filter(
+      (adapter) =>
+        games.includes(adapter.game) && !reported.includes(adapter.game),
+    );
+    const needsLink = wanted
+      .filter((adapter) => adapter.requiresOptIn)
       .map((adapter) => adapter.game);
 
-    // games that need an opt-in are added by signing in with riot, not by id
-    const unresolved = gameAdapters.all.filter(
-      (adapter) =>
-        account.games[adapter.game] === undefined && !adapter.requiresOptIn,
-    );
-
     const resolved = yield* Effect.forEach(
-      unresolved,
+      wanted.filter((adapter) => !adapter.requiresOptIn),
       (adapter) =>
         resolveGameState(adapter, account.riotName, account.riotTag).pipe(
           Effect.map((state) => ({ game: adapter.game, state })),
           Effect.catch((error) =>
-            logApiWarning("refreshAccount failed", error).pipe(
+            logApiWarning("track lookup failed", error).pipe(
               Effect.annotateLogs({ game: adapter.game }),
               Effect.as({ game: adapter.game, state: undefined }),
             ),
@@ -185,10 +227,10 @@ export const refreshAccount = (
     );
 
     const added: Array<GameId> = [];
-    const missing: Array<GameId> = [];
+    const notFound: Array<GameId> = [];
     for (const { game, state } of resolved) {
       if (!state) {
-        missing.push(game);
+        notFound.push(game);
         continue;
       }
       yield* database.addGame({
@@ -199,27 +241,87 @@ export const refreshAccount = (
       added.push(game);
     }
 
-    return { added, missing, tracked };
+    return { added, alreadyTracked, needsLink, notFound };
   });
 
-export const formatRefreshResult = (result: {
-  readonly added: ReadonlyArray<GameId>;
-  readonly missing: ReadonlyArray<GameId>;
-  readonly tracked: ReadonlyArray<GameId>;
-}) => {
-  const lines = [
-    result.added.length > 0
-      ? `Added: ${listGameNames(result.added)}`
-      : "No new games found.",
-  ];
-  if (result.tracked.length > 0) {
-    lines.push(`Already tracking: ${listGameNames(result.tracked)}`);
-  }
-  if (result.missing.length > 0) {
-    lines.push(`Still missing: ${listGameNames(result.missing)}`);
-  }
-  return lines.join("\n");
-};
+export const formatTrackResult = (
+  result: Effect.Success<ReturnType<typeof trackGames>>,
+  canLink: boolean,
+) =>
+  [
+    result.added.length > 0 && `Now reporting: ${listGameNames(result.added)}`,
+    result.alreadyTracked.length > 0 &&
+      `Already reporting: ${listGameNames(result.alreadyTracked)}`,
+    result.needsLink.length > 0 &&
+      (canLink
+        ? `Run \`/link\` to add ${listGameNames(result.needsLink)}.`
+        : `${listGameNames(result.needsLink)} needs a Riot sign-in, which isn't available yet.`),
+    result.notFound.length > 0 &&
+      `Couldn't look up ${listGameNames(result.notFound)} for your Riot ID, try again in a bit.`,
+  ]
+    .filter((line) => line !== false)
+    .join("\n");
+
+// Games are per account, so this stops them in every server it reports in.
+export const untrackGames = (
+  database: Database["Service"],
+  account: Account,
+  games: ReadonlyArray<GameId>,
+) =>
+  Effect.gen(function* () {
+    const removed = games.filter((game) => account.games[game] !== undefined);
+    const notTracked = games.filter(
+      (game) => account.games[game] === undefined,
+    );
+    if (removed.length > 0) {
+      yield* database.removeGames({
+        discordUserId: account.discordUserId,
+        games: removed,
+      });
+    }
+    const remaining = gameIds.filter(
+      (game) => account.games[game] !== undefined && !removed.includes(game),
+    );
+    return { removed, notTracked, remaining };
+  });
+
+export const formatUntrackResult = (
+  result: Effect.Success<ReturnType<typeof untrackGames>>,
+) =>
+  [
+    result.removed.length > 0
+      ? `Stopped reporting: ${listGameNames(result.removed)}`
+      : "Nothing to stop reporting.",
+    result.notTracked.length > 0 &&
+      `Wasn't reporting: ${listGameNames(result.notTracked)}`,
+    result.remaining.length === 0 &&
+      "You're still signed up, with no games. `/signout` removes your tracking from this server, and deletes your data if it's your last one.",
+  ]
+    .filter((line) => line !== false)
+    .join("\n");
+
+// One select for picking several games at once. Ephemeral, so only the person
+// it's for can pick.
+const gamePicker = (
+  action: "track" | "untrack",
+  games: ReadonlyArray<GameId>,
+) => ({
+  content:
+    action === "track"
+      ? "Pick the games to report, in every server you're signed up in:"
+      : "Pick the games to stop reporting, in every server you're signed up in:",
+  flags: Discord.MessageFlags.Ephemeral,
+  components: [
+    UI.row([
+      UI.select({
+        custom_id: `games:${action}`,
+        min_values: 1,
+        max_values: games.length,
+        options: games.map((game) => ({ label: gameNames[game], value: game })),
+      }),
+    ]),
+  ],
+});
 
 // `linkHint` points at /link when some game can only be added by signing in
 const signup = (deps: CommandDeps, linkHint: string) =>
@@ -285,21 +387,51 @@ const signup = (deps: CommandDeps, linkHint: string) =>
           );
 
         const register = Effect.gen(function* () {
-          const result = yield* registerAccount(deps, {
-            discordUserId: user.id,
-            discordName: user.username,
-            riotName,
-            riotTag,
-            guildIds: [guildId],
-          });
-
-          return yield* followUp(
-            result === "not-found"
-              ? "Couldn't find recent account data for that Riot ID :("
-              : existing
-                ? `**${user.username}** switched to ${riotName}#${riotTag}.${setupHint}${linkHint}`
-                : `**${user.username}** just signed up!${setupHint}${linkHint}`,
+          const result = yield* registerAccount(
+            deps,
+            {
+              discordUserId: user.id,
+              discordName: user.username,
+              riotName,
+              riotTag,
+              guildIds: [guildId],
+            },
+            // a new riot id keeps the games they picked; the ones behind a
+            // riot sign-in need /link again
+            deps.gameAdapters.all
+              .filter(
+                (adapter) =>
+                  !adapter.requiresOptIn && existing?.games[adapter.game],
+              )
+              .map((adapter) => adapter.game),
           );
+          if (result === "not-found") {
+            return yield* followUp("Couldn't find that Riot ID :(");
+          }
+
+          yield* followUp(
+            existing
+              ? `**${user.username}** switched to ${riotName}#${riotTag}.${setupHint}${linkHint}`
+              : `**${user.username}** just signed up! Pick games to report now, or anytime with \`/track\`.${setupHint}${linkHint}`,
+          );
+          const account = yield* deps.database.getAccount(user.id);
+          const reported = account
+            ? reportedGames(deps.gameAdapters, account)
+            : [];
+          const pickable = deps.gameAdapters.all
+            .map((adapter) => adapter.game)
+            .filter((game) => !reported.includes(game));
+          if (pickable.length === 0) return;
+          // they're signed up either way, so a failed picker isn't a failed signup
+          yield* deps.rest
+            .executeWebhook(i.interaction.application_id, i.interaction.token, {
+              payload: gamePicker("track", pickable),
+            })
+            .pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("signup game picker not sent", error),
+              ),
+            );
         }).pipe(
           Effect.catch((error) =>
             Effect.logError("signup failed", error).pipe(
@@ -511,51 +643,156 @@ const resume = ({ database }: CommandDeps) =>
       ),
   );
 
-const refresh = (deps: CommandDeps) =>
+const track = ({ database, gameAdapters }: CommandDeps) =>
   Ix.global(
     {
-      name: "refresh",
-      description:
-        "Recheck your Riot ID for games that weren't found at signup",
+      name: "track",
+      description: "Pick one or more games to report your matches for",
       ...inServers,
     },
     (i) =>
       Effect.gen(function* () {
         const user = i.interaction.member?.user ?? i.interaction.user;
-        if (!user) return reply("Couldn't tell who ran that command :(");
+        if (!user) return privateReply("Couldn't tell who ran that command :(");
 
-        const account = yield* deps.database.getAccount(user.id);
-        if (!account) return reply("You're not signed up.");
+        const account = yield* database.getAccount(user.id);
+        if (!account) return privateReply("Run `/signup` first.");
 
-        const followUp = (content: string) =>
-          deps.rest.updateOriginalWebhookMessage(
-            i.interaction.application_id,
-            i.interaction.token,
-            { payload: { content } },
-          );
-
-        const run = refreshAccount(deps, account).pipe(
-          Effect.flatMap((result) => followUp(formatRefreshResult(result))),
-          Effect.catch((error) =>
-            Effect.logError("refresh failed", error).pipe(
-              Effect.andThen(followUp("Refresh failed, try again in a bit :(")),
-              Effect.ignore({
-                log: "Error",
-                message: "refresh follow-up failed",
-              }),
-            ),
-          ),
-        );
-
-        yield* Effect.forkDetach(run);
-        return deferredReply;
+        const reported = reportedGames(gameAdapters, account);
+        const pickable = gameAdapters.all
+          .map((adapter) => adapter.game)
+          .filter((game) => !reported.includes(game));
+        if (pickable.length === 0) {
+          return privateReply("You're already tracking every game.");
+        }
+        return {
+          type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: gamePicker("track", pickable),
+        } satisfies Discord.CreateInteractionResponseRequest;
       }).pipe(
         Effect.catch((error) =>
-          Effect.logError("refresh lookup failed", error).pipe(
-            Effect.as(reply("Refresh failed, try again in a bit :(")),
+          Effect.logError("track lookup failed", error).pipe(
+            Effect.as(privateReply("Track failed, try again in a bit :(")),
           ),
         ),
       ),
+  );
+
+const untrack = ({ database }: CommandDeps) =>
+  Ix.global(
+    {
+      name: "untrack",
+      description:
+        "Stop reporting one or more of your games, in every server you're in",
+      ...inServers,
+    },
+    (i) =>
+      Effect.gen(function* () {
+        const user = i.interaction.member?.user ?? i.interaction.user;
+        if (!user) return privateReply("Couldn't tell who ran that command :(");
+
+        const account = yield* database.getAccount(user.id);
+        if (!account) return privateReply("You're not signed up.");
+
+        const tracked = gameIds.filter(
+          (game) => account.games[game] !== undefined,
+        );
+        if (tracked.length === 0)
+          return privateReply("You're not tracking any games.");
+        return {
+          type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: gamePicker("untrack", tracked),
+        } satisfies Discord.CreateInteractionResponseRequest;
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logError("untrack lookup failed", error).pipe(
+            Effect.as(privateReply("Untrack failed, try again in a bit :(")),
+          ),
+        ),
+      ),
+  );
+
+// replaces the picker, so it can't be submitted twice
+const pickerResult = (
+  content: string,
+): Discord.CreateInteractionResponseRequest => ({
+  type: Discord.InteractionCallbackTypes.UPDATE_MESSAGE,
+  data: { content, components: [] },
+});
+
+// The picker is ephemeral, so whoever picks is the person it was sent to.
+const pickedGames = Effect.gen(function* () {
+  const interaction = yield* Ix.Interaction;
+  const data = yield* Ix.MessageComponentData;
+  const games = yield* Schema.decodeUnknownEffect(Schema.Array(GameId))(
+    "values" in data ? data.values : [],
+  );
+  return {
+    interaction,
+    user: interaction.member?.user ?? interaction.user,
+    games,
+  };
+});
+
+const trackPicked = (deps: CommandDeps, canLink: boolean) =>
+  Ix.messageComponent(
+    Ix.id("games:track"),
+    Effect.gen(function* () {
+      const { interaction, user, games } = yield* pickedGames;
+      if (!user) return pickerResult("Couldn't tell who picked that :(");
+      const account = yield* deps.database.getAccount(user.id);
+      if (!account) return pickerResult("Run `/signup` first.");
+
+      const followUp = (content: string) =>
+        deps.rest.updateOriginalWebhookMessage(
+          interaction.application_id,
+          interaction.token,
+          { payload: { content, components: [] } },
+        );
+
+      // looking games up can take longer than discord waits for a response
+      const run = trackGames(deps, account, games).pipe(
+        Effect.flatMap((result) =>
+          followUp(formatTrackResult(result, canLink)),
+        ),
+        Effect.catch((error) =>
+          Effect.logError("track failed", error).pipe(
+            Effect.andThen(followUp("Track failed, try again in a bit :(")),
+            Effect.ignore({ log: "Error", message: "track follow-up failed" }),
+          ),
+        ),
+      );
+      yield* Effect.forkDetach(run);
+      return {
+        type: Discord.InteractionCallbackTypes.DEFERRED_UPDATE_MESSAGE,
+      } satisfies Discord.CreateInteractionResponseRequest;
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logError("track pick failed", error).pipe(
+          Effect.as(pickerResult("Track failed, try again in a bit :(")),
+        ),
+      ),
+    ),
+  );
+
+const untrackPicked = ({ database }: CommandDeps) =>
+  Ix.messageComponent(
+    Ix.id("games:untrack"),
+    Effect.gen(function* () {
+      const { user, games } = yield* pickedGames;
+      if (!user) return pickerResult("Couldn't tell who picked that :(");
+      const account = yield* database.getAccount(user.id);
+      if (!account) return pickerResult("You're not signed up.");
+
+      const result = yield* untrackGames(database, account, games);
+      return pickerResult(formatUntrackResult(result));
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logError("untrack failed", error).pipe(
+          Effect.as(pickerResult("Untrack failed, try again in a bit :(")),
+        ),
+      ),
+    ),
   );
 
 const rankCheck = (deps: CommandDeps) =>
@@ -691,7 +928,10 @@ export const commands = (deps: CommandDeps, devMode: boolean) => {
     .add(setup(deps))
     .add(pause(deps))
     .add(resume(deps))
-    .add(refresh(deps))
+    .add(track(deps))
+    .add(trackPicked(deps, signInUrl !== undefined))
+    .add(untrack(deps))
+    .add(untrackPicked(deps))
     .add(rankCheck(deps));
   const withLink = signInUrl ? base.add(link(signInUrl, optInGames)) : base;
 
