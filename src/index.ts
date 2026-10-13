@@ -6,8 +6,9 @@ import { DatabaseLive } from "./services/database/index.ts";
 import { DiscordLive } from "./services/discord/index.ts";
 import { GameAdaptersLive } from "./services/game/game-adapters/index.ts";
 import { RiotApiLive } from "./services/game/game-api/lol/riot-api-client.ts";
-import { HenrikApiClientLive } from "./services/game/game-api/val/henrik-api-client.ts";
 import { MatchEngineLive } from "./services/match-engine/index.ts";
+import { RsoLive } from "./services/rso/index.ts";
+import { WebLive } from "./services/web/index.ts";
 
 const runtimeConfig = Config.all({
   devMode: Config.boolean("DEV_MODE").pipe(Config.withDefault(false)),
@@ -27,16 +28,17 @@ const main = Effect.gen(function* () {
   yield* Effect.never;
 });
 
-// Riot + Henrik clients share one HTTP client (Discord has its own, internally).
-const ApiClientsLive = Layer.mergeAll(RiotApiLive, HenrikApiClientLive).pipe(
-  Layer.provide(NodeHttpClient.layerUndici),
-);
-
-const GameLive = GameAdaptersLive.pipe(Layer.provide(ApiClientsLive));
+// The game api and riot sign-in clients share one HTTP client (Discord has
+// its own, internally).
+const GameLive = Layer.mergeAll(
+  GameAdaptersLive.pipe(Layer.provide(RiotApiLive)),
+  RsoLive,
+).pipe(Layer.provide(NodeHttpClient.layerUndici));
 
 const StateLive = PollingStateLive.pipe(Layer.provideMerge(DatabaseLive));
 
-const AppLive = PollingLive.pipe(
+// the web server carries the public pages and riot's sign-in callback
+const AppLive = Layer.mergeAll(PollingLive, WebLive).pipe(
   Layer.provide(MatchEngineLive),
   Layer.provide(DiscordLive),
   Layer.provide(Layer.mergeAll(StateLive, GameLive)),
