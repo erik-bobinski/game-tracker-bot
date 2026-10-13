@@ -18,6 +18,8 @@ import {
 interface TrackedPlayer {
   readonly discordName: string;
   readonly discordUserId: string;
+  // as saved, which goes stale when they rename on riot's side
+  readonly riotId: string;
   readonly puuid: Puuid;
   readonly region: Region | undefined;
   // the servers they report in that have a channel and aren't paused
@@ -93,13 +95,13 @@ const makeMatchEngine = Effect.gen(function* () {
         return [
           {
             key,
-            riotId: `${account.riotName}#${account.riotTag}`,
             reported: new Set(
               state.reportedMatches.map((match) => match.matchId),
             ),
             player: {
               discordName: account.discordName,
               discordUserId: account.discordUserId,
+              riotId: `${account.riotName}#${account.riotTag}`,
               puuid: state.puuid,
               region: state.region,
               guildIds,
@@ -112,7 +114,7 @@ const makeMatchEngine = Effect.gen(function* () {
 
       yield* Effect.forEach(
         due,
-        ({ key, riotId, reported, player }) =>
+        ({ key, reported, player }) =>
           Effect.gen(function* () {
             // set up front, so an account whose lookup fails waits too
             lastPolledAt.set(key, now);
@@ -140,7 +142,7 @@ const makeMatchEngine = Effect.gen(function* () {
                 Effect.annotateLogs({
                   game: adapter.game,
                   discordUser: `${player.discordName} (${player.discordUserId})`,
-                  riotId,
+                  riotId: player.riotId,
                 }),
               ),
             ),
@@ -184,6 +186,22 @@ const makeMatchEngine = Effect.gen(function* () {
         ? players.filter((player) => match.date > player.lastReportedAt)
         : [];
       const rankSnapshotsByDiscordUserId: Record<string, RankSnapshots> = {};
+
+      // tracking goes by puuid, so a renamed riot id only needs saving
+      for (const player of players) {
+        const current = match?.players.find((p) => p.puuid === player.puuid);
+        if (
+          !current?.riotName ||
+          `${current.riotName}#${current.riotTag}` === player.riotId
+        ) {
+          continue;
+        }
+        yield* database.updateRiotId({
+          discordUserId: player.discordUserId,
+          riotName: current.riotName,
+          riotTag: current.riotTag,
+        });
+      }
 
       if (match && fresh.length > 0) {
         const enrichment = yield* enrichOrSkip(adapter, {

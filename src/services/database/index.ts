@@ -69,6 +69,12 @@ export class Database extends Context.Service<
       readonly game: GameId;
       readonly state: GameState;
     }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    // riot ids can be renamed, while the puuid stays the same
+    readonly updateRiotId: (input: {
+      readonly discordUserId: string;
+      readonly riotName: string;
+      readonly riotTag: string;
+    }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
     readonly removeGames: (input: {
       readonly discordUserId: string;
       readonly games: ReadonlyArray<GameId>;
@@ -540,6 +546,18 @@ const makeDatabase = Effect.gen(function* () {
     });
   });
 
+  const updateRiotId = SqlSchema.void({
+    Request: Schema.Struct({
+      discordUserId: Schema.String,
+      riotName: Schema.String,
+      riotTag: Schema.String,
+    }),
+    execute: ({ discordUserId, riotName, riotTag }) => sql`
+      UPDATE accounts SET riot_name = ${riotName}, riot_tag = ${riotTag}
+      WHERE discord_user_id = ${discordUserId}
+    `,
+  });
+
   const accountRowsQuery = SqlSchema.findAll({
     Request: Schema.Struct({}),
     Result: AccountRow,
@@ -941,6 +959,7 @@ const makeDatabase = Effect.gen(function* () {
   return Database.of({
     addAccount,
     addGame,
+    updateRiotId,
     removeGames,
     getAccounts,
     getAccount,
