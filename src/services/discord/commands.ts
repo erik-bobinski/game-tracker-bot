@@ -295,7 +295,7 @@ export const formatUntrackResult = (
     result.notTracked.length > 0 &&
       `Wasn't reporting: ${listGameNames(result.notTracked)}`,
     result.remaining.length === 0 &&
-      "You're still signed up, with no games. `/signout` removes you from this server, and deletes your data if it's your last one.",
+      "You're still signed up, with no games. `/signout` removes your tracking from this server, and deletes your data if it's your last one.",
   ]
     .filter((line) => line !== false)
     .join("\n");
