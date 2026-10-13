@@ -140,7 +140,8 @@ export const ValMmrResponse = HenrikResponse(
         rr: Schema.Number,
       }),
     ),
-    // oldest act first, so the last entry is the one in progress
+    // oldest act first; henrik also lists the next act before it starts, with
+    // no games
     seasonal: Schema.optionalKey(
       Schema.NullOr(
         Schema.Array(
