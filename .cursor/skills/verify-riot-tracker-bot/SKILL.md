@@ -83,7 +83,7 @@ Banners from ssh go to stderr. JSON for `admin status` is on stdout; the harness
 
 Read `.cursor/skills/verify-riot-tracker-bot/features/README.md` before running individual recipes.
 
-The bundled verifier exercises: typecheck → bot boot → signup → refresh (twice, idempotent) → status → report-mock → signout.
+The bundled verifier exercises: typecheck → bot boot → signup → track lol (twice, idempotent) → untrack lol → status → report-mock → signout.
 
 Manual equivalents:
 
@@ -91,7 +91,7 @@ Manual equivalents:
 export DB_PATH=/tmp/riot-verify-manual.sqlite
 pnpm start   # separate terminal
 pnpm admin signup <riot-id> --discord-id verify-agent-user --json
-pnpm admin refresh verify-agent-user --json
+pnpm admin track verify-agent-user --game lol --json
 pnpm admin report-mock --game lol --json
 pnpm admin status --json
 ```
@@ -107,7 +107,7 @@ Capture under `/opt/cursor/artifacts/verify-<run-id>/`:
 
 Proof standards: exercise real Riot/Henrik APIs, real sqlite writes, real Discord REST for `report-mock`. Do not log into Discord web.
 
-A Henrik 404 on Valorant during signup/refresh is not a harness failure. That game stays in `missing`; League can still track. Second refresh must have `added: []`.
+A Henrik 404 on Valorant during track is not a harness failure. That game lands in `notFound`; League can still track. A second track of the same game must have `added: []`.
 
 ## Cleanup
 

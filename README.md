@@ -19,11 +19,15 @@ writing one adapter, not touching the rest of the app.
 | -------------------------------- | ---------------------------------------------------------------------------------- |
 | `/setup <channel>`               | Pick the channel this server's reports go to (Manage Server)                       |
 | `/signup <riot_name> <riot_tag>` | Start reporting your matches in this server, or switch your Riot ID                |
+| `/track`                         | Pick one or more games to report, in every server you're signed up in              |
+| `/untrack`                       | Pick one or more games, or all of them, to stop reporting                          |
 | `/signout`                       | Stop reporting your matches here; your data is deleted when no server reports them |
 | `/rank_check <user> <game>`      | Post the current rank of someone signed up here, with their tier emblem            |
 | `/pause` / `/resume`             | Stop or restart this server's reports (Manage Server)                              |
-| `/refresh`                       | Recheck your Riot ID for games that were missing at signup                         |
 | `/link`                          | Sign in with Riot to add games Riot only shares with consent (VALORANT)            |
+
+Every game is opt-in. Signup reports nothing until you pick games, and it
+sends the `/track` picker right away.
 
 Commands only work in servers. Server admins can hand `/setup`, `/pause` and
 `/resume` to other roles under Server Settings → Integrations. `/link` only
@@ -40,17 +44,18 @@ railway ssh --service riot-tracker-bot
 pnpm admin <command>
 ```
 
-| Command                                                 | What it does                                                         |
-| ------------------------------------------------------- | -------------------------------------------------------------------- |
-| `status`                                                | Polling state, the database in use, every server and tracked account |
-| `signup <riot-id> --discord-id <id> [--guild <id>]`     | Track a Riot account on someone's behalf, reporting in that server   |
-| `signout <target>`                                      | Stop tracking an account everywhere and delete its data              |
-| `setup <guild-id> --channel <id> [--adopt]`             | Set a server's report channel; `--adopt` adds accounts in no server  |
-| `pause` / `resume`                                      | Stop or restart all reports, in every server                         |
-| `rank-check <target> [--game <game>]`                   | Look up a tracked account's current rank                             |
-| `refresh <target>`                                      | Recheck a signed-up account for games missing at signup              |
-| `report-mock [--game <game>] [--channel <id>]`          | Post a mock match card                                               |
-| `report-match <riot-id> --game <game> [--channel <id>]` | Report a real recent match through the polling pipeline              |
+| Command                                                              | What it does                                                         |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `status`                                                             | Polling state, the database in use, every server and tracked account |
+| `signup <riot-id> --discord-id <id> [--guild <id>] [--game <game>…]` | Sign someone up, reporting in that server, with the games given      |
+| `track <target> --game <game>… \| --all`                             | Start reporting games for a signed-up account                        |
+| `untrack <target> --game <game>… \| --all`                           | Stop reporting games for a signed-up account                         |
+| `signout <target>`                                                   | Stop tracking an account everywhere and delete its data              |
+| `setup <guild-id> --channel <id> [--adopt]`                          | Set a server's report channel; `--adopt` adds accounts in no server  |
+| `pause` / `resume`                                                   | Stop or restart all reports, in every server                         |
+| `rank-check <target> [--game <game>]`                                | Look up a tracked account's current rank                             |
+| `report-mock [--game <game>] [--channel <id>]`                       | Post a mock match card                                               |
+| `report-match <riot-id> --game <game> [--channel <id>]`              | Report a real recent match through the polling pipeline              |
 
 Posting commands use `--channel`, or `NOTIFICATION_CHANNEL_ID` without it.
 
@@ -103,7 +108,6 @@ without code changes.
 3. Implement `GameAdapter` in `src/services/game/game-adapters/`: resolve an
    account, list its recent match ids in one request, fetch a match and map it
    to `MatchDetails`, optionally enrich it, and fetch rank data. Set
-   `requiresMatchHistory` if an empty baseline should not persist the game, and
    `requiresOptIn` if the game's data may only be shown for players who signed
    in with Riot.
 4. Register the adapter in `GameAdaptersLive` and provide its API-client layer

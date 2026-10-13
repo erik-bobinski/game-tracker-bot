@@ -475,13 +475,18 @@ const devSignup = (deps: CommandDeps) =>
             { payload: { content } },
           );
 
-        const register = registerAccount(deps, {
-          discordUserId,
-          discordName,
-          riotName,
-          riotTag,
-          guildIds: [guildId],
-        }).pipe(
+        const register = registerAccount(
+          deps,
+          {
+            discordUserId,
+            discordName,
+            riotName,
+            riotTag,
+            guildIds: [guildId],
+          },
+          // every game, so a dev signup reports without a /track step
+          deps.gameAdapters.all.map((adapter) => adapter.game),
+        ).pipe(
           Effect.flatMap((result) =>
             followUp(
               result === "ok"
