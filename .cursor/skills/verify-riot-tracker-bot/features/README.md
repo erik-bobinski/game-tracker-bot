@@ -28,7 +28,7 @@ Headless verification for cloud agents. Read this index, then the feature file f
 
 - [Bot boot](./bot-boot.md)
 - [Signup](./signup.md)
-- [Refresh](./refresh.md)
+- [Track and untrack](./track.md)
 - [Report mock embed](./report-mock.md)
 - [Report a real match](./report-match.md)
 - [Servers](./servers.md)

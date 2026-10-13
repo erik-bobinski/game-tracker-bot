@@ -194,19 +194,42 @@ const main = () => {
   );
   if (!results.at(-1)?.ok) fail("signup failed", riotId);
 
-  const firstRefresh = run(["admin", "refresh", devDiscordId, "--json"]);
-  record(firstRefresh);
-  if (!firstRefresh.ok) fail("first refresh failed", riotId);
-
-  const secondRefresh = run(["admin", "refresh", devDiscordId, "--json"]);
-  record(secondRefresh);
-  if (!secondRefresh.ok) fail("second refresh failed", riotId);
-
-  const refreshPayload = parseJsonStdout(secondRefresh.stdout) as {
+  const trackLol = ["admin", "track", devDiscordId, "--game", "lol", "--json"];
+  const firstTrack = run(trackLol);
+  record(firstTrack);
+  if (!firstTrack.ok) fail("first track failed", riotId);
+  const firstTrackPayload = parseJsonStdout(firstTrack.stdout) as {
     added: ReadonlyArray<string>;
   };
-  if (refreshPayload.added.length > 0) {
-    fail("second refresh should be idempotent (added should be empty)", riotId);
+  if (!firstTrackPayload.added.includes("lol")) {
+    fail("first track should add lol", riotId);
+  }
+
+  const secondTrack = run(trackLol);
+  record(secondTrack);
+  if (!secondTrack.ok) fail("second track failed", riotId);
+  const secondTrackPayload = parseJsonStdout(secondTrack.stdout) as {
+    added: ReadonlyArray<string>;
+  };
+  if (secondTrackPayload.added.length > 0) {
+    fail("second track should be idempotent (added should be empty)", riotId);
+  }
+
+  const untrack = run([
+    "admin",
+    "untrack",
+    devDiscordId,
+    "--game",
+    "lol",
+    "--json",
+  ]);
+  record(untrack);
+  if (!untrack.ok) fail("untrack failed", riotId);
+  const untrackPayload = parseJsonStdout(untrack.stdout) as {
+    removed: ReadonlyArray<string>;
+  };
+  if (!untrackPayload.removed.includes("lol")) {
+    fail("untrack should remove lol", riotId);
   }
 
   record(run(["admin", "status", "--json"]));
