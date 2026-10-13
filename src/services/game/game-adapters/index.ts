@@ -69,7 +69,6 @@ export const logApiError = (message: string, error: unknown) =>
 
 export interface GameAdapter {
   readonly game: GameId;
-  readonly requiresMatchHistory: boolean;
   // A game riot only shares a player's data for once they've signed in with
   // riot (RSO) to opt in. Signing up by riot id skips it; /link adds it.
   readonly requiresOptIn: boolean;
@@ -148,8 +147,8 @@ export const enrichOrSkip = (
       ),
     );
 
-// Used at signup and by /refresh. The current matches count as reported, so
-// the first poll doesn't repost old games.
+// Used by /track. The current matches count as reported, so the first poll
+// doesn't repost old games.
 export const resolveGameState = (
   adapter: GameAdapter,
   riotName: string,
@@ -158,20 +157,9 @@ export const resolveGameState = (
   adapter.resolveAccount(riotName, riotTag).pipe(
     Effect.flatMap(({ puuid, region }) =>
       Effect.gen(function* () {
-        const matchIds = yield* adapter
-          .getRecentMatchIds(puuid, region)
-          .pipe(
-            Effect.catchTag("GameApiError", (error) =>
-              adapter.requiresMatchHistory
-                ? Effect.fail(error)
-                : logApiWarning("baseline match fetch failed", error).pipe(
-                    Effect.as([]),
-                  ),
-            ),
-          );
-        if (adapter.requiresMatchHistory && matchIds.length === 0) {
-          return undefined;
-        }
+        // an empty baseline would report every recent match as new, so a
+        // failed fetch fails the lookup
+        const matchIds = yield* adapter.getRecentMatchIds(puuid, region);
 
         // only the newest match is fetched: its date is when they last
         // played, which sets how often they're polled

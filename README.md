@@ -103,7 +103,6 @@ without code changes.
 3. Implement `GameAdapter` in `src/services/game/game-adapters/`: resolve an
    account, list its recent match ids in one request, fetch a match and map it
    to `MatchDetails`, optionally enrich it, and fetch rank data. Set
-   `requiresMatchHistory` if an empty baseline should not persist the game, and
    `requiresOptIn` if the game's data may only be shown for players who signed
    in with Riot.
 4. Register the adapter in `GameAdaptersLive` and provide its API-client layer
