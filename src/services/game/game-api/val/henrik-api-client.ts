@@ -18,7 +18,7 @@ export interface ValRank {
   readonly tier: string;
   readonly rr: number;
   readonly wins: number | undefined;
-  readonly losses: number | undefined;
+  readonly games: number | undefined;
 }
 
 export class HenrikApiClient extends Context.Service<
@@ -152,12 +152,12 @@ export const HenrikApiClientLive = Layer.effect(
       const tier = data.current?.tier?.name;
       if (!tier) return undefined;
 
-      const act = data.seasonal?.at(-1);
+      const act = data.seasonal?.findLast((season) => season.games > 0);
       return {
         tier,
         rr: data.current?.rr ?? 0,
         wins: act?.wins,
-        losses: act ? act.games - act.wins : undefined,
+        games: act?.games,
       };
     });
 
