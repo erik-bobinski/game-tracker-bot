@@ -8,9 +8,11 @@ import {
 } from "effect/unstable/http";
 import { Database } from "../database/index.ts";
 import { linkAccount } from "../discord/commands.ts";
+import { buildMockMatchReport } from "../discord/dev-commands.ts";
 import { Discord } from "../discord/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
-import { gameNames } from "../game/index.ts";
+import { onlyOptedInNamed } from "../game/game-adapters/valorant.ts";
+import { gameIds, gameNames } from "../game/index.ts";
 import { Rso } from "../rso/index.ts";
 import {
   escapeHtml,
@@ -49,6 +51,39 @@ const Routes = HttpRouter.use((router) =>
       "/privacy",
       HttpServerResponse.html(privacyPage(site)),
     );
+    // example report cards for the landing page, from the same mock matches as
+    // /dev_report. VALORANT names only the players who opted in, as real
+    // reports do. Re-rendered daily so an icon that failed to load comes back.
+    for (const game of gameIds) {
+      const png = yield* Effect.cachedWithTTL(
+        buildMockMatchReport(game).pipe(
+          Effect.map((report) =>
+            game === "valorant"
+              ? {
+                  ...report,
+                  match: onlyOptedInNamed(report.match, report.tracked),
+                }
+              : report,
+          ),
+          Effect.flatMap(discord.card),
+        ),
+        "1 day",
+      );
+      yield* router.add(
+        "GET",
+        `/demo/${game}.png`,
+        png.pipe(
+          Effect.map((bytes) =>
+            HttpServerResponse.uint8Array(bytes, { contentType: "image/png" }),
+          ),
+          Effect.catch((error) =>
+            Effect.logWarning("demo card failed", error).pipe(
+              Effect.as(HttpServerResponse.empty({ status: 503 })),
+            ),
+          ),
+        ),
+      );
+    }
     // the string riot hands a production applicant to prove they own the site
     const riotVerification = yield* Config.string("RIOT_VERIFICATION").pipe(
       Config.withDefault(""),
