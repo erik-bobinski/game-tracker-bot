@@ -1,6 +1,8 @@
 // The bot's public pages: what Discord and Riot link to as the product's site,
 // terms and privacy policy, and where a riot sign-in lands.
 
+import { linkMessage } from "../discord/commands.ts";
+
 const SOURCE_URL = "https://github.com/syan-alt/riot-tracker-bot";
 const UPDATED = "October 10, 2026";
 
@@ -35,6 +37,12 @@ const page = (site: Site, title: string, body: string) => `<!doctype html>
   a { color: #8ab4ff; }
   code { background: #272b35; padding: 1px 6px; border-radius: 4px; }
   .lead { color: #c8cbd1; font-size: 1.1rem; }
+  figure { margin: 16px 0 28px; }
+  figure img { display: block; width: 100%; height: auto; border-radius: 12px; }
+  figcaption { color: #9a9ea6; font-size: 0.9rem; margin-top: 6px; }
+  .message { background: #2b2d31; border-radius: 8px; padding: 14px 16px; margin: 12px 0; }
+  .message small { display: block; color: #9a9ea6; margin-bottom: 6px; }
+  .message .button { margin: 10px 0 0; padding: 6px 16px; background: #4e5058; }
   .button { display: inline-block; margin: 16px 0; padding: 10px 22px; border-radius: 6px; background: #5865f2; color: #fff; text-decoration: none; font-weight: 600; }
   footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #2c2f36; color: #9a9ea6; font-size: 0.85rem; }
 </style>
@@ -68,7 +76,20 @@ export const landingPage = (site: Site) => {
     }.</li>
 <li>When one of them finishes a game, the scoreboard is posted in that channel. Players who were in the same game share one post.</li>
 </ol>
-<p>Anyone can stop with <code>/signout</code>, and server admins can <code>/pause</code> reports.</p>`,
+<p>Anyone can stop with <code>/signout</code>, and server admins can <code>/pause</code> reports.</p>
+<h2>Example reports</h2>
+<p>Each report is one image posted in the server's report channel. These come from sample matches with made-up players; the highlighted rows are the players signed up in that server.</p>
+<figure><img src="/demo/lol.png" alt="Example League of Legends report: a ranked solo/duo victory with both teams' champions, KDA, CS, damage and ranks" width="1280" height="802"><figcaption>League of Legends</figcaption></figure>
+<figure><img src="/demo/tft.png" alt="Example Teamfight Tactics report: the eight placements of a ranked game with each player's level and rank"><figcaption>Teamfight Tactics</figcaption></figure>
+<figure><img src="/demo/valorant.png" alt="Example VALORANT report: a 13 to 9 competitive victory where only the two players who opted in are named" width="1280" height="802"><figcaption>VALORANT: only the players who signed in with Riot are named and ranked. Everyone else shows as their agent and stats.</figcaption></figure>
+<h2>VALORANT opt-in</h2>
+<p>VALORANT matches are only reported for players who sign in with Riot (RSO) to opt in:</p>
+<ol>
+<li>The player runs <code>/link</code> in a server. Only they see the reply:
+<div class="message"><small>Only you can see this</small>${escapeHtml(linkMessage("VALORANT"))}<br><span class="button">Sign in with Riot</span></div></li>
+<li>They sign in on Riot's page, and land back here on a page confirming which Riot ID was linked.</li>
+<li>The bot records when they opted in and starts reporting their VALORANT matches in that server. <code>/signout</code> stops it and deletes their data.</li>
+</ol>`,
   );
 };
 

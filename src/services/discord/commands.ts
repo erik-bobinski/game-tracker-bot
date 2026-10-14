@@ -455,6 +455,10 @@ const signup = (deps: CommandDeps, linkHint: string) =>
       ),
   );
 
+// also shown on the site, so riot's reviewers see what players agree to
+export const linkMessage = (games: string) =>
+  `Sign in with Riot to get your ${games} matches reported here. Linking makes your match data visible to the members of the servers you sign up in. This link is only for you and works for 15 minutes.`;
+
 // Riot only lets some games' data be shown for players who signed in with riot
 // to opt in. The sign-in link carries who asked for it, so it's only shown to
 // them.
@@ -484,7 +488,7 @@ const link = (
         return {
           type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: `Sign in with Riot to get your ${games} matches reported here. Linking makes your match data visible to the members of the servers you sign up in. This link is only for you and works for 15 minutes.`,
+            content: linkMessage(games),
             flags: Discord.MessageFlags.Ephemeral,
             components: [
               UI.row([
