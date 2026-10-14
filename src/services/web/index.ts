@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { NodeHttpServer } from "@effect/platform-node";
-import { Config, Effect, Layer, Option, Schema } from "effect";
+import { Array as Arr, Config, Effect, Layer, Option, Schema } from "effect";
 import {
   HttpRouter,
   HttpServerRequest,
@@ -8,9 +8,12 @@ import {
 } from "effect/unstable/http";
 import { Database } from "../database/index.ts";
 import { linkAccount } from "../discord/commands.ts";
+import { buildMockMatchReport } from "../discord/dev-commands.ts";
+import { matchSummary } from "../discord/embed.ts";
 import { Discord } from "../discord/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
-import { gameNames } from "../game/index.ts";
+import { onlyOptedInNamed } from "../game/game-adapters/valorant.ts";
+import { gameIds, gameNames } from "../game/index.ts";
 import { Rso } from "../rso/index.ts";
 import {
   escapeHtml,
@@ -38,7 +41,41 @@ const Routes = HttpRouter.use((router) =>
       : [];
     const site = { ...discord.application, linkGames };
 
-    yield* router.add("GET", "/", HttpServerResponse.html(landingPage(site)));
+    // example reports for the landing page's walkthrough, from the same mock
+    // matches as /dev_report. VALORANT names only the players who opted in, as
+    // real reports do. A mock that won't build is left out, not fatal.
+    const demos = Arr.getSomes(
+      yield* Effect.forEach(gameIds, (game) =>
+        buildMockMatchReport(game).pipe(
+          Effect.map((report) =>
+            game === "valorant"
+              ? {
+                  ...report,
+                  match: onlyOptedInNamed(report.match, report.tracked),
+                }
+              : report,
+          ),
+          Effect.tapError((error) =>
+            Effect.logWarning("demo report failed", error),
+          ),
+          Effect.option,
+        ),
+      ),
+    );
+
+    yield* router.add(
+      "GET",
+      "/",
+      HttpServerResponse.html(
+        landingPage(
+          site,
+          demos.map((report) => ({
+            game: report.match.game,
+            summary: matchSummary(report),
+          })),
+        ),
+      ),
+    );
     yield* router.add(
       "GET",
       "/terms",
@@ -49,6 +86,24 @@ const Routes = HttpRouter.use((router) =>
       "/privacy",
       HttpServerResponse.html(privacyPage(site)),
     );
+    // re-rendered daily so an icon that failed to load comes back
+    for (const report of demos) {
+      const png = yield* Effect.cachedWithTTL(discord.card(report), "1 day");
+      yield* router.add(
+        "GET",
+        `/demo/${report.match.game}.png`,
+        png.pipe(
+          Effect.map((bytes) =>
+            HttpServerResponse.uint8Array(bytes, { contentType: "image/png" }),
+          ),
+          Effect.catch((error) =>
+            Effect.logWarning("demo card failed", error).pipe(
+              Effect.as(HttpServerResponse.empty({ status: 503 })),
+            ),
+          ),
+        ),
+      );
+    }
     // the string riot hands a production applicant to prove they own the site
     const riotVerification = yield* Config.string("RIOT_VERIFICATION").pipe(
       Config.withDefault(""),

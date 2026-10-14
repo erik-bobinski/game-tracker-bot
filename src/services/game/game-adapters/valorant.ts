@@ -221,7 +221,7 @@ const anonymous = <P extends MatchPlayerIdentity>({
   ...player
 }: P) => ({ ...player, riotName: "", riotTag: "" });
 
-const onlyOptedInNamed = (
+export const onlyOptedInNamed = (
   match: MatchDetails,
   trackedPlayers: ReadonlyArray<{ readonly puuid: Puuid }>,
 ): MatchDetails => {

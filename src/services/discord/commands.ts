@@ -300,6 +300,14 @@ export const formatUntrackResult = (
     .filter((line) => line !== false)
     .join("\n");
 
+// The bot's words the site's walkthrough quotes, so it can't drift from them
+export const trackPrompt =
+  "Pick the games to report, in every server you're signed up in:";
+export const signedUpMessage = (username: string) =>
+  `**${username}** just signed up! Pick games to report now, or anytime with \`/track\`.`;
+export const setupChannelMessage =
+  "Match reports will be posted here. Run `/signup` to have yours included.";
+
 // One select for picking several games at once. Ephemeral, so only the person
 // it's for can pick.
 const gamePicker = (
@@ -308,7 +316,7 @@ const gamePicker = (
 ) => ({
   content:
     action === "track"
-      ? "Pick the games to report, in every server you're signed up in:"
+      ? trackPrompt
       : "Pick the games to stop reporting, in every server you're signed up in:",
   flags: Discord.MessageFlags.Ephemeral,
   components: [
@@ -412,7 +420,7 @@ const signup = (deps: CommandDeps, linkHint: string) =>
           yield* followUp(
             existing
               ? `**${user.username}** switched to ${riotName}#${riotTag}.${setupHint}${linkHint}`
-              : `**${user.username}** just signed up! Pick games to report now, or anytime with \`/track\`.${setupHint}${linkHint}`,
+              : `${signedUpMessage(user.username)}${setupHint}${linkHint}`,
           );
           const account = yield* deps.database.getAccount(user.id);
           const reported = account
@@ -455,6 +463,10 @@ const signup = (deps: CommandDeps, linkHint: string) =>
       ),
   );
 
+// also on the site, so riot's reviewers see what players agree to
+export const linkMessage = (games: string) =>
+  `Sign in with Riot to get your ${games} matches reported here. Linking makes your match data visible to the members of the servers you sign up in. This link is only for you and works for 15 minutes.`;
+
 // Riot only lets some games' data be shown for players who signed in with riot
 // to opt in. The sign-in link carries who asked for it, so it's only shown to
 // them.
@@ -484,7 +496,7 @@ const link = (
         return {
           type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: `Sign in with Riot to get your ${games} matches reported here. Linking makes your match data visible to the members of the servers you sign up in. This link is only for you and works for 15 minutes.`,
+            content: linkMessage(games),
             flags: Discord.MessageFlags.Ephemeral,
             components: [
               UI.row([
@@ -569,8 +581,7 @@ const setup = ({ database, rest }: CommandDeps) =>
         // reports that never arrive
         const posted = yield* rest
           .createMessage(channelId, {
-            content:
-              "Match reports will be posted here. Run `/signup` to have yours included.",
+            content: setupChannelMessage,
           })
           .pipe(
             Effect.as(true),

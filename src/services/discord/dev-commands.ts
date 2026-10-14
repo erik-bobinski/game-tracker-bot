@@ -330,7 +330,7 @@ export const buildMockMatchReport = (game: GameId) =>
 
     return {
       tracked: match.players.slice(0, 2).map((player, index) => ({
-        discordName: index === 0 ? "VerifyAgent" : "VerifyTeammate",
+        discordName: index === 0 ? "Alex" : "Sam",
         puuid: player.puuid,
       })),
       match,
