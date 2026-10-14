@@ -87,17 +87,18 @@ src/
 ```
 
 **The match engine** is where it comes together. Each tick it loads every
-account that some unpaused server with a channel reports, and polls all of
-them, so everyone's matches are checked in the same 3-minute window. A poll
-asks the game adapter for the ids of the account's recent matches, one request,
-and drops the ones already reported. Each new match is fetched once, however many tracked
+account that some unpaused server with a channel reports and polls all of
+them, then waits 3 minutes before the next tick. A poll asks the game adapter
+for the ids of the account's recent matches, one request, and drops the ones
+already reported. Each new match is fetched once, however many tracked
 players were in it, then enriched (rank lookups) and posted once per server,
 naming the players who signed up there, and recorded as reported.
 
 **Riot rate limits** are respected per key and routing host. The client reads
 the limits off each response's `X-App-Rate-Limit` header and paces requests
 under them, so swapping a personal key for a production one raises the ceiling
-without code changes.
+without code changes. HenrikDev requests are paced the same way, under the
+per-minute limit its `X-RateLimit-*` headers state.
 
 ### Adding a game
 

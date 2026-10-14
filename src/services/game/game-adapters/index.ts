@@ -162,7 +162,7 @@ export const resolveGameState = (
         const matchIds = yield* adapter.getRecentMatchIds(puuid, region);
 
         // only the newest match is fetched: its date is when they last
-        // played, which sets how often they're polled
+        // played, so an older match that shows up later isn't reported
         const newest = matchIds[0]
           ? yield* adapter
               .getMatch(matchIds[0], region)
