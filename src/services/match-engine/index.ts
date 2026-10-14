@@ -18,8 +18,6 @@ import {
 interface TrackedPlayer {
   readonly discordName: string;
   readonly discordUserId: string;
-  // as saved, which goes stale when they rename on riot's side
-  readonly riotId: string;
   readonly puuid: Puuid;
   readonly region: Region | undefined;
   // the servers they report in that have a channel and aren't paused
@@ -68,6 +66,13 @@ const makeMatchEngine = Effect.gen(function* () {
     );
     const pending = new Map<string, PendingMatch>();
     let accountsPolled = 0;
+    // kept current as renames are saved, so the newest match in a poll wins
+    const savedRiotIds = new Map(
+      accounts.map((account) => [
+        account.discordUserId,
+        `${account.riotName}#${account.riotTag}`,
+      ]),
+    );
 
     for (const adapter of gameAdapters.all) {
       const currentRankSnapshots = new Map<Puuid, RankSnapshots>();
@@ -95,13 +100,13 @@ const makeMatchEngine = Effect.gen(function* () {
         return [
           {
             key,
+            riotId: `${account.riotName}#${account.riotTag}`,
             reported: new Set(
               state.reportedMatches.map((match) => match.matchId),
             ),
             player: {
               discordName: account.discordName,
               discordUserId: account.discordUserId,
-              riotId: `${account.riotName}#${account.riotTag}`,
               puuid: state.puuid,
               region: state.region,
               guildIds,
@@ -114,7 +119,7 @@ const makeMatchEngine = Effect.gen(function* () {
 
       yield* Effect.forEach(
         due,
-        ({ key, reported, player }) =>
+        ({ key, riotId, reported, player }) =>
           Effect.gen(function* () {
             // set up front, so an account whose lookup fails waits too
             lastPolledAt.set(key, now);
@@ -142,7 +147,7 @@ const makeMatchEngine = Effect.gen(function* () {
                 Effect.annotateLogs({
                   game: adapter.game,
                   discordUser: `${player.discordName} (${player.discordUserId})`,
-                  riotId: player.riotId,
+                  riotId,
                 }),
               ),
             ),
@@ -187,20 +192,19 @@ const makeMatchEngine = Effect.gen(function* () {
         : [];
       const rankSnapshotsByDiscordUserId: Record<string, RankSnapshots> = {};
 
-      // tracking goes by puuid, so a renamed riot id only needs saving
-      for (const player of players) {
+      // a /link sign-in can be a different riot account than the saved id, so
+      // only games found by that id rename it
+      for (const player of adapter.requiresOptIn ? [] : fresh) {
         const current = match?.players.find((p) => p.puuid === player.puuid);
-        if (
-          !current?.riotName ||
-          `${current.riotName}#${current.riotTag}` === player.riotId
-        ) {
-          continue;
-        }
+        if (!current?.riotName || !current.riotTag) continue;
+        const riotId = `${current.riotName}#${current.riotTag}`;
+        if (savedRiotIds.get(player.discordUserId) === riotId) continue;
         yield* database.updateRiotId({
           discordUserId: player.discordUserId,
           riotName: current.riotName,
           riotTag: current.riotTag,
         });
+        savedRiotIds.set(player.discordUserId, riotId);
       }
 
       if (match && fresh.length > 0) {
