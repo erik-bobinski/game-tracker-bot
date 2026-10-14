@@ -1,7 +1,13 @@
 // The bot's public pages: what Discord and Riot link to as the product's site,
 // terms and privacy policy, and where a riot sign-in lands.
 
-import { linkMessage } from "../discord/commands.ts";
+import {
+  linkMessage,
+  setupChannelMessage,
+  signedUpMessage,
+  trackPrompt,
+} from "../discord/commands.ts";
+import { gameNames, type GameId } from "../game/index.ts";
 
 const SOURCE_URL = "https://github.com/syan-alt/riot-tracker-bot";
 const UPDATED = "October 10, 2026";
@@ -37,12 +43,16 @@ const page = (site: Site, title: string, body: string) => `<!doctype html>
   a { color: #8ab4ff; }
   code { background: #272b35; padding: 1px 6px; border-radius: 4px; }
   .lead { color: #c8cbd1; font-size: 1.1rem; }
-  figure { margin: 16px 0 28px; }
-  figure img { display: block; width: 100%; height: auto; border-radius: 12px; }
+  h3 { font-size: 1rem; margin: 24px 0 4px; }
+  figure { margin: 12px 0 24px; }
   figcaption { color: #9a9ea6; font-size: 0.9rem; margin-top: 6px; }
-  .message { background: #2b2d31; border-radius: 8px; padding: 14px 16px; margin: 12px 0; }
-  .message small { display: block; color: #9a9ea6; margin-bottom: 6px; }
-  .message .button { margin: 10px 0 0; padding: 6px 16px; background: #4e5058; }
+  .message { background: #2b2d31; border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
+  .message p { margin: 4px 0; }
+  .message img { display: block; width: 100%; height: auto; margin-top: 8px; border-radius: 10px; }
+  .message small { display: block; color: #9a9ea6; margin-bottom: 4px; }
+  .message .author { color: #c9cdfb; }
+  .message .button { margin: 8px 0 0; padding: 6px 16px; background: #4e5058; }
+  .message .select { display: block; margin-top: 8px; padding: 8px 12px; border-radius: 4px; background: #1e1f22; color: #b5bac1; }
   .button { display: inline-block; margin: 16px 0; padding: 10px 22px; border-radius: 6px; background: #5865f2; color: #fff; text-decoration: none; font-weight: 600; }
   footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #2c2f36; color: #9a9ea6; font-size: 0.85rem; }
 </style>
@@ -58,8 +68,36 @@ ${body}
 </body>
 </html>`;
 
-export const landingPage = (site: Site) => {
+// discord's **bold** and `code`, for quoting the bot's messages
+const discordText = (text: string) =>
+  escapeHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`(.+?)`/g, "<code>$1</code>");
+
+// a discord message as the walkthrough shows it; `only` is whom an ephemeral
+// reply is visible to
+const message = (author: string, body: string, only?: string) =>
+  `<div class="message">${only ? `<small>Only ${only} can see this</small>` : ""}<strong class="author">${escapeHtml(author)}</strong>${body}</div>`;
+
+const demoCaptions: Record<GameId, string> = {
+  lol: "A ranked League of Legends game: both teams' champions, KDA, CS, damage and ranks, with the LP each signed-up player gained or lost.",
+  tft: "A ranked Teamfight Tactics game: all eight placements with each player's level and rank.",
+  valorant:
+    "A competitive VALORANT game: only the players who signed in with Riot are named and ranked. Everyone else shows as their agent and stats.",
+};
+
+export interface Demo {
+  readonly game: GameId;
+  // the text posted with the card
+  readonly summary: string;
+}
+
+const demoReport = (site: Site, { game, summary }: Demo) =>
+  `<figure>${message(site.name, `<p>${discordText(summary)}</p><img src="/demo/${game}.png" alt="Example ${escapeHtml(gameNames[game])} match report">`)}<figcaption>${escapeHtml(demoCaptions[game])}</figcaption></figure>`;
+
+export const landingPage = (site: Site, demos: ReadonlyArray<Demo>) => {
   const name = escapeHtml(site.name);
+  const [first, ...rest] = demos;
   return page(
     site,
     site.name,
@@ -67,26 +105,28 @@ export const landingPage = (site: Site) => {
 <p class="lead">Posts League of Legends, Teamfight Tactics and VALORANT results to your Discord server as soon as a signed-up player finishes a game.</p>
 <a class="button" href="${escapeHtml(site.inviteUrl)}">Add to Discord</a>
 <h2>How it works</h2>
-<ol>
-<li>Add the bot, then run <code>/setup</code> in your server to pick the channel reports go to.</li>
-<li>Players run <code>/signup</code> with their Riot ID to have their games reported${
+<p>From adding the bot to its first report. The bot's messages are quoted as it sends them; the matches are samples with made-up players.</p>
+<h3>1. The bot joins a server</h3>
+<p>A server admin adds it with <strong>Add to Discord</strong>, then runs <code>/setup</code> to pick the channel reports go to. The bot posts there to check it can:</p>
+${message(site.name, `<p>${discordText(setupChannelMessage)}</p>`)}
+<h3>2. A player signs up</h3>
+<p>Anyone in the server runs <code>/signup</code> with their Riot ID, here <code>/signup riot_name:DevPlayer1 riot_tag:DEV</code>, and picks which games to report:</p>
+${message(site.name, `<p>${discordText(signedUpMessage("Alex"))}</p>`)}
+${message(site.name, `<p>${discordText(trackPrompt)}</p><span class="select">${escapeHtml(Object.values(gameNames).join(", "))}</span>`, "you")}${
       site.linkGames.length > 0
-        ? `, and <code>/link</code> to sign in with Riot for ${escapeHtml(listGames(site.linkGames))}`
+        ? `\n<p>For ${escapeHtml(listGames(site.linkGames))}, they also sign in with Riot through <code>/link</code>, as shown below.</p>`
         : ""
-    }.</li>
-<li>When one of them finishes a game, the scoreboard is posted in that channel. Players who were in the same game share one post.</li>
-</ol>
+    }
 <p>Anyone can stop with <code>/signout</code>, and server admins can <code>/pause</code> reports.</p>
-<h2>Example reports</h2>
-<p>Each report is one image posted in the server's report channel. These come from sample matches with made-up players; the highlighted rows are the players signed up in that server.</p>
-<figure><img src="/demo/lol.png" alt="Example League of Legends report: a ranked solo/duo victory with both teams' champions, KDA, CS, damage and ranks" width="1280" height="802"><figcaption>League of Legends</figcaption></figure>
-<figure><img src="/demo/tft.png" alt="Example Teamfight Tactics report: the eight placements of a ranked game with each player's level and rank"><figcaption>Teamfight Tactics</figcaption></figure>
-<figure><img src="/demo/valorant.png" alt="Example VALORANT report: a 13 to 9 competitive victory where only the two players who opted in are named" width="1280" height="802"><figcaption>VALORANT: only the players who signed in with Riot are named and ranked. Everyone else shows as their agent and stats.</figcaption></figure>
+<h3>3. They finish a game</h3>
+<p>Shortly after the game ends, the bot posts its scoreboard in the report channel. Players from the server who were in the same game share one post, and their rows are highlighted.</p>
+${first ? demoReport(site, first) : ""}
+${rest.length > 0 ? `<p>The other games are reported the same way:</p>\n${rest.map((demo) => demoReport(site, demo)).join("\n")}` : ""}
 <h2>VALORANT opt-in</h2>
 <p>VALORANT matches are only reported for players who sign in with Riot (RSO) to opt in:</p>
 <ol>
-<li>The player runs <code>/link</code> in a server. Only they see the reply:
-<div class="message"><small>Only you can see this</small>${escapeHtml(linkMessage("VALORANT"))}<br><span class="button">Sign in with Riot</span></div></li>
+<li>The player runs <code>/link</code> in a server and gets this reply:
+${message(site.name, `<p>${discordText(linkMessage("VALORANT"))}</p><span class="button">Sign in with Riot</span>`, "you")}</li>
 <li>They sign in on Riot's page, and land back here on a page confirming which Riot ID was linked.</li>
 <li>The bot records when they opted in and starts reporting their VALORANT matches in that server. <code>/signout</code> stops it and deletes their data.</li>
 </ol>`,
