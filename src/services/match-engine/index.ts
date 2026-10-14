@@ -24,12 +24,15 @@ interface TrackedPlayer {
   readonly guildIds: ReadonlyArray<string>;
   // when the newest match reported for them started
   readonly lastReportedAt: number;
+  readonly reportedMatchIds: ReadonlySet<MatchId>;
 }
 
 interface PendingMatch {
   readonly adapter: GameAdapter;
   readonly matchId: MatchId;
   readonly players: Array<TrackedPlayer>;
+  // everyone tracked in this game, polled this time or not
+  readonly tracked: ReadonlyArray<TrackedPlayer>;
   readonly currentRankSnapshots: Map<Puuid, RankSnapshots>;
 }
 
@@ -69,7 +72,7 @@ const makeMatchEngine = Effect.gen(function* () {
 
     for (const adapter of gameAdapters.all) {
       const currentRankSnapshots = new Map<Puuid, RankSnapshots>();
-      const due = accounts.flatMap((account) => {
+      const tracked = accounts.flatMap((account) => {
         const state = account.games[adapter.game];
         const guildIds = account.guildIds.filter((id) => channels.has(id));
         if (!state || guildIds.length === 0) return [];
@@ -81,22 +84,10 @@ const makeMatchEngine = Effect.gen(function* () {
           0,
           ...state.reportedMatches.map((match) => match.date),
         );
-        const key = `${adapter.game}:${state.puuid}`;
-        const polledAt = lastPolledAt.get(key);
-        if (
-          polledAt !== undefined &&
-          now - polledAt < Duration.toMillis(pollInterval(now - lastReportedAt))
-        ) {
-          return [];
-        }
-
         return [
           {
-            key,
+            key: `${adapter.game}:${state.puuid}`,
             riotId: `${account.riotName}#${account.riotTag}`,
-            reported: new Set(
-              state.reportedMatches.map((match) => match.matchId),
-            ),
             player: {
               discordName: account.discordName,
               discordUserId: account.discordUserId,
@@ -104,15 +95,27 @@ const makeMatchEngine = Effect.gen(function* () {
               region: state.region,
               guildIds,
               lastReportedAt,
+              reportedMatchIds: new Set(
+                state.reportedMatches.map((match) => match.matchId),
+              ),
             },
           },
         ];
+      });
+      const trackedPlayers = tracked.map(({ player }) => player);
+      const due = tracked.filter(({ key, player }) => {
+        const polledAt = lastPolledAt.get(key);
+        return (
+          polledAt === undefined ||
+          now - polledAt >=
+            Duration.toMillis(pollInterval(now - player.lastReportedAt))
+        );
       });
       accountsPolled += due.length;
 
       yield* Effect.forEach(
         due,
-        ({ key, riotId, reported, player }) =>
+        ({ key, riotId, player }) =>
           Effect.gen(function* () {
             // set up front, so an account whose lookup fails waits too
             lastPolledAt.set(key, now);
@@ -121,7 +124,7 @@ const makeMatchEngine = Effect.gen(function* () {
               player.region,
             );
             for (const matchId of matchIds) {
-              if (reported.has(matchId)) continue;
+              if (player.reportedMatchIds.has(matchId)) continue;
               const id = `${adapter.game}:${matchId}`;
               const entry = pending.get(id);
               if (entry) entry.players.push(player);
@@ -130,6 +133,7 @@ const makeMatchEngine = Effect.gen(function* () {
                   adapter,
                   matchId,
                   players: [player],
+                  tracked: trackedPlayers,
                   currentRankSnapshots,
                 });
               }
@@ -156,7 +160,21 @@ const makeMatchEngine = Effect.gen(function* () {
       pending.values(),
       (entry) =>
         entry.adapter.getMatch(entry.matchId, entry.players[0]?.region).pipe(
-          Effect.map((match) => ({ ...entry, match })),
+          Effect.map((match) => ({
+            ...entry,
+            match,
+            // players aren't all polled at once, so whoever's poll finds a
+            // match takes in the others who played it, for one report
+            players: [
+              ...entry.players,
+              ...entry.tracked.filter(
+                (player) =>
+                  !entry.players.includes(player) &&
+                  !player.reportedMatchIds.has(entry.matchId) &&
+                  match?.players.some((p) => p.puuid === player.puuid),
+              ),
+            ],
+          })),
           Effect.catchTag("GameApiError", (error) =>
             logApiWarning("match unavailable; retrying next poll", error).pipe(
               Effect.annotateLogs({ matchId: entry.matchId }),
