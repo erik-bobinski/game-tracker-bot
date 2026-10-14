@@ -31,7 +31,7 @@ interface PendingMatch {
   readonly adapter: GameAdapter;
   readonly matchId: MatchId;
   readonly players: Array<TrackedPlayer>;
-  // everyone tracked in this game, polled this time or not
+  // everyone tracked in this game, including anyone whose lookup missed it
   readonly tracked: ReadonlyArray<TrackedPlayer>;
   readonly currentRankSnapshots: Map<Puuid, RankSnapshots>;
 }
