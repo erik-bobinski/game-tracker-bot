@@ -1,4 +1,4 @@
-import { Clock, Context, Duration, Effect, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { Database } from "../database/index.ts";
 import { Discord } from "../discord/index.ts";
 import {
@@ -31,30 +31,17 @@ interface PendingMatch {
   readonly adapter: GameAdapter;
   readonly matchId: MatchId;
   readonly players: Array<TrackedPlayer>;
-  // everyone tracked in this game, polled this time or not
+  // everyone tracked in this game, including anyone whose lookup missed it
   readonly tracked: ReadonlyArray<TrackedPlayer>;
   readonly currentRankSnapshots: Map<Puuid, RankSnapshots>;
 }
-
-// Someone who just played is likely to queue again, so they're polled every
-// minute, then less often the longer they stay idle, down to every 15 minutes.
-// The first report after a break lags by up to an eighth of the break.
-const pollInterval = (idleMillis: number) =>
-  Duration.clamp(Duration.millis(idleMillis / 8), {
-    minimum: Duration.minutes(1),
-    maximum: Duration.minutes(15),
-  });
 
 const makeMatchEngine = Effect.gen(function* () {
   const database = yield* Database;
   const gameAdapters = yield* GameAdapters;
   const discord = yield* Discord;
-  // when each riot account was last polled, per game; kept in memory, so a
-  // restart polls everyone once
-  const lastPolledAt = new Map<string, number>();
 
   const pollOnce = Effect.fn("MatchEngine.pollOnce")(function* () {
-    const now = yield* Clock.currentTimeMillis;
     const [accounts, guilds] = yield* Effect.all([
       database.getAccounts(),
       database.getGuilds(),
@@ -86,7 +73,6 @@ const makeMatchEngine = Effect.gen(function* () {
         );
         return [
           {
-            key: `${adapter.game}:${state.puuid}`,
             riotId: `${account.riotName}#${account.riotTag}`,
             player: {
               discordName: account.discordName,
@@ -103,22 +89,12 @@ const makeMatchEngine = Effect.gen(function* () {
         ];
       });
       const trackedPlayers = tracked.map(({ player }) => player);
-      const due = tracked.filter(({ key, player }) => {
-        const polledAt = lastPolledAt.get(key);
-        return (
-          polledAt === undefined ||
-          now - polledAt >=
-            Duration.toMillis(pollInterval(now - player.lastReportedAt))
-        );
-      });
-      accountsPolled += due.length;
+      accountsPolled += tracked.length;
 
       yield* Effect.forEach(
-        due,
-        ({ key, riotId, player }) =>
+        tracked,
+        ({ riotId, player }) =>
           Effect.gen(function* () {
-            // set up front, so an account whose lookup fails waits too
-            lastPolledAt.set(key, now);
             const matchIds = yield* adapter.getRecentMatchIds(
               player.puuid,
               player.region,
@@ -163,8 +139,9 @@ const makeMatchEngine = Effect.gen(function* () {
           Effect.map((match) => ({
             ...entry,
             match,
-            // players aren't all polled at once, so whoever's poll finds a
-            // match takes in the others who played it, for one report
+            // riot can list a match for one player before another, or one
+            // player's lookup can fail, so whoever's list has it takes in the
+            // others who played it, for one report
             players: [
               ...entry.players,
               ...entry.tracked.filter(

@@ -19,8 +19,8 @@ import { makeTftGameAdapter } from "./tft.ts";
 import { makeValorantGameAdapter } from "./valorant.ts";
 import { makeHenrikValorantAdapter } from "./valorant-henrik.ts";
 
-// How many of an account's newest matches a poll looks at. Nobody is polled
-// less than every 15 minutes, too short to finish more than one game.
+// How many of an account's newest matches a poll looks at. Everyone is polled
+// every 3 minutes, too short to finish more than one game.
 export const RECENT_MATCH_COUNT = 3;
 
 export class GameApiError extends Schema.TaggedError<GameApiError>()(
@@ -162,7 +162,7 @@ export const resolveGameState = (
         const matchIds = yield* adapter.getRecentMatchIds(puuid, region);
 
         // only the newest match is fetched: its date is when they last
-        // played, which sets how often they're polled
+        // played, so an older match that shows up later isn't reported
         const newest = matchIds[0]
           ? yield* adapter
               .getMatch(matchIds[0], region)

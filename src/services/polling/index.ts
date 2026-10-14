@@ -24,7 +24,7 @@ const makePolling = Effect.gen(function* () {
   const pollLoop = pollTick.pipe(
     Effect.tapError((error) => Effect.logError("poll failed", error)),
     Effect.ignore,
-    Effect.repeat(Schedule.spaced("1 minute")),
+    Effect.repeat(Schedule.spaced("3 minutes")),
     Effect.asVoid,
   );
 
