@@ -56,6 +56,14 @@ const makeMatchEngine = Effect.gen(function* () {
     );
     const pending = new Map<string, PendingMatch>();
     let accountsPolled = 0;
+    // updated as renames are saved, so a later match in this poll compares
+    // against what an earlier one saved
+    const savedRiotIds = new Map(
+      accounts.map((account) => [
+        account.discordUserId,
+        `${account.riotName}#${account.riotTag}`,
+      ]),
+    );
 
     for (const adapter of gameAdapters.all) {
       const currentRankSnapshots = new Map<Puuid, RankSnapshots>();
@@ -179,6 +187,27 @@ const makeMatchEngine = Effect.gen(function* () {
         ? players.filter((player) => match.date > player.lastReportedAt)
         : [];
       const rankSnapshotsByDiscordUserId: Record<string, RankSnapshots> = {};
+
+      // a /link sign-in can be a different riot account than the saved id, so
+      // only games found by that id rename it; matches go oldest first, so
+      // the newest name is saved last
+      for (const player of adapter.requiresOptIn ? [] : fresh) {
+        const current = match?.players.find((p) => p.puuid === player.puuid);
+        if (!current?.riotName || !current.riotTag) continue;
+        const riotId = `${current.riotName}#${current.riotTag}`;
+        const saved = savedRiotIds.get(player.discordUserId);
+        if (saved === riotId) continue;
+        yield* database.updateRiotId({
+          game: adapter.game,
+          puuid: player.puuid,
+          riotName: current.riotName,
+          riotTag: current.riotTag,
+        });
+        savedRiotIds.set(player.discordUserId, riotId);
+        yield* Effect.logInfo("riot id renamed").pipe(
+          Effect.annotateLogs({ game: adapter.game, from: saved, to: riotId }),
+        );
+      }
 
       if (match && fresh.length > 0) {
         const enrichment = yield* enrichOrSkip(adapter, {
