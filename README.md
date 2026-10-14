@@ -74,7 +74,7 @@ src/
   index.ts                     layer wiring and entry point
   admin/                       the admin CLI, a second entry point
   services/
-    polling/                   ticks every minute, respects the global pause flag
+    polling/                   ticks every 3 minutes, respects the global pause flag
     match-engine/              the core loop, see below
     game/
       index.ts                 game-agnostic domain types
@@ -87,18 +87,18 @@ src/
 ```
 
 **The match engine** is where it comes together. Each tick it loads every
-account that some unpaused server with a channel reports, and polls the ones
-that are due: someone who just played is polled every minute, then less often
-the longer they stay idle, down to every 15 minutes. A poll asks the game
-adapter for the ids of the account's recent matches, one request, and drops the
-ones already reported. Each new match is fetched once, however many tracked
+account that some unpaused server with a channel reports and polls all of
+them, then waits 3 minutes before the next tick. A poll asks the game adapter
+for the ids of the account's recent matches, one request, and drops the ones
+already reported. Each new match is fetched once, however many tracked
 players were in it, then enriched (rank lookups) and posted once per server,
 naming the players who signed up there, and recorded as reported.
 
 **Riot rate limits** are respected per key and routing host. The client reads
 the limits off each response's `X-App-Rate-Limit` header and paces requests
 under them, so swapping a personal key for a production one raises the ceiling
-without code changes.
+without code changes. HenrikDev requests are paced the same way, under the
+per-minute limit its `X-RateLimit-*` headers state.
 
 ### Adding a game
 
