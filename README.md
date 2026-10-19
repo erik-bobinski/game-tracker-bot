@@ -34,6 +34,13 @@ Commands only work in servers. Server admins can hand `/setup`, `/pause` and
 exists once the bot has a Riot Sign On client, see
 [VALORANT through Riot's API](#valorant-through-riots-api).
 
+## Deployment
+
+Production runs on [Railway](https://game-tracker-bot.up.railway.app).
+Pushes to `master` in `erik-bobinski/riot-tracker-bot` run GitHub Actions CI
+and automatically deploy to the existing Railway service. Its persistent
+`/data` volume keeps the bot database across deployments.
+
 ## Admin CLI
 
 The same operations, without Discord. It runs inside the production container,
