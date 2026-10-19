@@ -1,4 +1,4 @@
 {
   "name": "riot-tracker-bot",
-  "install": "export NVM_DIR=\"${NVM_DIR:-$HOME/.nvm}\"\nif [ -s \"$NVM_DIR/nvm.sh\" ]; then . \"$NVM_DIR/nvm.sh\"; nvm install 24; nvm alias default 24; nvm use 24; fi\ncorepack enable\ncorepack prepare pnpm@11.16.0 --activate\npnpm install --frozen-lockfile"
+  "install": "export NVM_DIR=\"${NVM_DIR:-$HOME/.nvm}\"\nif [ -s \"$NVM_DIR/nvm.sh\" ]; then . \"$NVM_DIR/nvm.sh\"; nvm install 24; nvm alias default 24; nvm use 24; fi\ncursor_node_bin=$(dirname \"$(command -v node)\")\nfor cursor_profile in \"$HOME/.bashrc\" \"$HOME/.bash_profile\"; do\n  cursor_profile_tmp=$(mktemp \"${cursor_profile}.XXXXXX\")\n  printf 'export PATH=\"%s:$PATH\" # cursor-cloud-node24\\n' \"$cursor_node_bin\" > \"$cursor_profile_tmp\"\n  if [ -f \"$cursor_profile\" ]; then sed '/# cursor-cloud-node24$/d' \"$cursor_profile\" >> \"$cursor_profile_tmp\"; fi\n  mv \"$cursor_profile_tmp\" \"$cursor_profile\"\ndone\ncorepack enable\ncorepack prepare pnpm@11.16.0 --activate\npnpm install --frozen-lockfile"
 }
