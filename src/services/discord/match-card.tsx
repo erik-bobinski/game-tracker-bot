@@ -65,10 +65,10 @@ const colors = {
 } as const;
 
 const verdictColors = {
-  win: "#3ba55d",
-  loss: "#ed4245",
-  draw: "#f0b232",
-  unknown: "#9a9ea6",
+  win: colors.up,
+  loss: colors.down,
+  draw: colors.gold,
+  unknown: colors.muted,
 } as const;
 
 const teamColor = (team: MatchTeam) =>
@@ -366,7 +366,6 @@ const Card = ({
       padding: PADDING,
       borderRadius: 14,
       backgroundColor: colors.card,
-      backgroundImage: `linear-gradient(180deg, ${accent}40 0%, ${colors.card} 90px)`,
       fontFamily: "Inter",
       color: colors.text,
     }}
@@ -389,10 +388,16 @@ const Card = ({
       >
         <div
           style={{
+            display: "flex",
+            alignSelf: "flex-start",
+            padding: "4px 10px",
+            borderRadius: 6,
+            backgroundColor: accent,
+            color: colors.card,
             fontSize: 24,
             fontWeight: 800,
-            color: accent,
             letterSpacing: 1.5,
+            whiteSpace: "nowrap",
           }}
         >
           {label.toUpperCase()}
