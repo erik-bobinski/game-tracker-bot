@@ -9,7 +9,7 @@ import {
 } from "../discord/commands.ts";
 import { gameNames, type GameId } from "../game/index.ts";
 
-const SOURCE_URL = "https://github.com/syan-alt/riot-tracker-bot";
+const SOURCE_URL = "https://github.com/erik-bobinski/riot-tracker-bot";
 const UPDATED = "October 10, 2026";
 
 export interface Site {
