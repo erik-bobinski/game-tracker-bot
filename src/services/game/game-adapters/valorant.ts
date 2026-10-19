@@ -221,7 +221,7 @@ const anonymous = <P extends MatchPlayerIdentity>({
   ...player
 }: P) => ({ ...player, riotName: "", riotTag: "" });
 
-const onlyOptedInNamed = (
+export const onlyOptedInNamed = (
   match: MatchDetails,
   trackedPlayers: ReadonlyArray<{ readonly puuid: Puuid }>,
 ): MatchDetails => {
@@ -252,7 +252,6 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
 
   const adapter: GameAdapter = {
     game: "valorant",
-    requiresMatchHistory: false,
     // riot only lets a VALORANT player's data be shown once they sign in with
     // riot to opt in, so signing up by riot id alone doesn't track it
     requiresOptIn: true,

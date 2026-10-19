@@ -1,4 +1,4 @@
-import { Clock, Context, Duration, Effect, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { Database } from "../database/index.ts";
 import { Discord } from "../discord/index.ts";
 import {
@@ -24,34 +24,24 @@ interface TrackedPlayer {
   readonly guildIds: ReadonlyArray<string>;
   // when the newest match reported for them started
   readonly lastReportedAt: number;
+  readonly reportedMatchIds: ReadonlySet<MatchId>;
 }
 
 interface PendingMatch {
   readonly adapter: GameAdapter;
   readonly matchId: MatchId;
   readonly players: Array<TrackedPlayer>;
+  // everyone tracked in this game, including anyone whose lookup missed it
+  readonly tracked: ReadonlyArray<TrackedPlayer>;
   readonly currentRankSnapshots: Map<Puuid, RankSnapshots>;
 }
-
-// Someone who just played is likely to queue again, so they're polled every
-// minute, then less often the longer they stay idle, down to every 15 minutes.
-// The first report after a break lags by up to an eighth of the break.
-const pollInterval = (idleMillis: number) =>
-  Duration.clamp(Duration.millis(idleMillis / 8), {
-    minimum: Duration.minutes(1),
-    maximum: Duration.minutes(15),
-  });
 
 const makeMatchEngine = Effect.gen(function* () {
   const database = yield* Database;
   const gameAdapters = yield* GameAdapters;
   const discord = yield* Discord;
-  // when each riot account was last polled, per game; kept in memory, so a
-  // restart polls everyone once
-  const lastPolledAt = new Map<string, number>();
 
   const pollOnce = Effect.fn("MatchEngine.pollOnce")(function* () {
-    const now = yield* Clock.currentTimeMillis;
     const [accounts, guilds] = yield* Effect.all([
       database.getAccounts(),
       database.getGuilds(),
@@ -66,10 +56,18 @@ const makeMatchEngine = Effect.gen(function* () {
     );
     const pending = new Map<string, PendingMatch>();
     let accountsPolled = 0;
+    // updated as renames are saved, so a later match in this poll compares
+    // against what an earlier one saved
+    const savedRiotIds = new Map(
+      accounts.map((account) => [
+        account.discordUserId,
+        `${account.riotName}#${account.riotTag}`,
+      ]),
+    );
 
     for (const adapter of gameAdapters.all) {
       const currentRankSnapshots = new Map<Puuid, RankSnapshots>();
-      const due = accounts.flatMap((account) => {
+      const tracked = accounts.flatMap((account) => {
         const state = account.games[adapter.game];
         const guildIds = account.guildIds.filter((id) => channels.has(id));
         if (!state || guildIds.length === 0) return [];
@@ -81,22 +79,9 @@ const makeMatchEngine = Effect.gen(function* () {
           0,
           ...state.reportedMatches.map((match) => match.date),
         );
-        const key = `${adapter.game}:${state.puuid}`;
-        const polledAt = lastPolledAt.get(key);
-        if (
-          polledAt !== undefined &&
-          now - polledAt < Duration.toMillis(pollInterval(now - lastReportedAt))
-        ) {
-          return [];
-        }
-
         return [
           {
-            key,
             riotId: `${account.riotName}#${account.riotTag}`,
-            reported: new Set(
-              state.reportedMatches.map((match) => match.matchId),
-            ),
             player: {
               discordName: account.discordName,
               discordUserId: account.discordUserId,
@@ -104,24 +89,26 @@ const makeMatchEngine = Effect.gen(function* () {
               region: state.region,
               guildIds,
               lastReportedAt,
+              reportedMatchIds: new Set(
+                state.reportedMatches.map((match) => match.matchId),
+              ),
             },
           },
         ];
       });
-      accountsPolled += due.length;
+      const trackedPlayers = tracked.map(({ player }) => player);
+      accountsPolled += tracked.length;
 
       yield* Effect.forEach(
-        due,
-        ({ key, riotId, reported, player }) =>
+        tracked,
+        ({ riotId, player }) =>
           Effect.gen(function* () {
-            // set up front, so an account whose lookup fails waits too
-            lastPolledAt.set(key, now);
             const matchIds = yield* adapter.getRecentMatchIds(
               player.puuid,
               player.region,
             );
             for (const matchId of matchIds) {
-              if (reported.has(matchId)) continue;
+              if (player.reportedMatchIds.has(matchId)) continue;
               const id = `${adapter.game}:${matchId}`;
               const entry = pending.get(id);
               if (entry) entry.players.push(player);
@@ -130,6 +117,7 @@ const makeMatchEngine = Effect.gen(function* () {
                   adapter,
                   matchId,
                   players: [player],
+                  tracked: trackedPlayers,
                   currentRankSnapshots,
                 });
               }
@@ -156,7 +144,22 @@ const makeMatchEngine = Effect.gen(function* () {
       pending.values(),
       (entry) =>
         entry.adapter.getMatch(entry.matchId, entry.players[0]?.region).pipe(
-          Effect.map((match) => ({ ...entry, match })),
+          Effect.map((match) => ({
+            ...entry,
+            match,
+            // riot can list a match for one player before another, or one
+            // player's lookup can fail, so whoever's list has it takes in the
+            // others who played it, for one report
+            players: [
+              ...entry.players,
+              ...entry.tracked.filter(
+                (player) =>
+                  !entry.players.includes(player) &&
+                  !player.reportedMatchIds.has(entry.matchId) &&
+                  match?.players.some((p) => p.puuid === player.puuid),
+              ),
+            ],
+          })),
           Effect.catchTag("GameApiError", (error) =>
             logApiWarning("match unavailable; retrying next poll", error).pipe(
               Effect.annotateLogs({ matchId: entry.matchId }),
@@ -184,6 +187,27 @@ const makeMatchEngine = Effect.gen(function* () {
         ? players.filter((player) => match.date > player.lastReportedAt)
         : [];
       const rankSnapshotsByDiscordUserId: Record<string, RankSnapshots> = {};
+
+      // a /link sign-in can be a different riot account than the saved id, so
+      // only games found by that id rename it; matches go oldest first, so
+      // the newest name is saved last
+      for (const player of adapter.requiresOptIn ? [] : fresh) {
+        const current = match?.players.find((p) => p.puuid === player.puuid);
+        if (!current?.riotName || !current.riotTag) continue;
+        const riotId = `${current.riotName}#${current.riotTag}`;
+        const saved = savedRiotIds.get(player.discordUserId);
+        if (saved === riotId) continue;
+        yield* database.updateRiotId({
+          game: adapter.game,
+          puuid: player.puuid,
+          riotName: current.riotName,
+          riotTag: current.riotTag,
+        });
+        savedRiotIds.set(player.discordUserId, riotId);
+        yield* Effect.logInfo("riot id renamed").pipe(
+          Effect.annotateLogs({ game: adapter.game, from: saved, to: riotId }),
+        );
+      }
 
       if (match && fresh.length > 0) {
         const enrichment = yield* enrichOrSkip(adapter, {

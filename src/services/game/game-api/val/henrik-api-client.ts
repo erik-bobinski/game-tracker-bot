@@ -3,6 +3,8 @@ import * as HttpBody from "effect/unstable/http/HttpBody";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
+import { RateLimiter } from "effect/unstable/persistence";
+import { RiotRateLimiterLive } from "../riot/http.ts";
 import { Puuid, type MatchId, type ResolvedAccount } from "../../index.ts";
 import {
   ValAccountResponse,
@@ -18,7 +20,7 @@ export interface ValRank {
   readonly tier: string;
   readonly rr: number;
   readonly wins: number | undefined;
-  readonly losses: number | undefined;
+  readonly games: number | undefined;
 }
 
 export class HenrikApiClient extends Context.Service<
@@ -84,6 +86,17 @@ export const HenrikApiClientLive = Layer.effect(
         HttpClientRequest.setHeader("Authorization", Redacted.value(apiKey)),
       ),
       HttpClient.filterStatusOk,
+      // every player is polled at once, so requests wait their turn under the
+      // key's per-minute limit, which henrik states on each response
+      HttpClient.withRateLimiter({
+        limiter: yield* RateLimiter.RateLimiter,
+        key: "henrik",
+        limit: 30,
+        window: "1 minute",
+        times: 3,
+      }),
+      // the in-memory store can't fail
+      HttpClient.catchTag("RateLimiterError", Effect.die),
       HttpClient.retryTransient({ times: 3 }),
     );
 
@@ -152,12 +165,12 @@ export const HenrikApiClientLive = Layer.effect(
       const tier = data.current?.tier?.name;
       if (!tier) return undefined;
 
-      const act = data.seasonal?.at(-1);
+      const act = data.seasonal?.findLast((season) => season.games > 0);
       return {
         tier,
         rr: data.current?.rr ?? 0,
         wins: act?.wins,
-        losses: act ? act.games - act.wins : undefined,
+        games: act?.games,
       };
     });
 
@@ -183,4 +196,4 @@ export const HenrikApiClientLive = Layer.effect(
       getMmrHistory,
     });
   }),
-);
+).pipe(Layer.provide(RiotRateLimiterLive));

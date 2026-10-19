@@ -54,7 +54,7 @@ dfx can emit READY before `makeDiscord` subscribes. `src/services/discord/index.
 
 ## Valorant Henrik 404
 
-A 404 whose body asks the player to finish a game is a missing game, not a harness failure. League can still be in `games` / `tracked`. Second refresh must have `added: []`.
+A 404 whose body asks the player to finish a game is a missing game, not a harness failure. It lands in `notFound`; League can still be added. A second track of the same game must have `added: []`.
 
 ## Cloud runtime
 

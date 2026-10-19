@@ -141,7 +141,6 @@ export const makeHenrikValorantAdapter = Effect.gen(function* () {
 
   const adapter: GameAdapter = {
     game: "valorant",
-    requiresMatchHistory: false,
     requiresOptIn: false,
     iconUrl: valorantIconUrl,
     rankIcons: valorantRankIcons,
@@ -255,8 +254,8 @@ export const makeHenrikValorantAdapter = Effect.gen(function* () {
 
         const iconKey = rankIconKey(rank.tier);
         const record =
-          rank.wins !== undefined && rank.losses !== undefined
-            ? ` · ${rank.wins}W ${rank.losses}L`
+          rank.wins !== undefined && rank.games !== undefined
+            ? ` · ${rank.wins}W · ${rank.games} games`
             : "";
         return {
           tier: rank.tier,

@@ -110,7 +110,6 @@ export const makeLolGameAdapter = Effect.gen(function* () {
 
   const adapter: GameAdapter = {
     game: "lol",
-    requiresMatchHistory: false,
     requiresOptIn: false,
     iconUrl: `${STATIC_ASSETS}/lol_icon.png`,
     rankIcons: riotRankIcons,

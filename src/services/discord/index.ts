@@ -27,7 +27,11 @@ import { PollingState } from "../polling/state.ts";
 import { Rso } from "../rso/index.ts";
 import { commands } from "./commands.ts";
 import type { MatchReport } from "./embed.ts";
-import { makeMatchCard, postMatchReport } from "./match-card.tsx";
+import {
+  makeMatchCard,
+  postMatchReport,
+  type MatchCard,
+} from "./match-card.tsx";
 import { provisionRankEmojis } from "./rank-emojis.ts";
 
 export class DiscordError extends Schema.TaggedError<DiscordError>()(
@@ -52,6 +56,8 @@ export class Discord extends Context.Service<
       readonly name: string;
       readonly inviteUrl: string;
     };
+    // renders a report's scoreboard png, as posted with each report
+    readonly card: MatchCard;
   }
 >()("app/Discord") {}
 
@@ -254,6 +260,7 @@ const makeDiscord = Effect.gen(function* () {
       name: application.name,
       inviteUrl: `https://discord.com/oauth2/authorize?client_id=${application.id}&scope=bot+applications.commands&permissions=${reportPermissions}`,
     },
+    card,
   });
 });
 

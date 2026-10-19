@@ -23,9 +23,11 @@ import {
   MemoryRateLimitStoreLive,
 } from "dfx";
 import {
+  formatTrackResult,
+  formatUntrackResult,
   registerAccount,
-  refreshAccount,
-  formatRefreshResult,
+  trackGames,
+  untrackGames,
 } from "../services/discord/commands.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
 import type { MatchReport } from "../services/discord/embed.ts";
@@ -338,9 +340,15 @@ const status = Command.make(
   ),
 );
 
+const gamesFlag = Flag.choice("game", gameIds).pipe(
+  Flag.withDescription("a game to pick; repeat it for several"),
+  Flag.atLeast(0),
+);
+
 const signup = Command.make(
   "signup",
   {
+    games: gamesFlag,
     target: Argument.string("riot-id").pipe(
       Argument.withDescription("riot id to track, as name#tag (e.g. syan#NA1)"),
       Argument.optional,
@@ -362,7 +370,7 @@ const signup = Command.make(
       Flag.optional,
     ),
   },
-  Effect.fn(function* ({ target, discordId, discordName, guild }) {
+  Effect.fn(function* ({ target, discordId, discordName, guild, games }) {
     const { json } = yield* admin;
     const database = yield* Database;
 
@@ -404,26 +412,27 @@ const signup = Command.make(
           riotTag,
           guildIds: Option.toArray(guild),
         },
+        games,
       ).pipe(orFail("Signup failed")),
     );
 
     if (result === "not-found") {
       return yield* fail(
-        `No recent data in any supported game for ${riotName}#${riotTag}; nothing was saved.`,
+        `Couldn't find ${riotName}#${riotTag}; nothing was saved.`,
       );
     }
 
     const account = yield* database
       .getAccount(discordUserId)
       .pipe(orFail("Signup saved but could not be read back"));
-    const games = account ? trackedGames(account) : [];
+    const tracked = account ? trackedGames(account) : [];
 
     yield* emit(
       json,
-      { discordUserId, riotId: `${riotName}#${riotTag}`, games },
+      { discordUserId, riotId: `${riotName}#${riotTag}`, games: tracked },
       [
         `Signed up ${riotName}#${riotTag} for discord user ${discordUserId}.`,
-        `Tracking: ${games.map((game) => gameNames[game]).join(", ") || "nothing"}`,
+        `Tracking: ${tracked.map((game) => gameNames[game]).join(", ") || "nothing"}`,
       ],
     );
   }),
@@ -432,7 +441,7 @@ const signup = Command.make(
   Command.withExamples([
     {
       command:
-        "admin signup syan#NA1 --discord-id 195042765893632000 --guild 1196263431012073472",
+        "admin signup syan#NA1 --discord-id 195042765893632000 --guild 1196263431012073472 --game lol --game tft",
       description: "Sign someone up in a server without them running /signup",
     },
   ]),
@@ -637,28 +646,39 @@ const rankCheck = Command.make(
   Command.withAlias("rank"),
 );
 
-const refresh = Command.make(
-  "refresh",
-  {
-    target: Argument.string("target").pipe(
-      Argument.withDescription("discord id, discord name, or riot id"),
-      Argument.optional,
-    ),
-  },
-  Effect.fn(function* ({ target }) {
+const pickGames = {
+  target: Argument.string("target").pipe(
+    Argument.withDescription("discord id, discord name, or riot id"),
+    Argument.optional,
+  ),
+  games: gamesFlag,
+  all: Flag.boolean("all").pipe(Flag.withDescription("every game")),
+};
+
+const pickedGames = (games: ReadonlyArray<GameId>, all: boolean) =>
+  all
+    ? Effect.succeed(gameIds)
+    : games.length > 0
+      ? Effect.succeed(games)
+      : fail("Pass --game at least once, or --all.");
+
+const track = Command.make(
+  "track",
+  pickGames,
+  Effect.fn(function* ({ target, games, all }) {
     const { json } = yield* admin;
     const database = yield* Database;
-    const list = yield* accounts;
+    const picked = yield* pickedGames(games, all);
     const account = yield* resolveAccount(
       json,
-      list,
+      yield* accounts,
       target,
-      "Refresh which account?",
+      "Track games for which account?",
     );
 
     const result = yield* withGameAdapters((adapters) =>
-      refreshAccount({ database, gameAdapters: adapters }, account).pipe(
-        orFail("Refresh failed"),
+      trackGames({ database, gameAdapters: adapters }, account, picked).pipe(
+        orFail("Track failed"),
       ),
     );
 
@@ -667,20 +687,16 @@ const refresh = Command.make(
       {
         discordUserId: account.discordUserId,
         riotId: riotId(account),
-        added: result.added,
-        tracked: result.tracked,
-        missing: result.missing,
+        ...result,
       },
       [
-        `Refreshed ${account.discordName} (${riotId(account)}).`,
-        formatRefreshResult(result),
+        `${account.discordName} (${riotId(account)}):`,
+        formatTrackResult(result, false),
       ],
     );
   }),
 ).pipe(
-  Command.withDescription(
-    "Recheck a signed-up account for games that weren't found at signup",
-  ),
+  Command.withDescription("Start reporting games for a signed-up account"),
 );
 
 // Riot encrypts puuids per product key, so moving a game to another key (a
@@ -778,6 +794,39 @@ const rekey = Command.make(
     },
   ]),
 );
+
+const untrack = Command.make(
+  "untrack",
+  pickGames,
+  Effect.fn(function* ({ target, games, all }) {
+    const { json } = yield* admin;
+    const database = yield* Database;
+    const picked = yield* pickedGames(games, all);
+    const account = yield* resolveAccount(
+      json,
+      yield* accounts,
+      target,
+      "Untrack games for which account?",
+    );
+
+    const result = yield* untrackGames(database, account, picked).pipe(
+      orFail("Untrack failed"),
+    );
+
+    yield* emit(
+      json,
+      {
+        discordUserId: account.discordUserId,
+        riotId: riotId(account),
+        ...result,
+      },
+      [
+        `${account.discordName} (${riotId(account)}):`,
+        formatUntrackResult(result),
+      ],
+    );
+  }),
+).pipe(Command.withDescription("Stop reporting games for a signed-up account"));
 
 const sendReport = Effect.fn("Admin.sendReport")(function* (
   report: MatchReport,
@@ -936,8 +985,9 @@ const cli = admin.pipe(
     pause,
     resume,
     rankCheck,
-    refresh,
     rekey,
+    track,
+    untrack,
     reportMock,
     reportMatch,
   ]),

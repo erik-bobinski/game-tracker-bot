@@ -69,6 +69,18 @@ export class Database extends Context.Service<
       readonly game: GameId;
       readonly state: GameState;
     }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    // riot ids can be renamed, while the puuid stays the same; saved for
+    // whoever tracks that puuid now
+    readonly updateRiotId: (input: {
+      readonly game: GameId;
+      readonly puuid: Puuid;
+      readonly riotName: string;
+      readonly riotTag: string;
+    }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    readonly removeGames: (input: {
+      readonly discordUserId: string;
+      readonly games: ReadonlyArray<GameId>;
+    }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
     readonly getAccounts: () => Effect.Effect<
       ReadonlyArray<Account>,
       SqlError | Schema.SchemaError
@@ -536,6 +548,22 @@ const makeDatabase = Effect.gen(function* () {
     });
   });
 
+  const updateRiotId = SqlSchema.void({
+    Request: Schema.Struct({
+      game: GameId,
+      puuid: Puuid,
+      riotName: Schema.String,
+      riotTag: Schema.String,
+    }),
+    execute: ({ game, puuid, riotName, riotTag }) => sql`
+      UPDATE accounts SET riot_name = ${riotName}, riot_tag = ${riotTag}
+      WHERE discord_user_id = (
+        SELECT discord_user_id FROM account_games
+        WHERE game = ${game} AND puuid = ${puuid}
+      )
+    `,
+  });
+
   const accountRowsQuery = SqlSchema.findAll({
     Request: Schema.Struct({}),
     Result: AccountRow,
@@ -640,6 +668,17 @@ const makeDatabase = Effect.gen(function* () {
     Request: Schema.Struct({ discordUserId: Schema.String }),
     execute: ({ discordUserId }) => sql`
       DELETE FROM account_games WHERE discord_user_id = ${discordUserId}
+    `,
+  });
+
+  const removeGames = SqlSchema.void({
+    Request: Schema.Struct({
+      discordUserId: Schema.String,
+      games: Schema.Array(GameId),
+    }),
+    execute: ({ discordUserId, games }) => sql`
+      DELETE FROM account_games
+      WHERE discord_user_id = ${discordUserId} AND ${sql.in("game", games)}
     `,
   });
 
@@ -926,6 +965,8 @@ const makeDatabase = Effect.gen(function* () {
   return Database.of({
     addAccount,
     addGame,
+    updateRiotId,
+    removeGames,
     getAccounts,
     getAccount,
     hasAccount,

@@ -330,7 +330,7 @@ export const buildMockMatchReport = (game: GameId) =>
 
     return {
       tracked: match.players.slice(0, 2).map((player, index) => ({
-        discordName: index === 0 ? "VerifyAgent" : "VerifyTeammate",
+        discordName: index === 0 ? "Alex" : "Sam",
         puuid: player.puuid,
       })),
       match,
@@ -475,13 +475,18 @@ const devSignup = (deps: CommandDeps) =>
             { payload: { content } },
           );
 
-        const register = registerAccount(deps, {
-          discordUserId,
-          discordName,
-          riotName,
-          riotTag,
-          guildIds: [guildId],
-        }).pipe(
+        const register = registerAccount(
+          deps,
+          {
+            discordUserId,
+            discordName,
+            riotName,
+            riotTag,
+            guildIds: [guildId],
+          },
+          // every game, so a dev signup reports without a /track step
+          deps.gameAdapters.all.map((adapter) => adapter.game),
+        ).pipe(
           Effect.flatMap((result) =>
             followUp(
               result === "ok"
