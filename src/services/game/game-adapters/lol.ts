@@ -213,7 +213,11 @@ export const makeLolGameAdapter = Effect.gen(function* () {
         });
         updatedRankSnapshots.set(tracked.puuid, {
           ...tracked.previousRankSnapshots,
-          [queueType]: { standing, points: entry.leaguePoints },
+          [queueType]: {
+            standing,
+            points: entry.leaguePoints,
+            games: entry.wins + entry.losses,
+          },
         });
       }
 

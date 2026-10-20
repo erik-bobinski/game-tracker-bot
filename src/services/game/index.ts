@@ -116,7 +116,12 @@ export interface RankUpdate {
 // that game ranks separately, so the next report can diff against it
 export const RankSnapshots = Schema.Record(
   Schema.String,
-  Schema.Struct({ standing: Schema.String, points: Schema.Number }),
+  Schema.Struct({
+    standing: Schema.String,
+    points: Schema.Number,
+    // ranked games played so far, where the game reports it
+    games: Schema.optionalKey(Schema.Number),
+  }),
 );
 export type RankSnapshots = typeof RankSnapshots.Type;
 

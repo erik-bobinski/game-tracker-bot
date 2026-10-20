@@ -196,7 +196,11 @@ export const makeTftGameAdapter = Effect.gen(function* () {
         });
         updatedRankSnapshots.set(tracked.puuid, {
           ...tracked.previousRankSnapshots,
-          [RANKED_TFT]: { standing, points: entry.leaguePoints },
+          [RANKED_TFT]: {
+            standing,
+            points: entry.leaguePoints,
+            games: entry.wins + entry.losses,
+          },
         });
       }
 
