@@ -328,6 +328,7 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
             tierChange: {
               from: valorantRankInfo(previous.standing),
               to: valorantRankInfo(rank),
+              promoted: tier > previous.points,
             },
           } satisfies RankUpdate);
         }

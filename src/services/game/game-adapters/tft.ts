@@ -1,6 +1,10 @@
 import { Effect } from "effect";
 import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
-import { riotRankDisplay, riotRankIcons } from "../game-api/riot/ranks.ts";
+import {
+  riotRankDisplay,
+  riotRankIcons,
+  riotTierChange,
+} from "../game-api/riot/ranks.ts";
 import type { TftLeagueEntry, TftMatch } from "../game-api/tft/match-schema.ts";
 import type {
   MatchId,
@@ -191,6 +195,9 @@ export const makeTftGameAdapter = Effect.gen(function* () {
             : {}),
           current: comparable ? label : `${label} (${entry.leaguePoints} LP)`,
           unit: "LP",
+          ...(previous && !comparable
+            ? { tierChange: riotTierChange(previous.standing, entry) }
+            : {}),
         });
         updatedRankSnapshots.set(tracked.puuid, {
           ...tracked.previousRankSnapshots,

@@ -1,6 +1,10 @@
 import { Effect } from "effect";
 import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
-import { riotRankDisplay, riotRankIcons } from "../game-api/riot/ranks.ts";
+import {
+  riotRankDisplay,
+  riotRankIcons,
+  riotTierChange,
+} from "../game-api/riot/ranks.ts";
 import {
   GameApiError,
   RECENT_MATCH_COUNT,
@@ -209,6 +213,9 @@ export const makeLolGameAdapter = Effect.gen(function* () {
           // "·" already separates the report's fields, so keep LP parenthesised
           current: comparable ? label : `${label} (${entry.leaguePoints} LP)`,
           unit: "LP",
+          ...(previous && !comparable
+            ? { tierChange: riotTierChange(previous.standing, entry) }
+            : {}),
         });
         updatedRankSnapshots.set(tracked.puuid, {
           ...tracked.previousRankSnapshots,

@@ -43,3 +43,33 @@ export const riotRankDisplay = (entry: {
       : titleCase(entry.tier),
   };
 };
+
+const divisions = ["IV", "III", "II", "I"];
+
+const riotRankOrder = (entry: {
+  readonly tier: string;
+  readonly rank: string;
+}) =>
+  riotRankIcons.findIndex((icon) => icon.key === entry.tier.toLowerCase()) *
+    divisions.length +
+  divisions.indexOf(entry.rank);
+
+// from a stored "GOLD II" standing to the entry it moved to
+export const riotTierChange = (
+  previousStanding: string,
+  entry: { readonly tier: string; readonly rank: string },
+) => {
+  const [tier = "", rank = ""] = previousStanding.split(" ");
+  const rankInfo = (standing: {
+    readonly tier: string;
+    readonly rank: string;
+  }) => {
+    const { label, iconKey } = riotRankDisplay(standing);
+    return { tier: label, iconKey };
+  };
+  return {
+    from: rankInfo({ tier, rank }),
+    to: rankInfo(entry),
+    promoted: riotRankOrder(entry) > riotRankOrder({ tier, rank }),
+  };
+};

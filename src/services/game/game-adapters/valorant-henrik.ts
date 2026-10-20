@@ -243,6 +243,7 @@ export const makeHenrikValorantAdapter = Effect.gen(function* () {
                       tierChange: {
                         from: valorantRankInfo(before),
                         to: valorantRankInfo(entry.current),
+                        promoted: entry.delta > 0,
                       },
                     }
                   : {}),

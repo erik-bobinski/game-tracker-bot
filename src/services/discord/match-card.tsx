@@ -226,7 +226,7 @@ const Row = ({
   const update = report.rankUpdates.get(player.puuid);
   const delta = rankDelta(update);
   const change = update?.tierChange;
-  const changeColor = (update?.delta ?? 0) > 0 ? colors.up : colors.down;
+  const changeColor = change?.promoted ? colors.up : colors.down;
   const deltaText = delta ? (
     <div
       style={{
@@ -269,7 +269,7 @@ const Row = ({
         >
           {change ? (
             <Badge
-              label={changeColor === colors.up ? "Rank up" : "Derank"}
+              label={change.promoted ? "Rank up" : "Derank"}
               color={changeColor}
             />
           ) : null}
