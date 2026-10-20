@@ -1,4 +1,4 @@
-# riot-tracker-bot
+# game-tracker-bot
 
 A Discord bot that reports finished matches for opted-in users. Someone signs
 up with their Riot ID in a server, and when they finish a game the bot posts a
@@ -37,7 +37,7 @@ exists once the bot has a Riot Sign On client, see
 ## Deployment
 
 Production runs on [Railway](https://game-tracker-bot.up.railway.app).
-Pushes to `master` in `erik-bobinski/riot-tracker-bot` run GitHub Actions CI
+Pushes to `master` in `erik-bobinski/game-tracker-bot` run GitHub Actions CI
 and automatically deploy to the existing Railway service. Its persistent
 `/data` volume keeps the bot database across deployments.
 
