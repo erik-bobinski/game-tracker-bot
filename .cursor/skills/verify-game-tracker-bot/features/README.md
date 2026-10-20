@@ -1,4 +1,4 @@
-# riot-tracker-bot verification map
+# game-tracker-bot verification map
 
 Headless verification for cloud agents. Read this index, then the feature file for the behavior under test.
 

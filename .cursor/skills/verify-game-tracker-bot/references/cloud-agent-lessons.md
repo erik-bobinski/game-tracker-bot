@@ -17,15 +17,15 @@ pnpm exec railway api 'query { projects { edges { node { id name } } } }'
 
 Production in this repo has been:
 
-- project name `riot-tracker-bot`
-- service name `riot-tracker-bot`
+- project name `game-tracker-bot`
+- service name `game-tracker-bot`
 - environment name `production`
 
 Export before ssh (names or ids):
 
 ```bash
 export RAILWAY_PROJECT_ID=<project-id>
-export RAILWAY_SERVICE=riot-tracker-bot
+export RAILWAY_SERVICE=game-tracker-bot
 export RAILWAY_ENVIRONMENT=production
 ```
 
@@ -39,7 +39,7 @@ The CLI reads `RAILWAY_API_TOKEN`. Cursor Cloud may inject `RAILWAY_API_KEY` or 
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
 pnpm exec railway ssh keys add -k ~/.ssh/id_ed25519.pub -n cursor-cloud-verify
 ssh-keyscan -t ed25519 ssh.railway.com >> ~/.ssh/known_hosts
-pnpm exec railway ssh --service riot-tracker-bot -- pnpm admin status --json
+pnpm exec railway ssh --service game-tracker-bot -- pnpm admin status --json
 ```
 
 Banners go to stderr. JSON is on stdout; slice from the first `{`.

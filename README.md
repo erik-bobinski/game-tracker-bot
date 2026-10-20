@@ -47,7 +47,7 @@ The same operations, without Discord. It runs inside the production container,
 next to the bot:
 
 ```sh
-railway ssh --service riot-tracker-bot
+railway ssh --service game-tracker-bot
 pnpm admin <command>
 ```
 
