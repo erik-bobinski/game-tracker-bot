@@ -51,6 +51,11 @@ export const valorantRankIconKey = (rank: string) => {
   return key && key !== "unrated" ? key : undefined;
 };
 
+export const valorantRankInfo = (tier: string): RankInfo => {
+  const iconKey = valorantRankIconKey(tier);
+  return { tier, ...(iconKey ? { iconKey } : {}) };
+};
+
 const tierSet = "03621f52-342b-cf4e-4f86-9350a49c6d04";
 export const valorantRankIcons = [...tierNames].map(([tier, name]) => ({
   key: name.toLowerCase().replaceAll(" ", "_"),
@@ -320,6 +325,10 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
             delta: tier - previous.points,
             current: rank,
             unit: "tier",
+            tierChange: {
+              from: valorantRankInfo(previous.standing),
+              to: valorantRankInfo(rank),
+            },
           } satisfies RankUpdate);
         }
         enrichment.updatedRankSnapshots.set(tracked.puuid, {

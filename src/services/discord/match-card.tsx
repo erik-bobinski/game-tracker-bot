@@ -199,6 +199,7 @@ interface CardImages {
   readonly game?: string | undefined;
   readonly characters: ReadonlyMap<Puuid, string>;
   readonly ranks: ReadonlyMap<Puuid, string>;
+  readonly previousRanks: ReadonlyMap<Puuid, string>;
 }
 
 const Row = ({
@@ -222,10 +223,28 @@ const Row = ({
   headline: string;
   detail?: string;
 }) => {
-  const delta = rankDelta(report.rankUpdates.get(player.puuid));
+  const update = report.rankUpdates.get(player.puuid);
+  const delta = rankDelta(update);
+  const change = update?.tierChange;
+  const changeColor = (update?.delta ?? 0) > 0 ? colors.up : colors.down;
+  const deltaText = delta ? (
+    <div
+      style={{
+        flexShrink: 0,
+        marginLeft: 5,
+        fontSize: 11.5,
+        fontWeight: 600,
+        color: delta.color,
+      }}
+    >
+      {delta.text}
+    </div>
+  ) : null;
   const rankIcon = images.ranks.get(player.puuid);
+  const previousRankIcon = images.previousRanks.get(player.puuid);
   // a player shown without a name was left anonymous, not unranked
   const label =
+    change?.to.tier ??
     player.rank ??
     (player.riotName && report.match.players.some((candidate) => candidate.rank)
       ? "Unranked"
@@ -244,10 +263,16 @@ const Row = ({
         borderLeft: `3px solid ${tracked ? colors.gold : colors.row}`,
       }}
     >
-      {mvp || player.flair ? (
+      {mvp || player.flair || change ? (
         <div
           style={{ display: "flex", position: "absolute", top: -5, right: 8 }}
         >
+          {change ? (
+            <Badge
+              label={changeColor === colors.up ? "Rank up" : "Derank"}
+              color={changeColor}
+            />
+          ) : null}
           {player.flair ? <Badge label={player.flair} color="#ff7a45" /> : null}
           {mvp ? <Badge label="MVP" color={colors.gold} /> : null}
         </div>
@@ -263,17 +288,23 @@ const Row = ({
           marginLeft: 7,
         }}
       >
-        <div
-          style={{
-            fontSize: 14,
-            fontWeight: tracked ? 800 : 600,
-            color: colors.text,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {name}
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <div
+            style={{
+              flexShrink: 1,
+              minWidth: 0,
+              fontSize: 14,
+              fontWeight: tracked ? 800 : 600,
+              color: colors.text,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {name}
+          </div>
+          {/* the rank line is full with the tier step, so the change moves up */}
+          {change ? deltaText : null}
         </div>
         {label ? (
           <div
@@ -285,6 +316,22 @@ const Row = ({
               color: player.rank ? colors.muted : colors.faint,
             }}
           >
+            {change ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  marginRight: 3,
+                }}
+              >
+                {previousRankIcon ? (
+                  <img src={previousRankIcon} width={15} height={15} />
+                ) : (
+                  <div>{change.from.tier}</div>
+                )}
+                <div style={{ marginLeft: 3, color: changeColor }}>›</div>
+              </div>
+            ) : null}
             {rankIcon ? (
               <img
                 src={rankIcon}
@@ -293,19 +340,15 @@ const Row = ({
                 style={{ marginRight: 3 }}
               />
             ) : null}
-            <div style={{ flexShrink: 0 }}>{label}</div>
-            {delta ? (
-              <div
-                style={{
-                  flexShrink: 0,
-                  marginLeft: 5,
-                  fontWeight: 600,
-                  color: delta.color,
-                }}
-              >
-                {delta.text}
-              </div>
-            ) : null}
+            <div
+              style={{
+                flexShrink: 0,
+                ...(change ? { fontWeight: 600, color: changeColor } : {}),
+              }}
+            >
+              {label}
+            </div>
+            {change ? null : deltaText}
           </div>
         ) : null}
       </div>
@@ -721,7 +764,11 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
           ),
         );
 
-      const { game, characters, ranks } = yield* Effect.all(
+      const rankIcon = (key: string | undefined) =>
+        key ? icons?.ranks.get(key) : undefined;
+      const tierChange = (player: MatchPlayerIdentity) =>
+        report.rankUpdates.get(player.puuid)?.tierChange;
+      const images = yield* Effect.all(
         {
           game: image(icons?.game),
           characters: perPlayer(
@@ -729,15 +776,17 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
             (player) => player.characterIconUrl,
           ),
           ranks: perPlayer(match.players, (player: MatchPlayerIdentity) =>
-            player.rankIconKey
-              ? icons?.ranks.get(player.rankIconKey)
-              : undefined,
+            rankIcon(tierChange(player)?.to.iconKey ?? player.rankIconKey),
+          ),
+          previousRanks: perPlayer(
+            match.players,
+            (player: MatchPlayerIdentity) =>
+              rankIcon(tierChange(player)?.from.iconKey),
           ),
         },
         { concurrency: "unbounded" },
       );
 
-      const images = { game, characters, ranks };
       const runPromise = Effect.runPromiseWith(yield* Effect.context());
       return yield* Effect.tryPromise(async () => {
         const svg = await satori(

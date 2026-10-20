@@ -104,6 +104,8 @@ export interface RankUpdate {
   readonly delta?: number;
   readonly current?: string;
   readonly unit: string;
+  // set when the match moved them into another tier
+  readonly tierChange?: { readonly from: RankInfo; readonly to: RankInfo };
 }
 
 // the last standing an adapter persisted, keyed by whatever queue identifier
