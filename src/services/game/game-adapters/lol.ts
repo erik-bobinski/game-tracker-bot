@@ -3,7 +3,7 @@ import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
 import {
   riotRankDisplay,
   riotRankIcons,
-  riotTierChange,
+  riotRankChange,
 } from "../game-api/riot/ranks.ts";
 import {
   GameApiError,
@@ -203,19 +203,13 @@ export const makeLolGameAdapter = Effect.gen(function* () {
         if (!entry) continue;
         const standing = lolStanding(entry);
         const { label } = riotRankDisplay(entry);
-        // a delta only means anything within the same tier and division
         const previous = tracked.previousRankSnapshots[queueType];
         const comparable = previous?.standing === standing;
         rankUpdates.set(tracked.puuid, {
-          ...(comparable
-            ? { delta: entry.leaguePoints - previous.points }
-            : {}),
+          ...riotRankChange(previous, entry),
           // "·" already separates the report's fields, so keep LP parenthesised
           current: comparable ? label : `${label} (${entry.leaguePoints} LP)`,
           unit: "LP",
-          ...(previous && !comparable
-            ? { tierChange: riotTierChange(previous.standing, entry) }
-            : {}),
         });
         updatedRankSnapshots.set(tracked.puuid, {
           ...tracked.previousRankSnapshots,

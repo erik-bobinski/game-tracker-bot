@@ -1,3 +1,5 @@
+import type { RankUpdate } from "../../index.ts";
+
 export const riotApexTiers = new Set(["master", "grandmaster", "challenger"]);
 
 const STATIC_ASSETS =
@@ -54,22 +56,40 @@ const riotRankOrder = (entry: {
     divisions.length +
   divisions.indexOf(entry.rank);
 
-// from a stored "GOLD II" standing to the entry it moved to
-export const riotTierChange = (
-  previousStanding: string,
-  entry: { readonly tier: string; readonly rank: string },
-) => {
-  const [tier = "", rank = ""] = previousStanding.split(" ");
-  const rankInfo = (standing: {
+// The LP a game moved a stored "GOLD II" standing by. LP carries over on a
+// promotion and on a drop within a tier, and master and up share one pool, so
+// only dropping a tier, which lands on 25, 50 or 75 LP by MMR, has no delta.
+export const riotRankChange = (
+  previous: { readonly standing: string; readonly points: number } | undefined,
+  entry: {
     readonly tier: string;
     readonly rank: string;
-  }) => {
+    readonly leaguePoints: number;
+  },
+): Pick<RankUpdate, "delta" | "tierChange"> => {
+  if (!previous) return {};
+  const [tier = "", rank = ""] = previous.standing.split(" ");
+  const lp = entry.leaguePoints;
+  if (tier === entry.tier && rank === entry.rank) {
+    return { delta: lp - previous.points };
+  }
+  const from = { tier, rank };
+  const promoted = riotRankOrder(entry) > riotRankOrder(from);
+  const delta =
+    riotApexTiers.has(tier.toLowerCase()) &&
+    riotApexTiers.has(entry.tier.toLowerCase())
+      ? lp - previous.points
+      : promoted
+        ? 100 - previous.points + lp
+        : tier === entry.tier
+          ? lp - 100 - previous.points
+          : undefined;
+  const rankInfo = (standing: typeof from) => {
     const { label, iconKey } = riotRankDisplay(standing);
     return { tier: label, iconKey };
   };
   return {
-    from: rankInfo({ tier, rank }),
-    to: rankInfo(entry),
-    promoted: riotRankOrder(entry) > riotRankOrder({ tier, rank }),
+    ...(delta === undefined ? {} : { delta }),
+    tierChange: { from: rankInfo(from), to: rankInfo(entry), promoted },
   };
 };

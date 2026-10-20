@@ -3,7 +3,7 @@ import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
 import {
   riotRankDisplay,
   riotRankIcons,
-  riotTierChange,
+  riotRankChange,
 } from "../game-api/riot/ranks.ts";
 import type { TftLeagueEntry, TftMatch } from "../game-api/tft/match-schema.ts";
 import type {
@@ -190,14 +190,9 @@ export const makeTftGameAdapter = Effect.gen(function* () {
         const previous = tracked.previousRankSnapshots[RANKED_TFT];
         const comparable = previous?.standing === standing;
         rankUpdates.set(tracked.puuid, {
-          ...(comparable
-            ? { delta: entry.leaguePoints - previous.points }
-            : {}),
+          ...riotRankChange(previous, entry),
           current: comparable ? label : `${label} (${entry.leaguePoints} LP)`,
           unit: "LP",
-          ...(previous && !comparable
-            ? { tierChange: riotTierChange(previous.standing, entry) }
-            : {}),
         });
         updatedRankSnapshots.set(tracked.puuid, {
           ...tracked.previousRankSnapshots,
