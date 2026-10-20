@@ -45,6 +45,11 @@ const tierNames = new Map<number, string>([
   [27, "Radiant"] as const,
 ]);
 
+// "Gold 2" -> 13, its place on the ladder
+export const valorantTierLevels = new Map(
+  [...tierNames].map(([tier, name]) => [name, tier] as const),
+);
+
 // "Gold 2" -> "gold_2", the key of its icon
 export const valorantRankIconKey = (rank: string) => {
   const key = rank.toLowerCase().replaceAll(" ", "_");
@@ -310,14 +315,12 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
         onlyOptedInNamed(match, trackedPlayers),
       );
       if (match.mode !== queueNames[COMPETITIVE]) return enrichment;
-      const levels = new Map(
-        [...tierNames].map(([tier, name]) => [name, tier] as const),
-      );
       for (const tracked of trackedPlayers) {
         const rank = match.players.find(
           (player) => player.puuid === tracked.puuid,
         )?.rank;
-        const tier = rank === undefined ? undefined : levels.get(rank);
+        const tier =
+          rank === undefined ? undefined : valorantTierLevels.get(rank);
         if (rank === undefined || tier === undefined) continue;
         const previous = tracked.previousRankSnapshots[COMPETITIVE];
         if (previous && previous.points !== tier) {

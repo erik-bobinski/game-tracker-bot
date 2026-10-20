@@ -3,7 +3,7 @@ import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
 import {
   riotRankDisplay,
   riotRankIcons,
-  riotRankChange,
+  riotRankStep,
 } from "../game-api/riot/ranks.ts";
 import type { TftLeagueEntry, TftMatch } from "../game-api/tft/match-schema.ts";
 import type {
@@ -74,9 +74,6 @@ const rankedTftEntry = (entries: ReadonlyArray<TftLeagueEntry>) => {
 };
 
 type RankedTft = NonNullable<ReturnType<typeof rankedTftEntry>>;
-
-const tftStanding = (entry: { tier: string; rank: string }) =>
-  `${entry.tier} ${entry.rank}`;
 
 export const tftMatchToDetails = (match: TftMatch): PlacementMatch => {
   const rawQueueId = match.info.queueId ?? match.info.queue_id;
@@ -185,22 +182,14 @@ export const makeTftGameAdapter = Effect.gen(function* () {
       for (const tracked of trackedPlayers) {
         const entry = ranks.get(tracked.puuid);
         if (!entry) continue;
-        const standing = tftStanding(entry);
-        const { label } = riotRankDisplay(entry);
-        const previous = tracked.previousRankSnapshots[RANKED_TFT];
-        const comparable = previous?.standing === standing;
-        rankUpdates.set(tracked.puuid, {
-          ...riotRankChange(previous, entry),
-          current: comparable ? label : `${label} (${entry.leaguePoints} LP)`,
-          unit: "LP",
-        });
+        const { update, snapshot } = riotRankStep(
+          tracked.previousRankSnapshots[RANKED_TFT],
+          entry,
+        );
+        rankUpdates.set(tracked.puuid, update);
         updatedRankSnapshots.set(tracked.puuid, {
           ...tracked.previousRankSnapshots,
-          [RANKED_TFT]: {
-            standing,
-            points: entry.leaguePoints,
-            games: entry.wins + entry.losses,
-          },
+          [RANKED_TFT]: snapshot,
         });
       }
 

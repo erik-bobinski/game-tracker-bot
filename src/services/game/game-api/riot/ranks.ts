@@ -1,4 +1,4 @@
-import type { RankSnapshots, RankUpdate } from "../../index.ts";
+import type { RankSnapshots } from "../../index.ts";
 
 export const riotApexTiers = new Set(["master", "grandmaster", "challenger"]);
 
@@ -56,13 +56,15 @@ const riotRankOrder = (entry: {
     divisions.length +
   divisions.indexOf(entry.rank);
 
-// The LP a game moved a stored "GOLD II" standing by. LP carries over on a
-// promotion and on a drop within a tier, and master and up share one pool, so
-// only dropping a tier, which lands on 25, 50 or 75 LP by MMR, has no delta.
-// The delta is only kept when exactly one ranked game separates the readings:
-// back to back games, a missed one, or an entry that hasn't caught up yet
-// would otherwise pin the wrong LP on this game.
-export const riotRankChange = (
+// What a tracked player's league entry says about the game just played, against
+// the standing stored after their last one, plus the standing to store now.
+// Only a reading exactly one ranked game on from the stored one can be pinned
+// on this game: back to back games, a missed one, an entry that hasn't caught
+// up yet, or a split reset would otherwise credit someone else's LP or rank
+// change to it. LP carries over on a promotion and on a drop within a tier,
+// and master and up share one pool, so only dropping a tier, which lands on
+// 25, 50 or 75 LP by MMR, has no delta.
+export const riotRankStep = (
   previous: RankSnapshots[string] | undefined,
   entry: {
     readonly tier: string;
@@ -71,20 +73,27 @@ export const riotRankChange = (
     readonly wins: number;
     readonly losses: number;
   },
-): Pick<RankUpdate, "delta" | "tierChange"> => {
-  if (!previous) return {};
-  const [tier = "", rank = ""] = previous.standing.split(" ");
+) => {
   const lp = entry.leaguePoints;
-  const oneGame = previous.games === entry.wins + entry.losses - 1;
-  if (tier === entry.tier && rank === entry.rank) {
-    return oneGame ? { delta: lp - previous.points } : {};
-  }
+  const games = entry.wins + entry.losses;
+  const snapshot = {
+    standing: `${entry.tier} ${entry.rank}`,
+    points: lp,
+    games,
+  };
+  const { label } = riotRankDisplay(entry);
+  // "·" already separates the report's fields, so keep LP parenthesised
+  const unknown = { current: `${label} (${lp} LP)`, unit: "LP" };
+  if (previous?.games !== games - 1) return { update: unknown, snapshot };
+
+  const [tier = "", rank = ""] = previous.standing.split(" ");
   const from = { tier, rank };
+  const moved = previous.standing !== snapshot.standing;
   const promoted = riotRankOrder(entry) > riotRankOrder(from);
-  const delta = !oneGame
-    ? undefined
-    : riotApexTiers.has(tier.toLowerCase()) &&
-        riotApexTiers.has(entry.tier.toLowerCase())
+  const delta =
+    !moved ||
+    (riotApexTiers.has(tier.toLowerCase()) &&
+      riotApexTiers.has(entry.tier.toLowerCase()))
       ? lp - previous.points
       : promoted
         ? 100 - previous.points + lp
@@ -96,7 +105,16 @@ export const riotRankChange = (
     return { tier: label, iconKey };
   };
   return {
-    ...(delta === undefined ? {} : { delta }),
-    tierChange: { from: rankInfo(from), to: rankInfo(entry), promoted },
+    update: {
+      ...(delta === undefined
+        ? unknown
+        : { delta, current: label, unit: "LP" }),
+      ...(moved
+        ? {
+            tierChange: { from: rankInfo(from), to: rankInfo(entry), promoted },
+          }
+        : {}),
+    },
+    snapshot,
   };
 };

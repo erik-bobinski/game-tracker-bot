@@ -26,6 +26,7 @@ import {
   valorantRankIconKey as rankIconKey,
   valorantRankIcons,
   valorantRankInfo,
+  valorantTierLevels,
 } from "./valorant.ts";
 
 // HenrikDev's unofficial api, until riot approves a VALORANT product key; see
@@ -233,17 +234,27 @@ export const makeHenrikValorantAdapter = Effect.gen(function* () {
               );
               const entry = history[index];
               if (!entry) return;
-              const before = history[index + 1]?.current;
+              // Unrated isn't on the ladder, and a new act's placement isn't a
+              // move from last act's rank
+              const before = history[index + 1];
+              const from =
+                before && before.act === entry.act
+                  ? valorantTierLevels.get(before.current)
+                  : undefined;
+              const to = valorantTierLevels.get(entry.current);
               enrichment.rankUpdates.set(puuid, {
                 delta: entry.delta,
                 current: entry.current,
                 unit: "RR",
-                ...(before && before !== entry.current
+                ...(before &&
+                from !== undefined &&
+                to !== undefined &&
+                from !== to
                   ? {
                       tierChange: {
-                        from: valorantRankInfo(before),
+                        from: valorantRankInfo(before.current),
                         to: valorantRankInfo(entry.current),
-                        promoted: entry.delta > 0,
+                        promoted: to > from,
                       },
                     }
                   : {}),
