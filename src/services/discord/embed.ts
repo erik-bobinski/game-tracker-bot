@@ -212,9 +212,9 @@ export const matchVerdict = (report: VersusReport) => {
 export const teamLabel = (index: number) =>
   `Team ${String.fromCharCode(65 + index)}`;
 
-// "**A** and **B** won a **Competitive** game on **Ascent**.", or one clause
+// "**A** and **B** won a game of **Competitive** on **Ascent**.", or one clause
 // per outcome when tracked players were opponents:
-// "**A** and **B** won, **C** lost a **Competitive** game on **Ascent**."
+// "**A** and **B** won, **C** lost a game of **Competitive** on **Ascent**."
 const versusSummary = (report: VersusReport) => {
   const { match } = report;
   const clauses = Object.values(
@@ -223,7 +223,7 @@ const versusSummary = (report: VersusReport) => {
     (group) =>
       `${nameList(group.map((player) => player.discordName))} ${verdicts[group[0].outcome].verb}`,
   );
-  return `${clauses.join(", ")} a **${match.mode}** game${match.map ? ` on **${match.map}**` : ""}.`;
+  return `${clauses.join(", ")} a game of **${match.mode}**${match.map ? ` on **${match.map}**` : ""}.`;
 };
 
 const versusEmbed = (
@@ -320,7 +320,7 @@ const placementSummary = (report: PlacementReport) => {
       ? []
       : [`${boldName(discordName)} finished ${ordinal(placement)}`];
   });
-  return `${clauses.join(", ")} in a **${report.match.mode}** game${report.match.map ? ` on **${report.match.map}**` : ""}.`;
+  return `${clauses.join(", ")} in a game of **${report.match.mode}**${report.match.map ? ` on **${report.match.map}**` : ""}.`;
 };
 
 export const matchSummary = (report: MatchReport) => {
@@ -342,7 +342,7 @@ const placementEmbed = (
   return {
     title: `${label} — ${report.match.mode}${report.match.map ? ` · ${report.match.map}` : ""}`,
     description: [
-      `${nameList(report.tracked.map(({ discordName }) => discordName))} just finished a **${gameNames[report.match.game]}** game`,
+      `${nameList(report.tracked.map(({ discordName }) => discordName))} just finished a game of **${gameNames[report.match.game]}**`,
       info.join(" · "),
       "",
       placementBoard(
