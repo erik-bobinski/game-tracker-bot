@@ -39,7 +39,7 @@ For the live bot, confirm the process log contains `slash commands registered` a
 Verification needs a real Riot account. Resolution order:
 
 1. `VERIFY_RIOT_ID=name#tag` — explicit override. Skip this when proving Railway lookup.
-2. `PRODUCTION_DB_PATH=/path/to/riot-tracker.sqlite` — read accounts via `pnpm admin status --json`
+2. `PRODUCTION_DB_PATH=/path/to/game-tracker.sqlite` — read accounts via `pnpm admin status --json`
 3. Railway token (`RAILWAY_API_TOKEN`, `RAILWAY_API_KEY`, or `RAILWAY_TOKEN`) — `railway ssh --service game-tracker-bot -- pnpm admin status --json`
 
 Pick the first account with tracked games when reading production status.
