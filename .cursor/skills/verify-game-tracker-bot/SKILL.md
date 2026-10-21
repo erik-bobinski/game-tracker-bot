@@ -1,9 +1,9 @@
 ---
-name: verify-riot-tracker-bot
+name: verify-game-tracker-bot
 description: Headless end-to-end verification for the riot-tracker Discord bot. Use when cloud agents need to prove bot changes work without Discord or Gmail login.
 ---
 
-# Verify riot-tracker-bot
+# Verify game-tracker-bot
 
 Cloud agents prove bot behavior by running the live app plus the admin CLI against an isolated sqlite file. No Discord web login is required.
 
@@ -39,8 +39,8 @@ For the live bot, confirm the process log contains `slash commands registered` a
 Verification needs a real Riot account. Resolution order:
 
 1. `VERIFY_RIOT_ID=name#tag` — explicit override. Skip this when proving Railway lookup.
-2. `PRODUCTION_DB_PATH=/path/to/riot-tracker.sqlite` — read accounts via `pnpm admin status --json`
-3. Railway token (`RAILWAY_API_TOKEN`, `RAILWAY_API_KEY`, or `RAILWAY_TOKEN`) — `railway ssh --service riot-tracker-bot -- pnpm admin status --json`
+2. `PRODUCTION_DB_PATH=/path/to/game-tracker.sqlite` — read accounts via `pnpm admin status --json`
+3. Railway token (`RAILWAY_API_TOKEN`, `RAILWAY_API_KEY`, or `RAILWAY_TOKEN`) — `railway ssh --service game-tracker-bot -- pnpm admin status --json`
 
 Pick the first account with tracked games when reading production status.
 
@@ -62,7 +62,7 @@ Export what ssh needs (names or ids work for `--service` / `--environment`):
 
 ```bash
 export RAILWAY_PROJECT_ID=<project-id>
-export RAILWAY_SERVICE=riot-tracker-bot
+export RAILWAY_SERVICE=game-tracker-bot
 export RAILWAY_ENVIRONMENT=production   # or the environment id
 ```
 
@@ -74,14 +74,14 @@ SSH also needs a key registered with Railway and `ssh.railway.com` in `known_hos
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
 pnpm exec railway ssh keys add -k ~/.ssh/id_ed25519.pub -n cursor-cloud-verify
 ssh-keyscan -t ed25519 ssh.railway.com >> ~/.ssh/known_hosts
-pnpm exec railway ssh --service riot-tracker-bot -- pnpm admin status --json
+pnpm exec railway ssh --service game-tracker-bot -- pnpm admin status --json
 ```
 
 Banners from ssh go to stderr. JSON for `admin status` is on stdout; the harness slices from the first `{`.
 
 ## Drive
 
-Read `.cursor/skills/verify-riot-tracker-bot/features/README.md` before running individual recipes.
+Read `.cursor/skills/verify-game-tracker-bot/features/README.md` before running individual recipes.
 
 The bundled verifier exercises: typecheck → bot boot → signup → track lol (twice, idempotent) → untrack lol → status → report-mock → signout.
 

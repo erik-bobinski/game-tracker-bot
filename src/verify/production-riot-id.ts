@@ -49,7 +49,7 @@ const railwayEnv = () => ({
 });
 
 const statusFromRailway = (workspace: string) => {
-  const service = process.env.RAILWAY_SERVICE ?? "riot-tracker-bot";
+  const service = process.env.RAILWAY_SERVICE ?? "game-tracker-bot";
   const args = ["exec", "railway", "ssh", "--service", service];
   const project = process.env.RAILWAY_PROJECT_ID ?? process.env.RAILWAY_PROJECT;
   const environment =

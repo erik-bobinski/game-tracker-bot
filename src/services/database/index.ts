@@ -302,7 +302,7 @@ const migrations = SqliteMigrator.fromRecord({
 });
 
 export const databasePath = Config.string("DB_PATH").pipe(
-  Config.withDefault("riot-tracker.sqlite"),
+  Config.withDefault("game-tracker.sqlite"),
 );
 
 const makeDatabase = Effect.gen(function* () {
