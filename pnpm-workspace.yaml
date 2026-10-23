@@ -1,4 +1,12 @@
 allowBuilds:
-  '@railway/cli': true
+  "@railway/cli": true
   esbuild: true
   msgpackr-extract: true
+patchedDependencies:
+  "@railway/cli@5.30.1": patches/@railway__cli@5.30.1.patch
+# patched transitive versions. @railway/cli still asks for tar 6, so its
+# installer is patched to tar 7's named exports; drop both once it moves on.
+overrides:
+  fflate: ^0.7.5
+  tar: ^7.5.22
+  undici: ^8.12.3
