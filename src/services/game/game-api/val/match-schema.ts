@@ -110,11 +110,13 @@ export const ValMmrHistoryEntry = Schema.Struct({
   matchId: MatchId,
   delta: Schema.Number,
   current: Schema.String,
+  act: Schema.optionalKey(Schema.NullOr(Schema.String)),
 }).pipe(
   Schema.encodeKeys({
     matchId: "match_id",
     delta: "mmr_change_to_last_game",
     current: "currenttierpatched",
+    act: "season_id",
   }),
 );
 export interface ValMmrHistoryEntry extends Schema.Schema.Type<

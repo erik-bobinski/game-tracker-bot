@@ -104,13 +104,24 @@ export interface RankUpdate {
   readonly delta?: number;
   readonly current?: string;
   readonly unit: string;
+  // set when the match moved them into another tier
+  readonly tierChange?: {
+    readonly from: RankInfo;
+    readonly to: RankInfo;
+    readonly promoted: boolean;
+  };
 }
 
 // the last standing an adapter persisted, keyed by whatever queue identifier
 // that game ranks separately, so the next report can diff against it
 export const RankSnapshots = Schema.Record(
   Schema.String,
-  Schema.Struct({ standing: Schema.String, points: Schema.Number }),
+  Schema.Struct({
+    standing: Schema.String,
+    points: Schema.Number,
+    // ranked games played so far, where the game reports it
+    games: Schema.optionalKey(Schema.Number),
+  }),
 );
 export type RankSnapshots = typeof RankSnapshots.Type;
 

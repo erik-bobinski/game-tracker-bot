@@ -45,10 +45,20 @@ const tierNames = new Map<number, string>([
   [27, "Radiant"] as const,
 ]);
 
+// "Gold 2" -> 13, its place on the ladder
+export const valorantTierLevels = new Map(
+  [...tierNames].map(([tier, name]) => [name, tier] as const),
+);
+
 // "Gold 2" -> "gold_2", the key of its icon
 export const valorantRankIconKey = (rank: string) => {
   const key = rank.toLowerCase().replaceAll(" ", "_");
   return key && key !== "unrated" ? key : undefined;
+};
+
+export const valorantRankInfo = (tier: string): RankInfo => {
+  const iconKey = valorantRankIconKey(tier);
+  return { tier, ...(iconKey ? { iconKey } : {}) };
 };
 
 const tierSet = "03621f52-342b-cf4e-4f86-9350a49c6d04";
@@ -305,14 +315,12 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
         onlyOptedInNamed(match, trackedPlayers),
       );
       if (match.mode !== queueNames[COMPETITIVE]) return enrichment;
-      const levels = new Map(
-        [...tierNames].map(([tier, name]) => [name, tier] as const),
-      );
       for (const tracked of trackedPlayers) {
         const rank = match.players.find(
           (player) => player.puuid === tracked.puuid,
         )?.rank;
-        const tier = rank === undefined ? undefined : levels.get(rank);
+        const tier =
+          rank === undefined ? undefined : valorantTierLevels.get(rank);
         if (rank === undefined || tier === undefined) continue;
         const previous = tracked.previousRankSnapshots[COMPETITIVE];
         if (previous && previous.points !== tier) {
@@ -320,6 +328,11 @@ export const makeValorantGameAdapter = Effect.gen(function* () {
             delta: tier - previous.points,
             current: rank,
             unit: "tier",
+            tierChange: {
+              from: valorantRankInfo(previous.standing),
+              to: valorantRankInfo(rank),
+              promoted: tier > previous.points,
+            },
           } satisfies RankUpdate);
         }
         enrichment.updatedRankSnapshots.set(tracked.puuid, {

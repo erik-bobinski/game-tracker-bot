@@ -25,6 +25,8 @@ import {
   valorantIconUrl,
   valorantRankIconKey as rankIconKey,
   valorantRankIcons,
+  valorantRankInfo,
+  valorantTierLevels,
 } from "./valorant.ts";
 
 // HenrikDev's unofficial api, until riot approves a VALORANT product key; see
@@ -224,17 +226,39 @@ export const makeHenrikValorantAdapter = Effect.gen(function* () {
         ({ puuid, region }) =>
           henrikClient.getMmrHistory(puuid, region).pipe(
             Effect.map((history) => {
-              const entry = history.find(
+              // newest first, so the entry after it is the game before
+              const index = history.findIndex(
                 (candidate) =>
                   candidate.matchId.toLowerCase() ===
                   match.matchId.toLowerCase(),
               );
-              if (entry)
-                enrichment.rankUpdates.set(puuid, {
-                  delta: entry.delta,
-                  current: entry.current,
-                  unit: "RR",
-                });
+              const entry = history[index];
+              if (!entry) return;
+              // Unrated isn't on the ladder, and a new act's placement isn't a
+              // move from last act's rank
+              const before = history[index + 1];
+              const from =
+                before && before.act === entry.act
+                  ? valorantTierLevels.get(before.current)
+                  : undefined;
+              const to = valorantTierLevels.get(entry.current);
+              enrichment.rankUpdates.set(puuid, {
+                delta: entry.delta,
+                current: entry.current,
+                unit: "RR",
+                ...(before &&
+                from !== undefined &&
+                to !== undefined &&
+                from !== to
+                  ? {
+                      tierChange: {
+                        from: valorantRankInfo(before.current),
+                        to: valorantRankInfo(entry.current),
+                        promoted: to > from,
+                      },
+                    }
+                  : {}),
+              });
             }),
             Effect.catch((error) =>
               logApiWarning("valorant RR unavailable", error).pipe(

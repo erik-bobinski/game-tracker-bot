@@ -1,6 +1,10 @@
 import { Effect } from "effect";
 import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
-import { riotRankDisplay, riotRankIcons } from "../game-api/riot/ranks.ts";
+import {
+  riotRankDisplay,
+  riotRankIcons,
+  riotRankStep,
+} from "../game-api/riot/ranks.ts";
 import {
   GameApiError,
   RECENT_MATCH_COUNT,
@@ -37,8 +41,6 @@ const queue = (queueId: number, gameMode: string) =>
     [1710, "Arena"],
     [1900, "URF"],
   ]).get(queueId) ?? gameMode;
-
-const lolStanding = (entry: LolLeagueEntry) => `${entry.tier} ${entry.rank}`;
 
 const compact = (value: number) =>
   value >= 1_000 ? `${(value / 1_000).toFixed(1)}k` : String(value);
@@ -197,22 +199,14 @@ export const makeLolGameAdapter = Effect.gen(function* () {
       for (const tracked of trackedPlayers) {
         const entry = ranks.get(tracked.puuid);
         if (!entry) continue;
-        const standing = lolStanding(entry);
-        const { label } = riotRankDisplay(entry);
-        // a delta only means anything within the same tier and division
-        const previous = tracked.previousRankSnapshots[queueType];
-        const comparable = previous?.standing === standing;
-        rankUpdates.set(tracked.puuid, {
-          ...(comparable
-            ? { delta: entry.leaguePoints - previous.points }
-            : {}),
-          // "·" already separates the report's fields, so keep LP parenthesised
-          current: comparable ? label : `${label} (${entry.leaguePoints} LP)`,
-          unit: "LP",
-        });
+        const { update, snapshot } = riotRankStep(
+          tracked.previousRankSnapshots[queueType],
+          entry,
+        );
+        rankUpdates.set(tracked.puuid, update);
         updatedRankSnapshots.set(tracked.puuid, {
           ...tracked.previousRankSnapshots,
-          [queueType]: { standing, points: entry.leaguePoints },
+          [queueType]: snapshot,
         });
       }
 
