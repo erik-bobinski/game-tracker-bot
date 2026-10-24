@@ -1,4 +1,7 @@
 allowBuilds:
-  '@railway/cli': true
   esbuild: true
   msgpackr-extract: true
+# patched transitive versions; drop once the parents ship them
+overrides:
+  fflate: ^0.7.5
+  undici: ^8.12.3

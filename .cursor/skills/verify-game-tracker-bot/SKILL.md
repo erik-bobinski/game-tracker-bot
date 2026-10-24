@@ -54,8 +54,8 @@ Cursor Cloud often injects a **project/workspace** token as `RAILWAY_API_TOKEN` 
 Do not treat a whoami failure as "Railway is unusable." Discover IDs, then ssh:
 
 ```bash
-pnpm exec railway api 'query { projects { edges { node { id name } } } }'
-pnpm exec railway api 'query { project(id: "<project-id>") { name services { edges { node { id name } } } environments { edges { node { id name } } } } }'
+railway api 'query { projects { edges { node { id name } } } }'
+railway api 'query { project(id: "<project-id>") { name services { edges { node { id name } } } environments { edges { node { id name } } } } }'
 ```
 
 Export what ssh needs (names or ids work for `--service` / `--environment`):
@@ -72,9 +72,9 @@ SSH also needs a key registered with Railway and `ssh.railway.com` in `known_hos
 
 ```bash
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
-pnpm exec railway ssh keys add -k ~/.ssh/id_ed25519.pub -n cursor-cloud-verify
+railway ssh keys add -k ~/.ssh/id_ed25519.pub -n cursor-cloud-verify
 ssh-keyscan -t ed25519 ssh.railway.com >> ~/.ssh/known_hosts
-pnpm exec railway ssh --service game-tracker-bot -- pnpm admin status --json
+railway ssh --service game-tracker-bot -- pnpm admin status --json
 ```
 
 Banners from ssh go to stderr. JSON for `admin status` is on stdout; the harness slices from the first `{`.
