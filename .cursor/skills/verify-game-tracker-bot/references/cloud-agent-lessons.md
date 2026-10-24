@@ -12,7 +12,7 @@ Lessons from running `pnpm verify` on Cursor Cloud against Railway production.
 Discover IDs:
 
 ```bash
-pnpm exec railway api 'query { projects { edges { node { id name } } } }'
+railway api 'query { projects { edges { node { id name } } } }'
 ```
 
 Production in this repo has been:
@@ -37,9 +37,9 @@ The CLI reads `RAILWAY_API_TOKEN`. Cursor Cloud may inject `RAILWAY_API_KEY` or 
 
 ```bash
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
-pnpm exec railway ssh keys add -k ~/.ssh/id_ed25519.pub -n cursor-cloud-verify
+railway ssh keys add -k ~/.ssh/id_ed25519.pub -n cursor-cloud-verify
 ssh-keyscan -t ed25519 ssh.railway.com >> ~/.ssh/known_hosts
-pnpm exec railway ssh --service game-tracker-bot -- pnpm admin status --json
+railway ssh --service game-tracker-bot -- pnpm admin status --json
 ```
 
 Banners go to stderr. JSON is on stdout; slice from the first `{`.

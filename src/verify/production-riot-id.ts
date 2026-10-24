@@ -50,7 +50,7 @@ const railwayEnv = () => ({
 
 const statusFromRailway = (workspace: string) => {
   const service = process.env.RAILWAY_SERVICE ?? "game-tracker-bot";
-  const args = ["exec", "railway", "ssh", "--service", service];
+  const args = ["ssh", "--service", service];
   const project = process.env.RAILWAY_PROJECT_ID ?? process.env.RAILWAY_PROJECT;
   const environment =
     process.env.RAILWAY_ENVIRONMENT ?? process.env.RAILWAY_ENVIRONMENT_ID;
@@ -62,12 +62,18 @@ const statusFromRailway = (workspace: string) => {
   }
   args.push("--", "pnpm", "admin", "status", "--json");
 
-  const result = spawnSync("pnpm", args, {
+  // the railway CLI comes from railway.com/install.sh, not the package.json
+  const result = spawnSync("railway", args, {
     cwd: workspace,
     env: railwayEnv(),
     encoding: "utf-8",
     timeout: 90_000,
   });
+  if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+    throw new Error(
+      "railway CLI not found; install it with `curl -fsSL https://railway.com/install.sh | sh`",
+    );
+  }
   if (result.status !== 0) {
     throw new Error(
       (result.stderr || result.stdout || "railway ssh failed").trim(),
