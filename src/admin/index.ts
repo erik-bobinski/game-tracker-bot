@@ -47,7 +47,14 @@ import {
   GameAdaptersLive,
   type GameAdapter,
 } from "../services/game/game-adapters/index.ts";
-import { RiotApiLive } from "../services/game/game-api/lol/riot-api-client.ts";
+import {
+  RiotApiClient,
+  RiotApiLive,
+} from "../services/game/game-api/lol/riot-api-client.ts";
+import {
+  makeRiotHttpClient,
+  RiotRateLimiterLive,
+} from "../services/game/game-api/riot/http.ts";
 import { gameIds, gameNames, type GameId } from "../services/game/index.ts";
 
 // Anything the operator caused or can fix: an unknown account, a riot id that
@@ -692,6 +699,102 @@ const track = Command.make(
   Command.withDescription("Start reporting games for a signed-up account"),
 );
 
+// Riot encrypts puuids per product key, so moving a game to another key (a
+// production one, say) leaves every stored puuid unreadable. The key they came
+// from still reads them: each account is looked up by puuid under it and
+// found again by riot id under the current key, keeping its reported matches.
+const rekey = Command.make(
+  "rekey",
+  {
+    game: Argument.choice("game", ["lol", "tft"]).pipe(
+      Argument.withDescription(
+        "which game's accounts to move to its current key",
+      ),
+    ),
+  },
+  Effect.fn(function* ({ game }) {
+    const { json } = yield* admin;
+    const database = yield* Database;
+    const previousKey = yield* Config.redacted("RIOT_PREVIOUS_KEY").pipe(
+      orFail(
+        "Set RIOT_PREVIOUS_KEY to the key the stored puuids were issued under",
+      ),
+    );
+    const tracked = (yield* accounts).flatMap((account) => {
+      const state = account.games[game];
+      return state ? [{ account, state }] : [];
+    });
+
+    const results = yield* Effect.gen(function* () {
+      const riot = yield* RiotApiClient;
+      const previous = yield* makeRiotHttpClient(
+        "previous",
+        previousKey,
+        "americas",
+      );
+      return yield* Effect.forEach(tracked, ({ account, state }) =>
+        Effect.gen(function* () {
+          const res = yield* previous.get(
+            `/riot/account/v1/accounts/by-puuid/${encodeURIComponent(state.puuid)}`,
+          );
+          const { gameName, tagLine } = yield* Schema.decodeUnknownEffect(
+            Schema.Struct({ gameName: Schema.String, tagLine: Schema.String }),
+          )(yield* res.json);
+          const puuid = yield* riot.getAccountByRiotId(game, gameName, tagLine);
+          yield* database.addGame({
+            discordUserId: account.discordUserId,
+            game,
+            state: { ...state, puuid },
+          });
+          return {
+            discordUserId: account.discordUserId,
+            riotId: `${gameName}#${tagLine}`,
+            moved: true,
+          };
+        }).pipe(
+          // one account that can't be read doesn't stop the rest
+          Effect.catch((error) =>
+            Effect.succeed({
+              discordUserId: account.discordUserId,
+              riotId: riotId(account),
+              moved: false,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          ),
+        ),
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(RiotApiLive, RiotRateLimiterLive).pipe(
+          Layer.provideMerge(NodeHttpClient.layerUndici),
+        ),
+      ),
+      orFail("This command needs RIOT_API_KEY and RIOT_TFT_API_KEY"),
+    );
+
+    const moved = results.filter((result) => result.moved);
+    yield* emit(json, { game, accounts: results }, [
+      `Moved ${moved.length} of ${results.length} ${gameNames[game]} accounts to the current key.`,
+      ...results
+        .filter((result) => !result.moved)
+        .map(
+          (result) =>
+            `Not moved: ${result.riotId} (${result.discordUserId})${"error" in result ? `: ${result.error}` : ""}`,
+        ),
+    ]);
+  }),
+).pipe(
+  Command.withDescription(
+    "Move a game's accounts to its current Riot key, reading their puuids with RIOT_PREVIOUS_KEY",
+  ),
+  Command.withExamples([
+    {
+      command: "RIOT_PREVIOUS_KEY=RGAPI-... admin rekey lol",
+      description: "After switching RIOT_API_KEY to a production key",
+    },
+  ]),
+);
+
 const untrack = Command.make(
   "untrack",
   pickGames,
@@ -882,6 +985,7 @@ const cli = admin.pipe(
     pause,
     resume,
     rankCheck,
+    rekey,
     track,
     untrack,
     reportMock,
