@@ -156,7 +156,7 @@ export const rankEmbed = (report: RankReport): Discord.RichEmbed => ({
   title: `${report.riotName}'s ${gameNames[report.game]} Rank`,
   description: `**${report.rank.tier}**${report.rank.detail ? ` · ${report.rank.detail}` : ""}`,
   color: 0x1abc9c,
-  ...(report.iconUrl ? { image: { url: report.iconUrl } } : {}),
+  image: report.iconUrl ? { url: report.iconUrl } : undefined,
 });
 
 // How the tracked players' result is headlined: the colour sets the tone

@@ -8,13 +8,13 @@ Posts a mock match scoreboard card to the notification channel via Discord REST.
 
 ## How to get to it (user POV)
 
-`pnpm admin report-mock --game lol --json`
+`bun run admin report-mock --game lol --json`
 
 ## Driving it with admin CLI
 
 Preconditions: `DISCORD_BOT_TOKEN`, `NOTIFICATION_CHANNEL_ID`.
 
-- Action: `pnpm admin report-mock --game lol --json`
+- Action: `bun run admin report-mock --game lol --json`
 - Observable: exit 0, JSON includes `channelId` and `matchId`; the card appears in the notification channel.
 
 ## Gotchas

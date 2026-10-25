@@ -1,0 +1,17 @@
+diff --git a/dist/DiscordREST.js b/dist/DiscordREST.js
+index 0cad8a15d106710bfcd51338b77d3ffcd32a20a0..fdf9c865acbc32ce1e308ef6f3dcc0df078c5410 100644
+--- a/dist/DiscordREST.js
++++ b/dist/DiscordREST.js
+@@ -91,9 +91,9 @@ const make = Effect.gen(function* () {
+         const formData = Context.getOption(fiber.context, DiscordFormData);
+         if (Option.isSome(formData)) {
+             if (request.body._tag === "Uint8Array") {
+-                formData.value.set("payload_json", new Blob([request.body.body], {
+-                    type: "application/json",
+-                }), "");
++                // a text field: Bun sends a blob's empty filename, which Discord
++                // takes as one more attachment
++                formData.value.set("payload_json", new TextDecoder().decode(request.body.body));
+             }
+             request = HttpRequest.setBody(request, HttpBody.formData(formData.value));
+         }

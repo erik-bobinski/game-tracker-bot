@@ -1,13 +1,9 @@
-import { writeFile } from "node:fs/promises";
-import {
-  NodeHttpClient,
-  NodeRuntime,
-  NodeServices,
-} from "@effect/platform-node";
+import { BunHttpClient, BunRuntime, BunServices } from "@effect/platform-bun";
 import {
   Config,
   Console,
   Effect,
+  FileSystem,
   Layer,
   Logger,
   Option,
@@ -15,7 +11,7 @@ import {
   Runtime,
   Schema,
 } from "effect";
-import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
+import { Argument, Command, Flag, Prompt } from "effect/cli";
 import {
   DiscordConfig,
   DiscordREST,
@@ -32,7 +28,8 @@ import {
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
 import type { MatchReport } from "../services/discord/embed.ts";
 import {
-  makeMatchCard,
+  MatchCard,
+  MatchCardLive,
   postMatchReport,
 } from "../services/discord/match-card.tsx";
 import {
@@ -45,14 +42,13 @@ import {
   enrichOrSkip,
   GameAdapters,
   GameAdaptersLive,
-  type GameAdapter,
 } from "../services/game/game-adapters/index.ts";
 import {
   RiotApiClient,
   RiotApiLive,
 } from "../services/game/game-api/lol/riot-api-client.ts";
 import {
-  makeRiotHttpClient,
+  riotHttpClient,
   RiotRateLimiterLive,
 } from "../services/game/game-api/riot/http.ts";
 import { gameIds, gameNames, type GameId } from "../services/game/index.ts";
@@ -63,9 +59,9 @@ import { gameIds, gameNames, type GameId } from "../services/game/index.ts";
 class AdminError extends Schema.TaggedError<AdminError>()("AdminError", {
   message: Schema.String,
 }) {
-  readonly [Runtime.errorExitCode] = 3;
+  override readonly [Runtime.errorExitCode] = 3;
   // printed as one line by the runner below, not as an effect cause dump
-  readonly [Runtime.errorReported] = false;
+  override readonly [Runtime.errorReported] = false;
 }
 
 const fail = (message: string) => Effect.fail(new AdminError({ message }));
@@ -85,7 +81,8 @@ const orFail =
 const ask = <A>(json: boolean, missing: string, prompt: Prompt.Prompt<A>) =>
   json ? fail(missing) : Prompt.run(prompt);
 
-const emit = (json: boolean, data: unknown, lines: ReadonlyArray<string>) =>
+// data is whatever a command reports, printed as is
+const emit = <A>(json: boolean, data: A, lines: ReadonlyArray<string>) =>
   Console.log(json ? JSON.stringify(data, null, 2) : lines.join("\n"));
 
 const riotId = (account: Account) => `${account.riotName}#${account.riotTag}`;
@@ -98,9 +95,7 @@ const parseRiotId = (raw: string) => {
 };
 
 const trackedGames = (account: Account) =>
-  (Object.keys(account.games) as ReadonlyArray<GameId>).filter(
-    (game) => account.games[game] !== undefined,
-  );
+  gameIds.filter((game) => account.games[game] !== undefined);
 
 const accounts = Database.pipe(
   Effect.flatMap((database) => database.getAccounts()),
@@ -126,7 +121,7 @@ const resolveAccount = (
       return yield* ask(
         json,
         "Pass a discord id, discord name, or riot id.",
-        Prompt.autoComplete({
+        Prompt.AutoComplete({
           message,
           choices: list.map((account) => ({
             title: `${account.discordName} — ${riotId(account)}`,
@@ -155,24 +150,25 @@ const resolveAccount = (
     return match;
   });
 
-const GameLive = GameAdaptersLive.pipe(
-  Layer.provide(RiotApiLive),
-  Layer.provide(NodeHttpClient.layerUndici),
+const GameLive = MatchCardLive.pipe(
+  Layer.provideMerge(GameAdaptersLive.pipe(Layer.provide(RiotApiLive))),
+  Layer.provide(BunHttpClient.layer),
 );
 
 const DiscordRestLive = DiscordRESTLive.pipe(
   Layer.provide(MemoryRateLimitStoreLive),
-  // fetch, as the bot's own rest client does, for the card's multipart upload
-  Layer.provide(NodeHttpClient.layerFetch),
+  Layer.provide(BunHttpClient.layer),
   Layer.provide(
     DiscordConfig.layerConfig({
-      token: Config.redacted("DISCORD_BOT_TOKEN"),
+      token: Config.Redacted("DISCORD_BOT_TOKEN"),
     }),
   ),
 );
 
-const withGameAdapters = <A, E>(
-  run: (adapters: GameAdapters["Service"]) => Effect.Effect<A, E | AdminError>,
+const withGameAdapters = <A, E, R>(
+  run: (
+    adapters: GameAdapters["Service"],
+  ) => Effect.Effect<A, E | AdminError, R>,
 ) =>
   Effect.gen(function* () {
     const adapters = yield* GameAdapters;
@@ -220,7 +216,8 @@ const admin = Command.make("admin").pipe(
     "Inspect and operate the running bot: accounts, polling, and status.",
   ),
   Command.withSharedFlags({
-    json: Flag.boolean("json").pipe(
+    json: Flag.Boolean("json").pipe(
+      Flag.withDefault(false),
       Flag.withDescription("Print json instead of text, and never prompt"),
     ),
   }),
@@ -340,7 +337,7 @@ const status = Command.make(
   ),
 );
 
-const gamesFlag = Flag.choice("game", gameIds).pipe(
+const gamesFlag = Flag.Literals("game", gameIds).pipe(
   Flag.withDescription("a game to pick; repeat it for several"),
   Flag.atLeast(0),
 );
@@ -349,21 +346,21 @@ const signup = Command.make(
   "signup",
   {
     games: gamesFlag,
-    target: Argument.string("riot-id").pipe(
+    target: Argument.String("riot-id").pipe(
       Argument.withDescription("riot id to track, as name#tag (e.g. syan#NA1)"),
       Argument.optional,
     ),
-    discordId: Flag.string("discord-id").pipe(
+    discordId: Flag.String("discord-id").pipe(
       Flag.withDescription("discord user id that owns this riot account"),
       Flag.optional,
     ),
-    discordName: Flag.string("discord-name").pipe(
+    discordName: Flag.String("discord-name").pipe(
       Flag.withDescription(
         "name shown in match reports (defaults to the riot name)",
       ),
       Flag.optional,
     ),
-    guild: Flag.string("guild").pipe(
+    guild: Flag.String("guild").pipe(
       Flag.withDescription(
         "discord server id to report in; without one, nothing is reported",
       ),
@@ -379,7 +376,7 @@ const signup = Command.make(
         ask(
           json,
           "Pass a riot id as name#tag.",
-          Prompt.text({ message: "Riot id (name#tag)" }),
+          Prompt.String({ message: "Riot id (name#tag)" }),
         ),
       onSome: Effect.succeed,
     });
@@ -390,7 +387,7 @@ const signup = Command.make(
         ask(
           json,
           "Pass --discord-id.",
-          Prompt.text({ message: "Discord user id" }),
+          Prompt.String({ message: "Discord user id" }),
         ),
       onSome: Effect.succeed,
     });
@@ -450,13 +447,14 @@ const signup = Command.make(
 const setup = Command.make(
   "setup",
   {
-    guildId: Argument.string("guild-id").pipe(
+    guildId: Argument.String("guild-id").pipe(
       Argument.withDescription("discord server id"),
     ),
-    channelId: Flag.string("channel").pipe(
+    channelId: Flag.String("channel").pipe(
       Flag.withDescription("channel id to post that server's reports in"),
     ),
-    adopt: Flag.boolean("adopt").pipe(
+    adopt: Flag.Boolean("adopt").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "also report every account that reports in no server here, e.g. after moving off the single-channel setup",
       ),
@@ -500,11 +498,12 @@ const setup = Command.make(
 const signout = Command.make(
   "signout",
   {
-    target: Argument.string("target").pipe(
+    target: Argument.String("target").pipe(
       Argument.withDescription("discord id, discord name, or riot id"),
       Argument.optional,
     ),
-    yes: Flag.boolean("yes").pipe(
+    yes: Flag.Boolean("yes").pipe(
+      Flag.withDefault(false),
       Flag.withAlias("y"),
       Flag.withDescription("Skip the confirmation prompt"),
     ),
@@ -524,7 +523,7 @@ const signout = Command.make(
       yes ||
       json ||
       (yield* Prompt.run(
-        Prompt.confirm({
+        Prompt.Confirm({
           message: `Delete ${account.discordName} (${riotId(account)}) and all their tracked data?`,
         }),
       ));
@@ -571,11 +570,11 @@ const resume = Command.make("resume", {}, setPolling(false)).pipe(
 const rankCheck = Command.make(
   "rank-check",
   {
-    target: Argument.string("target").pipe(
+    target: Argument.String("target").pipe(
       Argument.withDescription("discord id, discord name, or riot id"),
       Argument.optional,
     ),
-    game: Flag.choice("game", gameIds).pipe(
+    game: Flag.Literals("game", gameIds).pipe(
       Flag.withDescription("which game's rank to look up"),
       Flag.optional,
     ),
@@ -598,7 +597,7 @@ const rankCheck = Command.make(
           : ask(
               json,
               "Pass --game.",
-              Prompt.select({
+              Prompt.Select({
                 message: `Which game for ${account.discordName}?`,
                 choices: played.map((id) => ({
                   title: gameNames[id],
@@ -647,12 +646,15 @@ const rankCheck = Command.make(
 );
 
 const pickGames = {
-  target: Argument.string("target").pipe(
+  target: Argument.String("target").pipe(
     Argument.withDescription("discord id, discord name, or riot id"),
     Argument.optional,
   ),
   games: gamesFlag,
-  all: Flag.boolean("all").pipe(Flag.withDescription("every game")),
+  all: Flag.Boolean("all").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("every game"),
+  ),
 };
 
 const pickedGames = (games: ReadonlyArray<GameId>, all: boolean) =>
@@ -706,7 +708,7 @@ const track = Command.make(
 const rekey = Command.make(
   "rekey",
   {
-    game: Argument.choice("game", ["lol", "tft"]).pipe(
+    game: Argument.Literals("game", ["lol", "tft"]).pipe(
       Argument.withDescription(
         "which game's accounts to move to its current key",
       ),
@@ -715,7 +717,7 @@ const rekey = Command.make(
   Effect.fn(function* ({ game }) {
     const { json } = yield* admin;
     const database = yield* Database;
-    const previousKey = yield* Config.redacted("RIOT_PREVIOUS_KEY").pipe(
+    const previousKey = yield* Config.Redacted("RIOT_PREVIOUS_KEY").pipe(
       orFail(
         "Set RIOT_PREVIOUS_KEY to the key the stored puuids were issued under",
       ),
@@ -727,7 +729,7 @@ const rekey = Command.make(
 
     const results = yield* Effect.gen(function* () {
       const riot = yield* RiotApiClient;
-      const previous = yield* makeRiotHttpClient(
+      const previous = yield* riotHttpClient(
         "previous",
         previousKey,
         "americas",
@@ -785,7 +787,7 @@ const rekey = Command.make(
     }).pipe(
       Effect.provide(
         Layer.mergeAll(RiotApiLive, RiotRateLimiterLive).pipe(
-          Layer.provideMerge(NodeHttpClient.layerUndici),
+          Layer.provideMerge(BunHttpClient.layer),
         ),
       ),
       orFail("This command needs RIOT_API_KEY and RIOT_TFT_API_KEY"),
@@ -848,24 +850,25 @@ const untrack = Command.make(
   }),
 ).pipe(Command.withDescription("Stop reporting games for a signed-up account"));
 
+// runs inside withGameAdapters, which provides the card
 const sendReport = Effect.fn("Admin.sendReport")(function* (
   report: MatchReport,
-  adapters: ReadonlyArray<GameAdapter>,
   out: Option.Option<string>,
   channel: Option.Option<string>,
 ) {
   const { json } = yield* admin;
   const { game, matchId } = report.match;
   const label = `${gameNames[game]} match ${matchId}`;
-  const card = yield* makeMatchCard(adapters);
+  const card = yield* MatchCard;
 
   if (Option.isSome(out)) {
-    const png = yield* card(report).pipe(
-      orFail("Could not render the match card"),
-    );
-    yield* Effect.tryPromise(() => writeFile(out.value, png)).pipe(
-      orFail(`Could not write ${out.value}`),
-    );
+    const png = yield* card
+      .render(report)
+      .pipe(orFail("Could not render the match card"));
+    const fs = yield* FileSystem.FileSystem;
+    yield* fs
+      .writeFile(out.value, png)
+      .pipe(orFail(`Could not write ${out.value}`));
     return yield* emit(json, { game, matchId, out: out.value }, [
       `Wrote the card for ${label} to ${out.value}.`,
     ]);
@@ -873,7 +876,7 @@ const sendReport = Effect.fn("Admin.sendReport")(function* (
 
   const channelId = yield* Option.match(channel, {
     onNone: () =>
-      Config.nonEmptyString("NOTIFICATION_CHANNEL_ID").pipe(
+      Config.NonEmptyString("NOTIFICATION_CHANNEL_ID").pipe(
         orFail("Pass --channel, or set NOTIFICATION_CHANNEL_ID"),
       ),
     onSome: Effect.succeed,
@@ -888,14 +891,14 @@ const sendReport = Effect.fn("Admin.sendReport")(function* (
   ]);
 });
 
-const outFlag = Flag.path("out").pipe(
+const outFlag = Flag.Path("out").pipe(
   Flag.withDescription(
     "write the match card png to this path instead of posting it",
   ),
   Flag.optional,
 );
 
-const channelFlag = Flag.string("channel").pipe(
+const channelFlag = Flag.String("channel").pipe(
   Flag.withDescription(
     "channel id to post in (defaults to NOTIFICATION_CHANNEL_ID)",
   ),
@@ -905,7 +908,7 @@ const channelFlag = Flag.string("channel").pipe(
 const reportMock = Command.make(
   "report-mock",
   {
-    game: Flag.choice("game", gameIds).pipe(
+    game: Flag.Literals("game", gameIds).pipe(
       Flag.withDescription("which game's mock match to post"),
       Flag.withDefault("lol"),
     ),
@@ -916,11 +919,8 @@ const reportMock = Command.make(
     const report = yield* buildMockMatchReport(game).pipe(
       orFail("Could not build mock match report"),
     );
-    const adapters = yield* withGameAdapters((loaded) =>
-      Effect.succeed(loaded.all),
-    );
-    yield* sendReport(report, adapters, out, channel);
-  }, Effect.provide(NodeHttpClient.layerUndici)),
+    yield* withGameAdapters(() => sendReport(report, out, channel));
+  }),
 ).pipe(
   Command.withDescription(
     "Post a mock match report to the notification channel, or render its card to a file",
@@ -930,15 +930,15 @@ const reportMock = Command.make(
 const reportMatch = Command.make(
   "report-match",
   {
-    target: Argument.string("riot-id").pipe(
+    target: Argument.String("riot-id").pipe(
       Argument.withDescription(
         "riot id whose recent match to report, as name#tag",
       ),
     ),
-    game: Flag.choice("game", gameIds).pipe(
+    game: Flag.Literals("game", gameIds).pipe(
       Flag.withDescription("which game's match history to read"),
     ),
-    index: Flag.integer("index").pipe(
+    index: Flag.Int("index").pipe(
       Flag.withDescription("which recent match to report, 0 being the newest"),
       Flag.withDefault(0),
     ),
@@ -947,7 +947,7 @@ const reportMatch = Command.make(
   },
   Effect.fn(function* ({ target, game, index, out, channel }) {
     const { riotName, riotTag } = yield* parseRiotId(target);
-    const { report, adapters } = yield* withGameAdapters((loaded) =>
+    yield* withGameAdapters((loaded) =>
       Effect.gen(function* () {
         const adapter = loaded.all.find((candidate) => candidate.game === game);
         if (!adapter) return yield* fail(`${gameNames[game]} isn't supported.`);
@@ -971,18 +971,15 @@ const reportMatch = Command.make(
           match,
           trackedPlayers: [{ puuid, region, previousRankSnapshots: {} }],
         });
-        return {
-          report: {
-            tracked: [{ discordName: riotName, puuid }],
-            match: enrichment.match,
-            rankUpdates: enrichment.rankUpdates,
-          } satisfies MatchReport,
-          adapters: loaded.all,
-        };
+        const report = {
+          tracked: [{ discordName: riotName, puuid }],
+          match: enrichment.match,
+          rankUpdates: enrichment.rankUpdates,
+        } satisfies MatchReport;
+        yield* sendReport(report, out, channel);
       }),
     );
-    yield* sendReport(report, adapters, out, channel);
-  }, Effect.provide(NodeHttpClient.layerUndici)),
+  }),
 ).pipe(
   Command.withDescription(
     "Report a real recent match through the polling pipeline, to the notification channel or a png",
@@ -1017,7 +1014,7 @@ const cli = admin.pipe(
 // Command output is the product here, so the bot's own info logging stays out
 // of the way unless LOG_LEVEL asks for it.
 const LoggerLive = Layer.unwrap(
-  Config.logLevel("LOG_LEVEL").pipe(
+  Config.LogLevel("LOG_LEVEL").pipe(
     Config.withDefault("Warn"),
     Effect.map((logLevel) =>
       Layer.mergeAll(
@@ -1036,8 +1033,8 @@ const runner = cli.pipe(
   ),
   Effect.provide(DatabaseLive),
   Effect.provide(LoggerLive),
-  Effect.provide(NodeServices.layer),
+  Effect.provide(BunServices.layer),
   Effect.scoped,
 );
 
-NodeRuntime.runMain(runner);
+BunRuntime.runMain(runner);

@@ -1,16 +1,12 @@
-import { createServer } from "node:http";
-import { NodeHttpServer } from "@effect/platform-node";
+import { BunHttpServer } from "@effect/platform-bun";
 import { Array as Arr, Config, Effect, Layer, Option, Schema } from "effect";
-import {
-  HttpRouter,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { Database } from "../database/index.ts";
 import { linkAccount } from "../discord/commands.ts";
 import { buildMockMatchReport } from "../discord/dev-commands.ts";
 import { matchSummary } from "../discord/embed.ts";
 import { Discord } from "../discord/index.ts";
+import { MatchCard } from "../discord/match-card.tsx";
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import { onlyOptedInNamed } from "../game/game-adapters/valorant.ts";
 import { gameIds, gameNames } from "../game/index.ts";
@@ -31,6 +27,7 @@ const Callback = Schema.Struct({
 const Routes = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const discord = yield* Discord;
+    const card = yield* MatchCard;
     const rso = yield* Rso;
     const database = yield* Database;
     const gameAdapters = yield* GameAdapters;
@@ -88,7 +85,7 @@ const Routes = HttpRouter.use((router) =>
     );
     // re-rendered daily so an icon that failed to load comes back
     for (const report of demos) {
-      const png = yield* Effect.cachedWithTTL(discord.card(report), "1 day");
+      const png = yield* Effect.cachedWithTTL(card.render(report), "1 day");
       yield* router.add(
         "GET",
         `/demo/${report.match.game}.png`,
@@ -105,7 +102,7 @@ const Routes = HttpRouter.use((router) =>
       );
     }
     // the string riot hands a production applicant to prove they own the site
-    const riotVerification = yield* Config.string("RIOT_VERIFICATION").pipe(
+    const riotVerification = yield* Config.String("RIOT_VERIFICATION").pipe(
       Config.withDefault(""),
     );
     if (riotVerification) {
@@ -185,8 +182,8 @@ const Routes = HttpRouter.use((router) =>
 // Railway routes its public domain to PORT
 export const WebLive = HttpRouter.serve(Routes, { disableLogger: true }).pipe(
   Layer.provide(
-    NodeHttpServer.layerConfig(createServer, {
-      port: Config.port("PORT").pipe(Config.withDefault(3000)),
+    BunHttpServer.layerConfig({
+      port: Config.Port("PORT").pipe(Config.withDefault(3000)),
     }),
   ),
 );

@@ -1,136 +1,15 @@
-import { Config, Context, Effect, Layer, Schema } from "effect";
-import * as HttpClientError from "effect/unstable/http/HttpClientError";
+import { Config, Context, Effect, Layer } from "effect";
 import { HenrikApiClientLive } from "../game-api/val/henrik-api-client.ts";
 import { RiotValApiLive } from "../game-api/val/riot-val-client.ts";
-import {
-  EpochMillis,
-  GameId,
-  type MatchDetails,
-  type MatchId,
-  type Puuid,
-  type RankInfo,
-  type RankSnapshots,
-  type RankUpdate,
-  type Region,
-  type ResolvedAccount,
-} from "../index.ts";
-import { makeLolGameAdapter } from "./lol.ts";
-import { makeTftGameAdapter } from "./tft.ts";
-import { makeValorantGameAdapter } from "./valorant.ts";
-import { makeHenrikValorantAdapter } from "./valorant-henrik.ts";
+import { EpochMillis } from "../index.ts";
+import { type GameAdapter, logApiWarning, emptyEnrichment } from "./adapter.ts";
+import { LolAdapter, LolAdapterLive } from "./lol.ts";
+import { TftAdapter, TftAdapterLive } from "./tft.ts";
+import { RiotValorantAdapterLive, ValorantAdapter } from "./valorant.ts";
+import { HenrikValorantAdapterLive } from "./valorant-henrik.ts";
 
-// How many of an account's newest matches a poll looks at. Everyone is polled
-// every 3 minutes, too short to finish more than one game.
-export const RECENT_MATCH_COUNT = 3;
-
-export class GameApiError extends Schema.TaggedError<GameApiError>()(
-  "GameApiError",
-  { game: GameId, operation: Schema.String, cause: Schema.Defect() },
-) {}
-
-const apiErrorAnnotations = (error: unknown) =>
-  Effect.gen(function* () {
-    const cause = error instanceof GameApiError ? error.cause : error;
-    if (!HttpClientError.isHttpClientError(cause)) {
-      return {
-        error: cause instanceof Error ? cause.message : String(cause),
-      };
-    }
-
-    const responseBody = cause.response
-      ? yield* cause.response.text.pipe(
-          Effect.map((body) => body.slice(0, 1_000)),
-          Effect.catch(() => Effect.succeed(undefined)),
-        )
-      : undefined;
-
-    return {
-      error: cause.message,
-      httpMethod: cause.request.method,
-      httpUrl: cause.request.url,
-      ...(cause.response ? { httpStatus: cause.response.status } : {}),
-      ...(responseBody ? { responseBody } : {}),
-    };
-  });
-
-export const logApiWarning = (message: string, error: unknown) =>
-  apiErrorAnnotations(error).pipe(
-    Effect.flatMap((annotations) =>
-      Effect.logWarning(message).pipe(Effect.annotateLogs(annotations)),
-    ),
-  );
-
-export const logApiError = (message: string, error: unknown) =>
-  apiErrorAnnotations(error).pipe(
-    Effect.flatMap((annotations) =>
-      Effect.logError(message).pipe(Effect.annotateLogs(annotations)),
-    ),
-  );
-
-export interface GameAdapter {
-  readonly game: GameId;
-  // A game riot only shares a player's data for once they've signed in with
-  // riot (RSO) to opt in. Signing up by riot id skips it; /link adds it.
-  readonly requiresOptIn: boolean;
-  readonly iconUrl: string;
-  readonly rankIcons: ReadonlyArray<RankIcon>;
-
-  readonly resolveAccount: (
-    name: string,
-    tag: string,
-  ) => Effect.Effect<
-    ResolvedAccount,
-    HttpClientError.HttpClientError | Schema.SchemaError
-  >;
-
-  // Newest first. Every poll calls this, so it should cost one request; the
-  // match itself is only fetched once it turns out to be new.
-  readonly getRecentMatchIds: (
-    puuid: Puuid,
-    region: Region | undefined,
-  ) => Effect.Effect<ReadonlyArray<MatchId>, GameApiError>;
-
-  // undefined for a match that can't be decoded, which a retry won't fix
-  readonly getMatch: (
-    matchId: MatchId,
-    region: Region | undefined,
-  ) => Effect.Effect<MatchDetails | undefined, GameApiError>;
-
-  readonly enrichMatch: (input: {
-    readonly match: MatchDetails;
-    readonly trackedPlayers: ReadonlyArray<{
-      readonly puuid: Puuid;
-      readonly region: Region | undefined;
-      readonly previousRankSnapshots: RankSnapshots;
-    }>;
-  }) => Effect.Effect<
-    {
-      readonly match: MatchDetails;
-      readonly rankUpdates: ReadonlyMap<Puuid, RankUpdate>;
-      readonly updatedRankSnapshots: ReadonlyMap<Puuid, RankSnapshots>;
-    },
-    GameApiError
-  >;
-
-  // undefined means the account is unranked, not that the lookup failed
-  readonly getRank: (
-    puuid: Puuid,
-    region: Region | undefined,
-  ) => Effect.Effect<RankInfo | undefined, GameApiError>;
-}
-
-export interface RankIcon {
-  readonly key: string;
-  readonly url: string;
-  // emoji-sized art is too small to fill an embed, which is what centers it
-  readonly largeUrl?: string;
-}
-
-export const emptyEnrichment = (match: MatchDetails) => ({
-  match,
-  rankUpdates: new Map<Puuid, RankUpdate>(),
-  updatedRankSnapshots: new Map<Puuid, RankSnapshots>(),
-});
+// the adapter contract, for code outside the adapters
+export * from "./adapter.ts";
 
 export const enrichOrSkip = (
   adapter: GameAdapter,
@@ -195,24 +74,16 @@ export class GameAdapters extends Context.Service<
   }
 >()("app/GameAdapters") {}
 
-class ValorantAdapter extends Context.Service<ValorantAdapter, GameAdapter>()(
-  "app/ValorantAdapter",
-) {}
-
 // VALORANT comes from riot's own api once a VALORANT product key is set, and
 // from HenrikDev's unofficial one until riot approves that key. Riot encrypts
 // puuids per key, so accounts signed up through henrik have to /link again.
 const ValorantAdapterLive = Layer.unwrap(
-  Config.string("RIOT_VAL_API_KEY").pipe(
+  Config.String("RIOT_VAL_API_KEY").pipe(
     Config.withDefault(""),
     Effect.map((key) =>
       key
-        ? Layer.effect(ValorantAdapter, makeValorantGameAdapter).pipe(
-            Layer.provide(RiotValApiLive),
-          )
-        : Layer.effect(ValorantAdapter, makeHenrikValorantAdapter).pipe(
-            Layer.provide(HenrikApiClientLive),
-          ),
+        ? RiotValorantAdapterLive.pipe(Layer.provide(RiotValApiLive))
+        : HenrikValorantAdapterLive.pipe(Layer.provide(HenrikApiClientLive)),
     ),
   ),
 );
@@ -221,11 +92,11 @@ export const GameAdaptersLive = Layer.effect(
   GameAdapters,
   Effect.gen(function* () {
     const all: ReadonlyArray<GameAdapter> = [
-      yield* makeLolGameAdapter,
+      yield* LolAdapter,
       yield* ValorantAdapter,
-      yield* makeTftGameAdapter,
+      yield* TftAdapter,
     ];
 
     return GameAdapters.of({ all });
   }),
-).pipe(Layer.provide(ValorantAdapterLive));
+).pipe(Layer.provide([LolAdapterLive, ValorantAdapterLive, TftAdapterLive]));

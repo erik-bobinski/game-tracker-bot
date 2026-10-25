@@ -1,9 +1,10 @@
-import { NodeHttpClient, NodeRuntime } from "@effect/platform-node";
+import { BunHttpClient, BunRuntime } from "@effect/platform-bun";
 import { Config, Effect, Layer, Logger, References } from "effect";
 import { Polling, PollingLive } from "./services/polling/index.ts";
 import { PollingStateLive } from "./services/polling/state.ts";
 import { DatabaseLive } from "./services/database/index.ts";
 import { DiscordLive } from "./services/discord/index.ts";
+import { MatchCardLive } from "./services/discord/match-card.tsx";
 import { GameAdaptersLive } from "./services/game/game-adapters/index.ts";
 import { RiotApiLive } from "./services/game/game-api/lol/riot-api-client.ts";
 import { MatchEngineLive } from "./services/match-engine/index.ts";
@@ -11,8 +12,8 @@ import { RsoLive } from "./services/rso/index.ts";
 import { WebLive } from "./services/web/index.ts";
 
 const runtimeConfig = Config.all({
-  devMode: Config.boolean("DEV_MODE").pipe(Config.withDefault(false)),
-  logLevel: Config.logLevel("LOG_LEVEL").pipe(Config.withDefault("Info")),
+  devMode: Config.Boolean("DEV_MODE").pipe(Config.withDefault(false)),
+  logLevel: Config.LogLevel("LOG_LEVEL").pipe(Config.withDefault("Info")),
 });
 
 const main = Effect.gen(function* () {
@@ -28,12 +29,12 @@ const main = Effect.gen(function* () {
   yield* Effect.never;
 });
 
-// The game api and riot sign-in clients share one HTTP client (Discord has
-// its own, internally).
+// The game api, riot sign-in and match card share one HTTP client (Discord
+// has its own, internally).
 const GameLive = Layer.mergeAll(
   GameAdaptersLive.pipe(Layer.provide(RiotApiLive)),
   RsoLive,
-).pipe(Layer.provide(NodeHttpClient.layerUndici));
+).pipe(Layer.provideMerge(BunHttpClient.layer));
 
 const StateLive = PollingStateLive.pipe(Layer.provideMerge(DatabaseLive));
 
@@ -41,6 +42,7 @@ const StateLive = PollingStateLive.pipe(Layer.provideMerge(DatabaseLive));
 const AppLive = Layer.mergeAll(PollingLive, WebLive).pipe(
   Layer.provide(MatchEngineLive),
   Layer.provide(DiscordLive),
+  Layer.provide(MatchCardLive),
   Layer.provide(Layer.mergeAll(StateLive, GameLive)),
 );
 
@@ -63,4 +65,4 @@ const runner = main.pipe(
   Effect.scoped,
 );
 
-NodeRuntime.runMain(runner);
+BunRuntime.runMain(runner);
