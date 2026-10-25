@@ -142,7 +142,7 @@ const decorateMockRank = <P extends MatchPlayerIdentity>(
     ...player,
     rank: division ? `${tier} ${division}` : tier,
     rankIconKey: tier.toLowerCase(),
-    ...(division ? { rankDivision: division } : {}),
+    rankDivision: division || undefined,
   };
 };
 
@@ -339,7 +339,7 @@ export const buildMockMatchReport = (game: GameId) =>
           player.puuid,
           {
             delta: index === 0 ? 18 : -21,
-            ...(player.rank ? { current: player.rank } : {}),
+            current: player.rank || undefined,
             unit: rankUnit,
           },
         ]),

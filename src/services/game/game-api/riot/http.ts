@@ -1,9 +1,9 @@
 import { Duration, Effect, Layer, Option, Redacted, Schedule } from "effect";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
-import * as HttpClientError from "effect/unstable/http/HttpClientError";
-import * as Headers from "effect/unstable/http/Headers";
-import { RateLimiter } from "effect/unstable/persistence";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpClientError from "effect/http/HttpClientError";
+import * as Headers from "effect/http/Headers";
+import { RateLimiter } from "effect/persistence";
 
 // Riot limits a key on each routing host over several windows at once, and
 // every response states them, as "requests:seconds" pairs. A host that hasn't
@@ -31,7 +31,7 @@ const parseLimits = (header: string) =>
 // An http client for one riot key, aimed at `cluster` until a request sets its
 // own url. Every attempt, retries included, waits its turn under the key's
 // limits on the host it goes to.
-export const makeRiotHttpClient = Effect.fn("makeRiotHttpClient")(function* (
+export const riotHttpClient = Effect.fn("riotHttpClient")(function* (
   name: string,
   key: Redacted.Redacted,
   cluster: string,

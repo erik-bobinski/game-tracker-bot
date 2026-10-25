@@ -109,11 +109,9 @@ export const riotRankStep = (
       ...(delta === undefined
         ? unknown
         : { delta, current: label, unit: "LP" }),
-      ...(moved
-        ? {
-            tierChange: { from: rankInfo(from), to: rankInfo(entry), promoted },
-          }
-        : {}),
+      tierChange: moved
+        ? { from: rankInfo(from), to: rankInfo(entry), promoted }
+        : undefined,
     },
     snapshot,
   };

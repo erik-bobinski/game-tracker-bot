@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { RiotValApiClient } from "../game-api/val/riot-val-client.ts";
 import type {
   ValContent,
@@ -9,7 +9,7 @@ import {
   RECENT_MATCH_COUNT,
   emptyEnrichment,
   type GameAdapter,
-} from "./index.ts";
+} from "./adapter.ts";
 import type {
   MatchDetails,
   MatchId,
@@ -58,7 +58,7 @@ export const valorantRankIconKey = (rank: string) => {
 
 export const valorantRankInfo = (tier: string): RankInfo => {
   const iconKey = valorantRankIconKey(tier);
-  return { tier, ...(iconKey ? { iconKey } : {}) };
+  return { tier, iconKey };
 };
 
 const tierSet = "03621f52-342b-cf4e-4f86-9350a49c6d04";
@@ -72,20 +72,22 @@ export const valorantIconUrl = new URL(
   import.meta.url,
 ).href;
 
-const queueNames: Record<string, string> = {
-  competitive: "Competitive",
-  unrated: "Unrated",
-  swiftplay: "Swiftplay",
-  spikerush: "Spike Rush",
-  deathmatch: "Deathmatch",
-  hurm: "Team Deathmatch",
-  ggteam: "Escalation",
-  onefa: "Replication",
-  premier: "Premier",
-  snowball: "Snowball Fight",
-  newmap: "New Map",
-  "": "Custom Game",
-};
+const queueNames = new Map(
+  Object.entries({
+    competitive: "Competitive",
+    unrated: "Unrated",
+    swiftplay: "Swiftplay",
+    spikerush: "Spike Rush",
+    deathmatch: "Deathmatch",
+    hurm: "Team Deathmatch",
+    ggteam: "Escalation",
+    onefa: "Replication",
+    premier: "Premier",
+    snowball: "Snowball Fight",
+    newmap: "New Map",
+    "": "Custom Game",
+  }),
+);
 
 const COMPETITIVE = "competitive";
 
@@ -112,9 +114,9 @@ export const riotValMatchToDetails = (
     game: "valorant",
     date: matchInfo.gameStartMillis,
     mode:
-      queueNames[matchInfo.queueId] ??
+      queueNames.get(matchInfo.queueId) ??
       matchInfo.queueId.charAt(0).toUpperCase() + matchInfo.queueId.slice(1),
-    ...(map ? { map } : {}),
+    map: map || undefined,
     durationSeconds: Math.floor((matchInfo.gameLengthMillis ?? 0) / 1_000),
   } as const;
   const identity = (player: (typeof players)[number]) => {
@@ -124,8 +126,8 @@ export const riotValMatchToDetails = (
       puuid: player.puuid,
       riotName: player.gameName,
       riotTag: player.tagLine,
-      ...(rank ? { rank } : {}),
-      ...(rankIconKey ? { rankIconKey } : {}),
+      rank: rank || undefined,
+      rankIconKey: rankIconKey || undefined,
     };
   };
 
@@ -178,11 +180,9 @@ export const riotValMatchToDetails = (
       ...identity(player),
       team: player.teamId.toLowerCase(),
       character: (agentId && agents.get(agentId)) ?? "Unknown agent",
-      ...(agentId
-        ? {
-            characterIconUrl: `https://media.valorant-api.com/agents/${agentId}/displayicon.png`,
-          }
-        : {}),
+      characterIconUrl: agentId
+        ? `https://media.valorant-api.com/agents/${agentId}/displayicon.png`
+        : undefined,
       kills: player.stats.kills,
       deaths: player.stats.deaths,
       assists: player.stats.assists,
@@ -202,7 +202,7 @@ export const riotValMatchToDetails = (
     const lost = team.roundsPlayed - team.roundsWon;
     return {
       id: team.teamId.toLowerCase(),
-      ...(team.roundsWon !== lost ? { won: team.won } : {}),
+      won: team.roundsWon !== lost ? team.won : undefined,
       score: [team.roundsWon, lost],
     };
   });
@@ -224,12 +224,14 @@ export const riotValMatchToDetails = (
 // Riot doesn't let a VALORANT player's data reach other players unless they
 // opted in, so everyone in the match who isn't tracked is shown by their agent
 // alone, without name or rank.
-const anonymous = <P extends MatchPlayerIdentity>({
-  rank,
-  rankIconKey,
-  rankDivision,
-  ...player
-}: P) => ({ ...player, riotName: "", riotTag: "" });
+const anonymous = <P extends MatchPlayerIdentity>(player: P) => ({
+  ...player,
+  riotName: "",
+  riotTag: "",
+  rank: undefined,
+  rankIconKey: undefined,
+  rankDivision: undefined,
+});
 
 export const onlyOptedInNamed = (
   match: MatchDetails,
@@ -254,119 +256,128 @@ export const onlyOptedInNamed = (
   }
 };
 
-export const makeValorantGameAdapter = Effect.gen(function* () {
-  const client = yield* RiotValApiClient;
-  // an account's shard comes from riot at signup, so this only covers rows
-  // stored without one
-  const shardOf = (region: Region | undefined) => region ?? "na";
+export class ValorantAdapter extends Context.Service<
+  ValorantAdapter,
+  GameAdapter
+>()("app/ValorantAdapter") {}
 
-  const adapter: GameAdapter = {
-    game: "valorant",
-    // riot only lets a VALORANT player's data be shown once they sign in with
-    // riot to opt in, so signing up by riot id alone doesn't track it
-    requiresOptIn: true,
-    iconUrl: valorantIconUrl,
-    rankIcons: valorantRankIcons,
-    resolveAccount: Effect.fn("GameAdapter.valorant.resolveAccount")(function* (
-      name: string,
-      tag: string,
-    ) {
-      const puuid = yield* client.getAccountByRiotId(name, tag);
-      return { puuid, region: yield* client.getActiveShard(puuid) };
-    }),
-    getRecentMatchIds: Effect.fn("GameAdapter.valorant.getRecentMatchIds")(
-      function* (puuid: Puuid, region: Region | undefined) {
-        const history = yield* client.getMatchlist(puuid, shardOf(region));
-        return history
-          .slice(0, RECENT_MATCH_COUNT)
-          .map((entry) => entry.matchId);
-      },
-      Effect.mapError(
-        (cause) =>
-          new GameApiError({
-            game: "valorant",
-            operation: "getRecentMatchIds",
-            cause,
-          }),
-      ),
-    ),
-    getMatch: Effect.fn("GameAdapter.valorant.getMatch")(
-      function* (matchId: MatchId, region: Region | undefined) {
-        const match = yield* client.getMatch(matchId, shardOf(region));
-        if (!match) return undefined;
-        // fails rather than skips, so the next poll picks it up when it's done
-        if (!match.matchInfo.isCompleted) {
-          return yield* Effect.fail(new Error("match still in progress"));
-        }
-        return riotValMatchToDetails(match, yield* client.getContent());
-      },
-      Effect.mapError(
-        (cause) =>
-          new GameApiError({ game: "valorant", operation: "getMatch", cause }),
-      ),
-    ),
-    // There's no RR in riot's api, only the tier a match was played at, so a
-    // competitive match reports how many tiers that moved since the last one.
-    enrichMatch: Effect.fn("GameAdapter.valorant.enrichMatch")(function* ({
-      match,
-      trackedPlayers,
-    }) {
-      const enrichment = emptyEnrichment(
-        onlyOptedInNamed(match, trackedPlayers),
-      );
-      if (match.mode !== queueNames[COMPETITIVE]) return enrichment;
-      for (const tracked of trackedPlayers) {
-        const rank = match.players.find(
-          (player) => player.puuid === tracked.puuid,
-        )?.rank;
-        const tier =
-          rank === undefined ? undefined : valorantTierLevels.get(rank);
-        if (rank === undefined || tier === undefined) continue;
-        const previous = tracked.previousRankSnapshots[COMPETITIVE];
-        if (previous && previous.points !== tier) {
-          enrichment.rankUpdates.set(tracked.puuid, {
-            delta: tier - previous.points,
-            current: rank,
-            unit: "tier",
-            tierChange: {
-              from: valorantRankInfo(previous.standing),
-              to: valorantRankInfo(rank),
-              promoted: tier > previous.points,
-            },
-          } satisfies RankUpdate);
-        }
-        enrichment.updatedRankSnapshots.set(tracked.puuid, {
-          ...tracked.previousRankSnapshots,
-          [COMPETITIVE]: { standing: rank, points: tier },
-        } satisfies RankSnapshots);
-      }
-      return enrichment;
-    }),
-    // the tier of their newest competitive match, the only rank riot shares
-    getRank: Effect.fn("GameAdapter.valorant.getRank")(
-      function* (puuid: Puuid, region: Region | undefined) {
-        const history = yield* client.getMatchlist(puuid, shardOf(region));
-        const latest = history.find((entry) => entry.queueId === COMPETITIVE);
-        if (!latest) return undefined;
-        const match = yield* client.getMatch(latest.matchId, shardOf(region));
-        const tier = match?.players.find(
-          (player) => player.puuid === puuid,
-        )?.competitiveTier;
-        const rank = tier === undefined ? undefined : tierNames.get(tier);
-        if (!rank) return undefined;
-        const iconKey = valorantRankIconKey(rank);
-        return {
-          tier: rank,
-          detail: `as of <t:${Math.floor(latest.gameStartTimeMillis / 1000)}:R>`,
-          ...(iconKey ? { iconKey } : {}),
-        } satisfies RankInfo;
-      },
-      Effect.mapError(
-        (cause) =>
-          new GameApiError({ game: "valorant", operation: "getRank", cause }),
-      ),
-    ),
-  };
+export const RiotValorantAdapterLive = Layer.effect(
+  ValorantAdapter,
+  Effect.gen(function* () {
+    const client = yield* RiotValApiClient;
+    // an account's shard comes from riot at signup, so this only covers rows
+    // stored without one
+    const shardOf = (region: Region | undefined) => region ?? "na";
 
-  return adapter;
-});
+    const adapter: GameAdapter = {
+      game: "valorant",
+      // riot only lets a VALORANT player's data be shown once they sign in with
+      // riot to opt in, so signing up by riot id alone doesn't track it
+      requiresOptIn: true,
+      iconUrl: valorantIconUrl,
+      rankIcons: valorantRankIcons,
+      resolveAccount: Effect.fn("GameAdapter.valorant.resolveAccount")(
+        function* (name: string, tag: string) {
+          const puuid = yield* client.getAccountByRiotId(name, tag);
+          return { puuid, region: yield* client.getActiveShard(puuid) };
+        },
+      ),
+      getRecentMatchIds: Effect.fn("GameAdapter.valorant.getRecentMatchIds")(
+        function* (puuid: Puuid, region: Region | undefined) {
+          const history = yield* client.getMatchlist(puuid, shardOf(region));
+          return history
+            .slice(0, RECENT_MATCH_COUNT)
+            .map((entry) => entry.matchId);
+        },
+        Effect.mapError(
+          (cause) =>
+            new GameApiError({
+              game: "valorant",
+              operation: "getRecentMatchIds",
+              cause,
+            }),
+        ),
+      ),
+      getMatch: Effect.fn("GameAdapter.valorant.getMatch")(
+        function* (matchId: MatchId, region: Region | undefined) {
+          const match = yield* client.getMatch(matchId, shardOf(region));
+          if (!match) return undefined;
+          // fails rather than skips, so the next poll picks it up when it's done
+          if (!match.matchInfo.isCompleted) {
+            return yield* Effect.fail(new Error("match still in progress"));
+          }
+          return riotValMatchToDetails(match, yield* client.getContent());
+        },
+        Effect.mapError(
+          (cause) =>
+            new GameApiError({
+              game: "valorant",
+              operation: "getMatch",
+              cause,
+            }),
+        ),
+      ),
+      // There's no RR in riot's api, only the tier a match was played at, so a
+      // competitive match reports how many tiers that moved since the last one.
+      enrichMatch: ({ match, trackedPlayers }) =>
+        Effect.sync(() => {
+          const enrichment = emptyEnrichment(
+            onlyOptedInNamed(match, trackedPlayers),
+          );
+          if (match.mode !== queueNames.get(COMPETITIVE)) return enrichment;
+          for (const tracked of trackedPlayers) {
+            const rank = match.players.find(
+              (player) => player.puuid === tracked.puuid,
+            )?.rank;
+            const tier =
+              rank === undefined ? undefined : valorantTierLevels.get(rank);
+            if (rank === undefined || tier === undefined) continue;
+            const previous = tracked.previousRankSnapshots[COMPETITIVE];
+            if (previous && previous.points !== tier) {
+              enrichment.rankUpdates.set(tracked.puuid, {
+                delta: tier - previous.points,
+                current: rank,
+                unit: "tier",
+                tierChange: {
+                  from: valorantRankInfo(previous.standing),
+                  to: valorantRankInfo(rank),
+                  promoted: tier > previous.points,
+                },
+              } satisfies RankUpdate);
+            }
+            enrichment.updatedRankSnapshots.set(tracked.puuid, {
+              ...tracked.previousRankSnapshots,
+              [COMPETITIVE]: { standing: rank, points: tier },
+            } satisfies RankSnapshots);
+          }
+          return enrichment;
+        }).pipe(Effect.withSpan("GameAdapter.valorant.enrichMatch")),
+      // the tier of their newest competitive match, the only rank riot shares
+      getRank: Effect.fn("GameAdapter.valorant.getRank")(
+        function* (puuid: Puuid, region: Region | undefined) {
+          const history = yield* client.getMatchlist(puuid, shardOf(region));
+          const latest = history.find((entry) => entry.queueId === COMPETITIVE);
+          if (!latest) return undefined;
+          const match = yield* client.getMatch(latest.matchId, shardOf(region));
+          const tier = match?.players.find(
+            (player) => player.puuid === puuid,
+          )?.competitiveTier;
+          const rank = tier === undefined ? undefined : tierNames.get(tier);
+          if (!rank) return undefined;
+          const iconKey = valorantRankIconKey(rank);
+          return {
+            tier: rank,
+            detail: `as of <t:${Math.floor(latest.gameStartTimeMillis / 1000)}:R>`,
+            iconKey,
+          } satisfies RankInfo;
+        },
+        Effect.mapError(
+          (cause) =>
+            new GameApiError({ game: "valorant", operation: "getRank", cause }),
+        ),
+      ),
+    };
+
+    return ValorantAdapter.of(adapter);
+  }),
+);

@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { HenrikApiClient } from "../game-api/val/henrik-api-client.ts";
 import {
   GameApiError,
@@ -6,7 +6,7 @@ import {
   emptyEnrichment,
   logApiWarning,
   type GameAdapter,
-} from "./index.ts";
+} from "./adapter.ts";
 import {
   EpochMillis,
   type MatchDetails,
@@ -27,6 +27,7 @@ import {
   valorantRankIcons,
   valorantRankInfo,
   valorantTierLevels,
+  ValorantAdapter,
 } from "./valorant.ts";
 
 // HenrikDev's unofficial api, until riot approves a VALORANT product key; see
@@ -50,10 +51,11 @@ export const valMatchToDetails = (
       puuid: player.puuid,
       riotName: player.name,
       riotTag: player.tag,
-      ...(player.tier.name && player.tier.name !== "Unrated"
-        ? { rank: player.tier.name }
-        : {}),
-      ...(iconKey ? { rankIconKey: iconKey } : {}),
+      rank:
+        player.tier.name && player.tier.name !== "Unrated"
+          ? player.tier.name
+          : undefined,
+      rankIconKey: iconKey,
     };
   };
 
@@ -119,7 +121,7 @@ export const valMatchToDetails = (
 
   const teams: Array<MatchTeam> = match.teams.map((team) => ({
     id: team.team_id.toLowerCase(),
-    ...(team.rounds.won !== team.rounds.lost ? { won: team.won } : {}),
+    won: team.rounds.won !== team.rounds.lost ? team.won : undefined,
     score: [team.rounds.won, team.rounds.lost],
   }));
 
@@ -134,165 +136,166 @@ export const valMatchToDetails = (
   };
 };
 
-export const makeHenrikValorantAdapter = Effect.gen(function* () {
-  const henrikClient = yield* HenrikApiClient;
-  // henrik's single match endpoint, asked right after a match ends, can return
-  // names blank that the polled match history already has, so reports are
-  // scored from the polled record
-  const polledHistories = new Map<Puuid, ReadonlyArray<ValRawMatch>>();
+export const HenrikValorantAdapterLive = Layer.effect(
+  ValorantAdapter,
+  Effect.gen(function* () {
+    const henrikClient = yield* HenrikApiClient;
+    // henrik's single match endpoint, asked right after a match ends, can return
+    // names blank that the polled match history already has, so reports are
+    // scored from the polled record
+    const polledHistories = new Map<Puuid, ReadonlyArray<ValRawMatch>>();
 
-  const adapter: GameAdapter = {
-    game: "valorant",
-    requiresOptIn: false,
-    iconUrl: valorantIconUrl,
-    rankIcons: valorantRankIcons,
-    resolveAccount: Effect.fn("GameAdapter.valorant.resolveAccount")(function* (
-      name: string,
-      tag: string,
-    ) {
-      return yield* henrikClient.getAccountByRiotId(name, tag);
-    }),
-    // henrik's history sends whole matches, so ids cost the same one request
-    // and getMatch reads the match back from it
-    getRecentMatchIds: Effect.fn("GameAdapter.valorant.getRecentMatchIds")(
-      function* (puuid: Puuid, region: Region | undefined) {
-        const matches = yield* henrikClient.getRecentMatches(
-          puuid,
-          region,
-          RECENT_MATCH_COUNT,
-        );
-        polledHistories.set(puuid, matches);
-        return matches
-          .filter((match) => match.metadata.is_completed)
-          .map((match) => match.metadata.match_id);
-      },
-      Effect.mapError(
-        (cause) =>
-          new GameApiError({
-            game: "valorant",
-            operation: "getRecentMatchIds",
-            cause,
-          }),
+    const adapter: GameAdapter = {
+      game: "valorant",
+      requiresOptIn: false,
+      iconUrl: valorantIconUrl,
+      rankIcons: valorantRankIcons,
+      resolveAccount: Effect.fn("GameAdapter.valorant.resolveAccount")(
+        function* (name: string, tag: string) {
+          return yield* henrikClient.getAccountByRiotId(name, tag);
+        },
       ),
-    ),
-    getMatch: Effect.fn("GameAdapter.valorant.getMatch")(function* (
-      matchId: MatchId,
-    ) {
-      const polled = [...polledHistories.values()]
-        .flat()
-        .find((raw) => raw.metadata.match_id === matchId);
-      if (polled) return valMatchToDetails(polled);
-      return yield* new GameApiError({
-        game: "valorant",
-        operation: "getMatch",
-        cause: new Error("match isn't in any polled history"),
-      });
-    }),
-    enrichMatch: Effect.fn("GameAdapter.valorant.enrichMatch")(function* ({
-      match,
-      trackedPlayers,
-    }) {
-      if (match.kind !== "versus") return emptyEnrichment(match);
-      const region = trackedPlayers[0]?.region;
-      const polled = trackedPlayers
-        .flatMap(({ puuid }) => polledHistories.get(puuid) ?? [])
-        .find(
-          (raw) =>
-            raw.metadata.is_completed &&
-            raw.metadata.match_id === match.matchId,
-        );
-      const scored =
-        polled === undefined
-          ? match
-          : yield* henrikClient
-              .getPerformanceScores(match.matchId, region)
-              .pipe(
-                Effect.map((scores) => valMatchToDetails(polled, scores)),
-                Effect.catch((error) =>
-                  logApiWarning(
-                    "valorant performance scores unavailable",
-                    error,
-                  ).pipe(
-                    Effect.annotateLogs({ matchId: match.matchId }),
-                    Effect.as(match),
-                  ),
-                ),
-              );
-      const enrichment = emptyEnrichment(scored);
-      if (scored.mode !== "Competitive") return enrichment;
-
-      yield* Effect.forEach(
-        trackedPlayers,
-        ({ puuid, region }) =>
-          henrikClient.getMmrHistory(puuid, region).pipe(
-            Effect.map((history) => {
-              // newest first, so the entry after it is the game before
-              const index = history.findIndex(
-                (candidate) =>
-                  candidate.matchId.toLowerCase() ===
-                  match.matchId.toLowerCase(),
-              );
-              const entry = history[index];
-              if (!entry) return;
-              // Unrated isn't on the ladder, and a new act's placement isn't a
-              // move from last act's rank
-              const before = history[index + 1];
-              const from =
-                before && before.act === entry.act
-                  ? valorantTierLevels.get(before.current)
-                  : undefined;
-              const to = valorantTierLevels.get(entry.current);
-              enrichment.rankUpdates.set(puuid, {
-                delta: entry.delta,
-                current: entry.current,
-                unit: "RR",
-                ...(before &&
-                from !== undefined &&
-                to !== undefined &&
-                from !== to
-                  ? {
-                      tierChange: {
-                        from: valorantRankInfo(before.current),
-                        to: valorantRankInfo(entry.current),
-                        promoted: to > from,
-                      },
-                    }
-                  : {}),
-              });
+      // henrik's history sends whole matches, so ids cost the same one request
+      // and getMatch reads the match back from it
+      getRecentMatchIds: Effect.fn("GameAdapter.valorant.getRecentMatchIds")(
+        function* (puuid: Puuid, region: Region | undefined) {
+          const matches = yield* henrikClient.getRecentMatches(
+            puuid,
+            region,
+            RECENT_MATCH_COUNT,
+          );
+          polledHistories.set(puuid, matches);
+          return matches
+            .filter((match) => match.metadata.is_completed)
+            .map((match) => match.metadata.match_id);
+        },
+        Effect.mapError(
+          (cause) =>
+            new GameApiError({
+              game: "valorant",
+              operation: "getRecentMatchIds",
+              cause,
             }),
-            Effect.catch((error) =>
-              logApiWarning("valorant RR unavailable", error).pipe(
-                Effect.annotateLogs({ puuid, matchId: match.matchId }),
+        ),
+      ),
+      getMatch: Effect.fn("GameAdapter.valorant.getMatch")(function* (
+        matchId: MatchId,
+      ) {
+        const polled = [...polledHistories.values()]
+          .flat()
+          .find((raw) => raw.metadata.match_id === matchId);
+        if (polled) return valMatchToDetails(polled);
+        return yield* new GameApiError({
+          game: "valorant",
+          operation: "getMatch",
+          cause: new Error("match isn't in any polled history"),
+        });
+      }),
+      enrichMatch: Effect.fn("GameAdapter.valorant.enrichMatch")(function* ({
+        match,
+        trackedPlayers,
+      }) {
+        if (match.kind !== "versus") return emptyEnrichment(match);
+        const region = trackedPlayers[0]?.region;
+        const polled = trackedPlayers
+          .flatMap(({ puuid }) => polledHistories.get(puuid) ?? [])
+          .find(
+            (raw) =>
+              raw.metadata.is_completed &&
+              raw.metadata.match_id === match.matchId,
+          );
+        const scored =
+          polled === undefined
+            ? match
+            : yield* henrikClient
+                .getPerformanceScores(match.matchId, region)
+                .pipe(
+                  Effect.map((scores) => valMatchToDetails(polled, scores)),
+                  Effect.catch((error) =>
+                    logApiWarning(
+                      "valorant performance scores unavailable",
+                      error,
+                    ).pipe(
+                      Effect.annotateLogs({ matchId: match.matchId }),
+                      Effect.as(match),
+                    ),
+                  ),
+                );
+        const enrichment = emptyEnrichment(scored);
+        if (scored.mode !== "Competitive") return enrichment;
+
+        yield* Effect.forEach(
+          trackedPlayers,
+          ({ puuid, region }) =>
+            henrikClient.getMmrHistory(puuid, region).pipe(
+              Effect.map((history) => {
+                // newest first, so the entry after it is the game before
+                const index = history.findIndex(
+                  (candidate) =>
+                    candidate.matchId.toLowerCase() ===
+                    match.matchId.toLowerCase(),
+                );
+                const entry = history[index];
+                if (!entry) return;
+                // Unrated isn't on the ladder, and a new act's placement isn't a
+                // move from last act's rank
+                const before = history[index + 1];
+                const from =
+                  before && before.act === entry.act
+                    ? valorantTierLevels.get(before.current)
+                    : undefined;
+                const to = valorantTierLevels.get(entry.current);
+                enrichment.rankUpdates.set(puuid, {
+                  delta: entry.delta,
+                  current: entry.current,
+                  unit: "RR",
+                  tierChange:
+                    before &&
+                    from !== undefined &&
+                    to !== undefined &&
+                    from !== to
+                      ? {
+                          from: valorantRankInfo(before.current),
+                          to: valorantRankInfo(entry.current),
+                          promoted: to > from,
+                        }
+                      : undefined,
+                });
+              }),
+              Effect.catch((error) =>
+                logApiWarning("valorant RR unavailable", error).pipe(
+                  Effect.annotateLogs({ puuid, matchId: match.matchId }),
+                ),
               ),
             ),
-          ),
-        { concurrency: 3 },
-      );
+          { concurrency: 3 },
+        );
 
-      return enrichment;
-    }),
-    getRank: Effect.fn("GameAdapter.valorant.getRank")(
-      function* (puuid: Puuid, region: Region | undefined) {
-        const rank = yield* henrikClient.getRank(puuid, region);
-        if (!rank || rank.tier === "Unrated") return undefined;
+        return enrichment;
+      }),
+      getRank: Effect.fn("GameAdapter.valorant.getRank")(
+        function* (puuid: Puuid, region: Region | undefined) {
+          const rank = yield* henrikClient.getRank(puuid, region);
+          if (!rank || rank.tier === "Unrated") return undefined;
 
-        const iconKey = rankIconKey(rank.tier);
-        const record =
-          rank.wins !== undefined && rank.games !== undefined
-            ? ` · ${rank.wins}W · ${rank.games} games`
-            : "";
-        return {
-          tier: rank.tier,
-          detail: `${rank.rr} RR${record}`,
-          ...(iconKey ? { iconKey } : {}),
-        } satisfies RankInfo;
-      },
-      Effect.mapError(
-        (cause) =>
-          new GameApiError({ game: "valorant", operation: "getRank", cause }),
+          const iconKey = rankIconKey(rank.tier);
+          const record =
+            rank.wins !== undefined && rank.games !== undefined
+              ? ` · ${rank.wins}W · ${rank.games} games`
+              : "";
+          return {
+            tier: rank.tier,
+            detail: `${rank.rr} RR${record}`,
+            iconKey,
+          } satisfies RankInfo;
+        },
+        Effect.mapError(
+          (cause) =>
+            new GameApiError({ game: "valorant", operation: "getRank", cause }),
+        ),
       ),
-    ),
-  };
+    };
 
-  return adapter;
-});
+    return ValorantAdapter.of(adapter);
+  }),
+);

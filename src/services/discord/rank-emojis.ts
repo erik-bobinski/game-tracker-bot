@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
-import { Effect, Encoding } from "effect";
+import { Effect } from "effect";
+import { Base64 } from "effect/encoding";
 import { DiscordREST } from "dfx";
-import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClient from "effect/http/HttpClient";
 import type { GameAdapter } from "../game/game-adapters/index.ts";
 import type { RankEmojis } from "./embed.ts";
 
@@ -37,13 +37,11 @@ export const provisionRankEmojis = Effect.fn("Discord.provisionRankEmojis")(
           existingEmoji ??
           (yield* Effect.gen(function* () {
             const bytes = icon.url.startsWith("file:")
-              ? new Uint8Array(
-                  yield* Effect.tryPromise({
-                    try: () => readFile(new URL(icon.url)),
-                    catch: (cause) =>
-                      new Error(`could not read ${icon.url}: ${cause}`),
-                  }),
-                )
+              ? yield* Effect.tryPromise({
+                  try: () => Bun.file(new URL(icon.url)).bytes(),
+                  catch: (cause) =>
+                    new Error(`could not read ${icon.url}: ${cause}`),
+                })
               : new Uint8Array(
                   yield* (yield* client.get(icon.url)).arrayBuffer,
                 );
@@ -54,7 +52,7 @@ export const provisionRankEmojis = Effect.fn("Discord.provisionRankEmojis")(
             }
             const created = yield* rest.createApplicationEmoji(application.id, {
               name,
-              image: `data:image/png;base64,${Encoding.encodeBase64(bytes)}`,
+              image: `data:image/png;base64,${Base64.encode(bytes)}`,
             });
             uploaded++;
             return created;

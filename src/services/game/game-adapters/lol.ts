@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
 import {
   riotRankDisplay,
@@ -11,7 +11,7 @@ import {
   emptyEnrichment,
   logApiWarning,
   type GameAdapter,
-} from "./index.ts";
+} from "./adapter.ts";
 import type {
   MatchId,
   Puuid,
@@ -79,7 +79,7 @@ export const lolMatchToDetails = (match: LolMatch): VersusMatch => {
         sortKey:
           (participant.kills + participant.assists) /
           Math.max(participant.deaths, 1),
-        ...(multiKill ? { flair: multiKill } : {}),
+        flair: multiKill,
       };
     });
 
@@ -107,157 +107,166 @@ export const lolMatchToDetails = (match: LolMatch): VersusMatch => {
   };
 };
 
-export const makeLolGameAdapter = Effect.gen(function* () {
-  const riotClient = yield* RiotApiClient;
+export class LolAdapter extends Context.Service<LolAdapter, GameAdapter>()(
+  "app/LolAdapter",
+) {}
 
-  const adapter: GameAdapter = {
-    game: "lol",
-    requiresOptIn: false,
-    iconUrl: `${STATIC_ASSETS}/lol_icon.png`,
-    rankIcons: riotRankIcons,
-    resolveAccount: Effect.fn("GameAdapter.lol.resolveAccount")(function* (
-      name: string,
-      tag: string,
-    ) {
-      const puuid = yield* riotClient.getAccountByRiotId("lol", name, tag);
-      // the account resolves fine without a shard; only rank lookups need it
-      const region = yield* riotClient
-        .getPlatformId("lol", puuid)
-        .pipe(
-          Effect.catch((error) =>
-            logApiWarning("lol platformId lookup failed", error).pipe(
-              Effect.as(undefined),
-            ),
-          ),
-        );
-      return { puuid, region };
-    }),
-    getRecentMatchIds: Effect.fn("GameAdapter.lol.getRecentMatchIds")(
-      function* (puuid: Puuid, region: Region | undefined) {
-        return yield* riotClient.getMatchIds(
-          "lol",
-          puuid,
-          region,
-          RECENT_MATCH_COUNT,
-        );
-      },
-      Effect.mapError(
-        (cause) =>
-          new GameApiError({
-            game: "lol",
-            operation: "getRecentMatchIds",
-            cause,
-          }),
-      ),
-    ),
-    getMatch: Effect.fn("GameAdapter.lol.getMatch")(
-      function* (matchId: MatchId, region: Region | undefined) {
-        const match = yield* riotClient.getLolMatch(matchId, region);
-        return match && lolMatchToDetails(match);
-      },
-      Effect.mapError(
-        (cause) =>
-          new GameApiError({ game: "lol", operation: "getMatch", cause }),
-      ),
-    ),
-    enrichMatch: Effect.fn("GameAdapter.lol.enrichMatch")(function* ({
-      match,
-      trackedPlayers,
-    }) {
-      if (match.kind !== "versus") return emptyEnrichment(match);
-      const queueType =
-        match.mode === "Ranked Solo/Duo"
-          ? "RANKED_SOLO_5x5"
-          : match.mode === "Ranked Flex"
-            ? "RANKED_FLEX_SR"
-            : undefined;
-      const platformId = match.routingRegion;
-      if (!queueType || !platformId) return emptyEnrichment(match);
+export const LolAdapterLive = Layer.effect(
+  LolAdapter,
+  Effect.gen(function* () {
+    const riotClient = yield* RiotApiClient;
 
-      const ranks = new Map<Puuid, LolLeagueEntry>();
-      yield* Effect.forEach(
-        match.players,
-        (player) =>
-          riotClient.getLeagueEntries(player.puuid, platformId).pipe(
-            Effect.map((entries) => {
-              const entry = entries.find(
-                (candidate) => candidate.queueType === queueType,
-              );
-              if (entry) ranks.set(player.puuid, entry);
-            }),
+    const adapter: GameAdapter = {
+      game: "lol",
+      requiresOptIn: false,
+      iconUrl: `${STATIC_ASSETS}/lol_icon.png`,
+      rankIcons: riotRankIcons,
+      resolveAccount: Effect.fn("GameAdapter.lol.resolveAccount")(function* (
+        name: string,
+        tag: string,
+      ) {
+        const puuid = yield* riotClient.getAccountByRiotId("lol", name, tag);
+        // the account resolves fine without a shard; only rank lookups need it
+        const region = yield* riotClient
+          .getPlatformId("lol", puuid)
+          .pipe(
             Effect.catch((error) =>
-              logApiWarning("rank unavailable for lol player", error).pipe(
-                Effect.annotateLogs({ puuid: player.puuid }),
+              logApiWarning("lol platformId lookup failed", error).pipe(
+                Effect.as(undefined),
               ),
             ),
-          ),
-        { concurrency: 1 },
-      );
-
-      const rankUpdates = new Map<Puuid, RankUpdate>();
-      const updatedRankSnapshots = new Map<Puuid, RankSnapshots>();
-      for (const tracked of trackedPlayers) {
-        const entry = ranks.get(tracked.puuid);
-        if (!entry) continue;
-        const { update, snapshot } = riotRankStep(
-          tracked.previousRankSnapshots[queueType],
-          entry,
-        );
-        rankUpdates.set(tracked.puuid, update);
-        updatedRankSnapshots.set(tracked.puuid, {
-          ...tracked.previousRankSnapshots,
-          [queueType]: snapshot,
-        });
-      }
-
-      return {
-        match: {
-          ...match,
-          players: match.players.map((player) => {
-            const entry = ranks.get(player.puuid);
-            if (!entry) return player;
-            const { iconKey, division, label } = riotRankDisplay(entry);
-            return {
-              ...player,
-              rank: label,
-              rankIconKey: iconKey,
-              ...(division ? { rankDivision: division } : {}),
-            };
-          }),
+          );
+        return { puuid, region };
+      }),
+      getRecentMatchIds: Effect.fn("GameAdapter.lol.getRecentMatchIds")(
+        function* (puuid: Puuid, region: Region | undefined) {
+          return yield* riotClient.getMatchIds(
+            "lol",
+            puuid,
+            region,
+            RECENT_MATCH_COUNT,
+          );
         },
-        rankUpdates,
-        updatedRankSnapshots,
-      };
-    }),
-    getRank: Effect.fn("GameAdapter.lol.getRank")(
-      function* (puuid: Puuid, region: Region | undefined) {
-        // league-v4 is shard-routed, so an unknown shard means no rank
-        if (!region) {
-          yield* Effect.logWarning("no stored platformId for lol rank lookup");
-          return undefined;
+        Effect.mapError(
+          (cause) =>
+            new GameApiError({
+              game: "lol",
+              operation: "getRecentMatchIds",
+              cause,
+            }),
+        ),
+      ),
+      getMatch: Effect.fn("GameAdapter.lol.getMatch")(
+        function* (matchId: MatchId, region: Region | undefined) {
+          const match = yield* riotClient.getLolMatch(matchId, region);
+          return match && lolMatchToDetails(match);
+        },
+        Effect.mapError(
+          (cause) =>
+            new GameApiError({ game: "lol", operation: "getMatch", cause }),
+        ),
+      ),
+      enrichMatch: Effect.fn("GameAdapter.lol.enrichMatch")(function* ({
+        match,
+        trackedPlayers,
+      }) {
+        if (match.kind !== "versus") return emptyEnrichment(match);
+        const queueType =
+          match.mode === "Ranked Solo/Duo"
+            ? "RANKED_SOLO_5x5"
+            : match.mode === "Ranked Flex"
+              ? "RANKED_FLEX_SR"
+              : undefined;
+        const platformId = match.routingRegion;
+        if (!queueType || !platformId) return emptyEnrichment(match);
+
+        const ranks = new Map<Puuid, LolLeagueEntry>();
+        yield* Effect.forEach(
+          match.players,
+          (player) =>
+            riotClient.getLeagueEntries(player.puuid, platformId).pipe(
+              Effect.map((entries) => {
+                const entry = entries.find(
+                  (candidate) => candidate.queueType === queueType,
+                );
+                if (entry) ranks.set(player.puuid, entry);
+              }),
+              Effect.catch((error) =>
+                logApiWarning("rank unavailable for lol player", error).pipe(
+                  Effect.annotateLogs({ puuid: player.puuid }),
+                ),
+              ),
+            ),
+          { concurrency: 1 },
+        );
+
+        const rankUpdates = new Map<Puuid, RankUpdate>();
+        const updatedRankSnapshots = new Map<Puuid, RankSnapshots>();
+        for (const tracked of trackedPlayers) {
+          const entry = ranks.get(tracked.puuid);
+          if (!entry) continue;
+          const { update, snapshot } = riotRankStep(
+            tracked.previousRankSnapshots[queueType],
+            entry,
+          );
+          rankUpdates.set(tracked.puuid, update);
+          updatedRankSnapshots.set(tracked.puuid, {
+            ...tracked.previousRankSnapshots,
+            [queueType]: snapshot,
+          });
         }
 
-        const entries = yield* riotClient.getLeagueEntries(puuid, region);
-        const entry =
-          entries.find((e) => e.queueType === "RANKED_SOLO_5x5") ??
-          entries.find((e) => e.queueType === "RANKED_FLEX_SR");
-        if (!entry) return undefined;
-
-        const queue =
-          entry.queueType === "RANKED_SOLO_5x5" ? "Solo/Duo" : "Flex";
-        const { iconKey, label } = riotRankDisplay(entry);
         return {
-          tier: label,
-          detail: `${entry.leaguePoints} LP · ${entry.wins}W ${entry.losses}L (${queue})`,
-          iconKey,
-        } satisfies RankInfo;
-      },
-      Effect.mapError(
-        (cause) =>
-          new GameApiError({ game: "lol", operation: "getRank", cause }),
-      ),
-    ),
-  };
+          match: {
+            ...match,
+            players: match.players.map((player) => {
+              const entry = ranks.get(player.puuid);
+              if (!entry) return player;
+              const { iconKey, division, label } = riotRankDisplay(entry);
+              return {
+                ...player,
+                rank: label,
+                rankIconKey: iconKey,
+                rankDivision: division || undefined,
+              };
+            }),
+          },
+          rankUpdates,
+          updatedRankSnapshots,
+        };
+      }),
+      getRank: Effect.fn("GameAdapter.lol.getRank")(
+        function* (puuid: Puuid, region: Region | undefined) {
+          // league-v4 is shard-routed, so an unknown shard means no rank
+          if (!region) {
+            yield* Effect.logWarning(
+              "no stored platformId for lol rank lookup",
+            );
+            return undefined;
+          }
 
-  return adapter;
-});
+          const entries = yield* riotClient.getLeagueEntries(puuid, region);
+          const entry =
+            entries.find((e) => e.queueType === "RANKED_SOLO_5x5") ??
+            entries.find((e) => e.queueType === "RANKED_FLEX_SR");
+          if (!entry) return undefined;
+
+          const queue =
+            entry.queueType === "RANKED_SOLO_5x5" ? "Solo/Duo" : "Flex";
+          const { iconKey, label } = riotRankDisplay(entry);
+          return {
+            tier: label,
+            detail: `${entry.leaguePoints} LP · ${entry.wins}W ${entry.losses}L (${queue})`,
+            iconKey,
+          } satisfies RankInfo;
+        },
+        Effect.mapError(
+          (cause) =>
+            new GameApiError({ game: "lol", operation: "getRank", cause }),
+        ),
+      ),
+    };
+
+    return LolAdapter.of(adapter);
+  }),
+);

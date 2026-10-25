@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   Clock,
   Config,
@@ -7,10 +6,12 @@ import {
   Layer,
   Option,
   Redacted,
+  Result,
   Schema,
 } from "effect";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
+import { Base64Url } from "effect/encoding";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
 
 export class RsoError extends Schema.TaggedError<RsoError>()("RsoError", {
   reason: Schema.String,
@@ -25,8 +26,13 @@ export const RsoLink = Schema.Struct({
 });
 export interface RsoLink extends Schema.Schema.Type<typeof RsoLink> {}
 
-const SignedLink = Schema.fromJsonString(
-  Schema.Struct({ ...RsoLink.fields, expiresAt: Schema.Number }),
+// the state's payload half: the link as base64url json
+const SignedLink = Schema.StringFromBase64Url.pipe(
+  Schema.decodeTo(
+    Schema.fromJsonString(
+      Schema.Struct({ ...RsoLink.fields, expiresAt: Schema.Number }),
+    ),
+  ),
 );
 
 // a link is for whoever asked for it, so it lapses before it can travel far
@@ -58,38 +64,48 @@ export class Rso extends Context.Service<
 export const RsoLive = Layer.effect(
   Rso,
   Effect.gen(function* () {
-    const clientId = yield* Config.string("RSO_CLIENT_ID").pipe(
+    const clientId = yield* Config.String("RSO_CLIENT_ID").pipe(
       Config.withDefault(""),
     );
     if (!clientId) return Option.none();
-    const clientSecret = yield* Config.redacted("RSO_CLIENT_SECRET");
+    const clientSecret = yield* Config.Redacted("RSO_CLIENT_SECRET");
     const redirectUri = new URL(
       "/rso/callback",
-      yield* Config.string("PUBLIC_URL"),
+      yield* Config.String("PUBLIC_URL"),
     ).href;
     // accounts/me answers from any cluster
-    const cluster = yield* Config.string("RIOT_REGION").pipe(
+    const cluster = yield* Config.String("RIOT_REGION").pipe(
       Config.withDefault("americas"),
     );
     const http = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
 
-    const signature = (payload: string) =>
-      createHmac("sha256", Redacted.value(clientSecret))
-        .update(payload)
-        .digest();
+    const encoder = new TextEncoder();
+    const hmacKey = yield* Effect.promise(() =>
+      crypto.subtle.importKey(
+        "raw",
+        encoder.encode(Redacted.value(clientSecret)),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign", "verify"],
+      ),
+    );
 
     const signInUrl = Effect.fn("Rso.signInUrl")(function* (link: RsoLink) {
       const expiresAt = (yield* Clock.currentTimeMillis) + LINK_LIFETIME_MILLIS;
-      const payload = Buffer.from(
-        JSON.stringify({ ...link, expiresAt }),
-      ).toString("base64url");
+      const payload = yield* Schema.encodeEffect(SignedLink)({
+        ...link,
+        expiresAt,
+      }).pipe(Effect.orDie);
+      const signature = yield* Effect.promise(() =>
+        crypto.subtle.sign("HMAC", hmacKey, encoder.encode(payload)),
+      );
       const url = new URL("https://auth.riotgames.com/authorize");
       url.search = new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
         response_type: "code",
         scope: "openid",
-        state: `${payload}.${signature(payload).toString("base64url")}`,
+        state: `${payload}.${Base64Url.encode(new Uint8Array(signature))}`,
       }).toString();
       return url.href;
     });
@@ -102,17 +118,19 @@ export const RsoLive = Layer.effect(
       readonly state: string;
     }) {
       const [payload = "", signed = ""] = state.split(".");
-      const expected = signature(payload);
-      const given = Buffer.from(signed, "base64url");
-      if (
-        given.length !== expected.length ||
-        !timingSafeEqual(given, expected)
-      ) {
+      // an undecodable signature verifies as an empty one, which never matches
+      const given = Uint8Array.from(
+        Result.getOrElse(Base64Url.decode(signed), () => []),
+      );
+      const valid = yield* Effect.promise(() =>
+        crypto.subtle.verify("HMAC", hmacKey, given, encoder.encode(payload)),
+      );
+      if (!valid) {
         return yield* new RsoError({ reason: "the link was tampered with" });
       }
       const { expiresAt, ...link } = yield* Schema.decodeUnknownEffect(
         SignedLink,
-      )(Buffer.from(payload, "base64url").toString()).pipe(
+      )(payload).pipe(
         Effect.mapError(
           (cause) => new RsoError({ reason: "the link is malformed", cause }),
         ),

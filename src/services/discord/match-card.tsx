@@ -1,17 +1,18 @@
 /** @jsxImportSource satori/jsx */
-import { readFile } from "node:fs/promises";
 import { Resvg } from "@resvg/resvg-js";
 import {
   Cache,
+  Context,
   Duration,
   Effect,
-  Encoding,
   Exit,
+  Layer,
   Option,
   Schema,
 } from "effect";
+import { Base64 } from "effect/encoding";
 import type { DiscordREST } from "dfx";
-import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClient from "effect/http/HttpClient";
 import satori, { type Font } from "satori";
 import type { JSXNode } from "satori/jsx";
 import { gameNames } from "../game/index.ts";
@@ -23,7 +24,7 @@ import type {
   Puuid,
   RankUpdate,
 } from "../game/index.ts";
-import type { GameAdapter } from "../game/game-adapters/index.ts";
+import { GameAdapters } from "../game/game-adapters/index.ts";
 import {
   formatDuration,
   matchEmbed,
@@ -341,10 +342,11 @@ const Row = ({
               />
             ) : null}
             <div
-              style={{
-                flexShrink: 0,
-                ...(change ? { fontWeight: 600, color: changeColor } : {}),
-              }}
+              style={
+                change
+                  ? { flexShrink: 0, fontWeight: 600, color: changeColor }
+                  : { flexShrink: 0 }
+              }
             >
               {label}
             </div>
@@ -636,9 +638,8 @@ const placementCard = (report: PlacementReport, images: CardImages) => {
 
 // Renders a match report to a png scoreboard. Icons are fetched once and kept;
 // one that fails to load is left out of the card rather than failing it.
-export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
-  adapters: ReadonlyArray<GameAdapter>,
-) {
+const make = Effect.gen(function* () {
+  const { all: adapters } = yield* GameAdapters;
   const client = (yield* HttpClient.HttpClient).pipe(
     HttpClient.filterStatusOk,
     HttpClient.retryTransient({ times: 2 }),
@@ -648,13 +649,13 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
     fontFiles,
     ([subset, weight]) =>
       Effect.promise(() =>
-        readFile(
+        Bun.file(
           new URL(
             import.meta.resolve(
               `@fontsource/inter/files/inter-${subset}-${weight}-normal.woff`,
             ),
           ),
-        ),
+        ).arrayBuffer(),
       ).pipe(
         Effect.map((data) => ({
           name: "Inter",
@@ -669,10 +670,10 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
     (url: string) =>
       Effect.gen(function* () {
         const bytes = url.startsWith("file:")
-          ? yield* Effect.tryPromise(() => readFile(new URL(url)))
+          ? yield* Effect.tryPromise(() => Bun.file(new URL(url)).bytes())
           : new Uint8Array(yield* (yield* client.get(url)).arrayBuffer);
         const type = url.endsWith(".svg") ? "image/svg+xml" : "image/png";
-        return `data:${type};base64,${Encoding.encodeBase64(bytes)}`;
+        return `data:${type};base64,${Base64.encode(bytes)}`;
       }).pipe(
         Effect.tapError((error) =>
           Effect.logWarning("match card icon unavailable", error).pipe(
@@ -738,7 +739,7 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
     ]),
   );
 
-  return Effect.fn("MatchCard.render")(
+  const render = Effect.fn("MatchCard.render")(
     function* (report: MatchReport) {
       const { match } = report;
       const icons = iconsByGame.get(match.game);
@@ -836,9 +837,16 @@ export const makeMatchCard = Effect.fn("MatchCard.make")(function* (
     },
     Effect.mapError((cause) => new MatchCardError({ cause })),
   );
+
+  return { render };
 });
 
-export type MatchCard = Effect.Success<ReturnType<typeof makeMatchCard>>;
+export class MatchCard extends Context.Service<
+  MatchCard,
+  Effect.Success<typeof make>
+>()("app/MatchCard") {}
+
+export const MatchCardLive = Layer.effect(MatchCard, make);
 
 export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
   {
@@ -849,12 +857,12 @@ export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
   }: {
     readonly rest: DiscordREST["Service"];
     readonly channelId: string;
-    readonly card: MatchCard;
+    readonly card: MatchCard["Service"];
     readonly rankEmojis: RankEmojis;
   },
   report: MatchReport,
 ) {
-  const png = yield* card(report).pipe(
+  const png = yield* card.render(report).pipe(
     Effect.tapError((error) =>
       Effect.logError("match card render failed; posting the embed", error),
     ),

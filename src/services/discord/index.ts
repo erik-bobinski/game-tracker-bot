@@ -1,4 +1,4 @@
-import { NodeHttpClient, NodeSocket } from "@effect/platform-node";
+import { BunHttpClient, BunSocket } from "@effect/platform-bun";
 import {
   Config,
   Context,
@@ -27,11 +27,7 @@ import { PollingState } from "../polling/state.ts";
 import { Rso } from "../rso/index.ts";
 import { commands } from "./commands.ts";
 import type { MatchReport } from "./embed.ts";
-import {
-  makeMatchCard,
-  postMatchReport,
-  type MatchCard,
-} from "./match-card.tsx";
+import { postMatchReport, MatchCard } from "./match-card.tsx";
 import { provisionRankEmojis } from "./rank-emojis.ts";
 
 export class DiscordError extends Schema.TaggedError<DiscordError>()(
@@ -56,8 +52,6 @@ export class Discord extends Context.Service<
       readonly name: string;
       readonly inviteUrl: string;
     };
-    // renders a report's scoreboard png, as posted with each report
-    readonly card: MatchCard;
   }
 >()("app/Discord") {}
 
@@ -74,14 +68,12 @@ const reportPermissions =
 // shut out of it or its server, and no retry will reach it
 const unreachableChannelCodes = new Set([10003, 50001]);
 
-// fetch, not undici: the undici client can't send the multipart body a match
-// card is uploaded in
 const DiscordApiLive = DiscordIxLive.pipe(
-  Layer.provide(NodeHttpClient.layerFetch),
-  Layer.provide(NodeSocket.layerWebSocketConstructor),
+  Layer.provide(BunHttpClient.layer),
+  Layer.provide(BunSocket.layerWebSocketConstructor),
   Layer.provide(
     DiscordConfig.layerConfig({
-      token: Config.redacted("DISCORD_BOT_TOKEN"),
+      token: Config.Redacted("DISCORD_BOT_TOKEN"),
       gateway: {
         intents: Config.succeed(Intents.fromList(["Guilds"])),
       },
@@ -97,7 +89,7 @@ const makeDiscord = Effect.gen(function* () {
   const gameAdapters = yield* GameAdapters;
   const pollingState = yield* PollingState;
   const rso = yield* Rso;
-  const devMode = yield* Config.boolean("DEV_MODE").pipe(
+  const devMode = yield* Config.Boolean("DEV_MODE").pipe(
     Config.withDefault(false),
   );
 
@@ -142,7 +134,7 @@ const makeDiscord = Effect.gen(function* () {
     ),
   );
 
-  const card = yield* makeMatchCard(gameAdapters.all);
+  const card = yield* MatchCard;
 
   const notifyMatch = Effect.fn("Discord.notifyMatch")(
     function* ({ guildId, channelId }: ReportTarget, report: MatchReport) {
@@ -260,11 +252,10 @@ const makeDiscord = Effect.gen(function* () {
       name: application.name,
       inviteUrl: `https://discord.com/oauth2/authorize?client_id=${application.id}&scope=bot+applications.commands&permissions=${reportPermissions}`,
     },
-    card,
   });
 });
 
 export const DiscordLive = Layer.effect(Discord, makeDiscord).pipe(
   Layer.provide(DiscordApiLive),
-  Layer.provide(NodeHttpClient.layerUndici),
+  Layer.provide(BunHttpClient.layer),
 );

@@ -32,16 +32,16 @@ export interface MatchPlayerIdentity {
   readonly riotName: string;
   readonly riotTag: string;
   readonly stat: string;
-  readonly rank?: string;
-  readonly rankIconKey?: string;
-  readonly rankDivision?: string;
-  readonly flair?: string;
+  readonly rank?: string | undefined;
+  readonly rankIconKey?: string | undefined;
+  readonly rankDivision?: string | undefined;
+  readonly flair?: string | undefined;
 }
 
 export interface VersusPlayer extends MatchPlayerIdentity {
   readonly team: string;
   readonly character: string;
-  readonly characterIconUrl?: string;
+  readonly characterIconUrl?: string | undefined;
   readonly kills: number;
   readonly deaths: number;
   readonly assists: number;
@@ -56,8 +56,8 @@ export interface PlacementPlayer extends MatchPlayerIdentity {
 export interface MatchTeam {
   readonly id: string;
   /** Omitted when the match ended in a draw */
-  readonly won?: boolean;
-  readonly score?: readonly [number, number];
+  readonly won?: boolean | undefined;
+  readonly score?: readonly [number, number] | undefined;
 }
 
 interface MatchBase {
@@ -65,8 +65,8 @@ interface MatchBase {
   readonly game: GameId;
   readonly date: EpochMillis;
   readonly mode: string;
-  readonly routingRegion?: string;
-  readonly map?: string;
+  readonly routingRegion?: string | undefined;
+  readonly map?: string | undefined;
   readonly durationSeconds: number;
 }
 
@@ -95,21 +95,23 @@ export interface ResolvedAccount {
 
 export interface RankInfo {
   readonly tier: string;
-  readonly detail?: string;
+  readonly detail?: string | undefined;
   // matches a GameAdapter.rankIcons key, so it renders with the same emojis
-  readonly iconKey?: string;
+  readonly iconKey?: string | undefined;
 }
 
 export interface RankUpdate {
-  readonly delta?: number;
-  readonly current?: string;
+  readonly delta?: number | undefined;
+  readonly current?: string | undefined;
   readonly unit: string;
   // set when the match moved them into another tier
-  readonly tierChange?: {
-    readonly from: RankInfo;
-    readonly to: RankInfo;
-    readonly promoted: boolean;
-  };
+  readonly tierChange?:
+    | {
+        readonly from: RankInfo;
+        readonly to: RankInfo;
+        readonly promoted: boolean;
+      }
+    | undefined;
 }
 
 // the last standing an adapter persisted, keyed by whatever queue identifier
