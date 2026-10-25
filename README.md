@@ -1,13 +1,16 @@
 # game-tracker-bot
 
-A Discord bot that posts a scoreboard card when someone finishes a League of
-Legends, Teamfight Tactics or VALORANT match. Players sign up with their Riot
-ID and pick the games to report, and each server picks the channel its reports
-go to. When several signed-up players were in the same match, each server gets
-one post naming the ones who signed up there.
+A Discord bot that posts a scoreboard to your server when someone finishes a
+game.
 
-One bot process serves every server, and each Riot account is polled once
-however many servers report it, so API usage grows with players, not servers.
+The goal is to be **game agnostic**: League of Legends, Teamfight Tactics and
+VALORANT are the current implementations, but supporting another game should
+mean writing one adapter, not touching the rest of the app.
+
+Players sign up with their Riot ID and pick the games to report, and each
+server picks the channel its reports go to. A match several signed-up players
+were in is posted once per server, naming the ones who signed up there, and
+each account is polled once however many servers report it.
 
 ## Commands
 
@@ -50,23 +53,22 @@ startup.
 Riot keys come from [developer.riotgames.com](https://developer.riotgames.com),
 one product per game, since a key only reaches its own game's APIs.
 
-| Variable                  | What it is                                                                                                      |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `DISCORD_BOT_TOKEN`       | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot                        |
-| `RIOT_API_KEY`            | League of Legends key                                                                                           |
-| `RIOT_TFT_API_KEY`        | Teamfight Tactics key                                                                                           |
-| `RIOT_VAL_API_KEY`        | VALORANT key. Without it, VALORANT comes from HenrikDev's unofficial API instead                                |
-| `RSO_CLIENT_ID`           | The VALORANT product's Riot Sign On client, which turns on `/link`                                              |
-| `RSO_CLIENT_SECRET`       | Its secret, which also signs the sign-in links                                                                  |
-| `PUBLIC_URL`              | The bot's public address. Register `<PUBLIC_URL>/rso/callback` as the RSO redirect URI                          |
-| `HENRIK_API_KEY`          | Only without `RIOT_VAL_API_KEY`, from the [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN)            |
-| `DB_PATH`                 | Optional, default `game-tracker.sqlite`. Keep it on a persistent volume                                         |
-| `NOTIFICATION_CHANNEL_ID` | Optional. Where the admin CLI posts test reports without `--channel`                                            |
-| `RIOT_VERIFICATION`       | Optional. The string Riot gives to verify your site, served at `/riot.txt`                                      |
-| `PORT`                    | Optional, default 3000                                                                                          |
-| `RIOT_REGION`             | Optional, default `americas`. Each account's region is stored at signup, so this and the next two are fallbacks |
-| `VAL_REGION`              | Optional, default `na`. HenrikDev only                                                                          |
-| `VAL_PLATFORM`            | Optional, default `pc`. HenrikDev only                                                                          |
+| Variable            | What it is                                                                                                      |
+| ------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `DISCORD_BOT_TOKEN` | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot                        |
+| `RIOT_API_KEY`      | League of Legends key                                                                                           |
+| `RIOT_TFT_API_KEY`  | Teamfight Tactics key                                                                                           |
+| `RIOT_VAL_API_KEY`  | VALORANT key. Without it, VALORANT comes from HenrikDev's unofficial API instead                                |
+| `RSO_CLIENT_ID`     | The VALORANT product's Riot Sign On client, which turns on `/link`                                              |
+| `RSO_CLIENT_SECRET` | Its secret, which also signs the sign-in links                                                                  |
+| `PUBLIC_URL`        | The bot's public address. Register `<PUBLIC_URL>/rso/callback` as the RSO redirect URI                          |
+| `HENRIK_API_KEY`    | Only without `RIOT_VAL_API_KEY`, from the [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN)            |
+| `DB_PATH`           | Optional, default `game-tracker.sqlite`. Keep it on a persistent volume                                         |
+| `RIOT_VERIFICATION` | Optional. The string Riot gives to verify your site, served at `/riot.txt`                                      |
+| `PORT`              | Optional, default 3000                                                                                          |
+| `RIOT_REGION`       | Optional, default `americas`. Each account's region is stored at signup, so this and the next two are fallbacks |
+| `VAL_REGION`        | Optional, default `na`. HenrikDev only                                                                          |
+| `VAL_PLATFORM`      | Optional, default `pc`. HenrikDev only                                                                          |
 
 Set `RIOT_VAL_API_KEY` together with the RSO variables: with Riot's VALORANT
 API, matches are only reported for players who ran `/link`.
@@ -81,7 +83,7 @@ move when a game's key changes. The bot reads each key's rate limits off
 Riot's responses, so the higher production limits apply on their own.
 
 **League of Legends and TFT.** Set the new key, keep the old one valid until
-this is done, and run in the production container:
+this is done, and run:
 
 ```sh
 RIOT_PREVIOUS_KEY=<old LoL key> pnpm admin rekey lol
@@ -94,39 +96,6 @@ be moved are listed, and rerunning skips the ones already moved.
 **VALORANT.** Set `RIOT_VAL_API_KEY`, `RSO_CLIENT_ID`, `RSO_CLIENT_SECRET` and
 `PUBLIC_URL`. Each player then runs `/link` once; their VALORANT matches are
 reported from then on.
-
-## Deployment
-
-Production runs on [Railway](https://game-tracker-bot.up.railway.app). Pushes
-to `master` run CI and deploy to the Railway service, whose `/data` volume
-holds the database.
-
-## Admin CLI
-
-The bot's operations without Discord, run inside the production container:
-
-```sh
-railway ssh --service game-tracker-bot
-pnpm admin <command>
-```
-
-| Command                                                              | What it does                                                         |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `status`                                                             | Polling state, the database in use, every server and tracked account |
-| `signup <riot-id> --discord-id <id> [--guild <id>] [--game <game>…]` | Sign someone up, reporting in that server, with the games given      |
-| `track <target> --game <game>… \| --all`                             | Start reporting games for a signed-up account                        |
-| `untrack <target> --game <game>… \| --all`                           | Stop reporting games for a signed-up account                         |
-| `signout <target>`                                                   | Stop tracking an account everywhere and delete its data              |
-| `setup <guild-id> --channel <id> [--adopt]`                          | Set a server's report channel; `--adopt` adds accounts in no server  |
-| `pause` / `resume`                                                   | Stop or restart all reports, in every server                         |
-| `rank-check <target> [--game <game>]`                                | Look up a tracked account's current rank                             |
-| `rekey <lol\|tft>`                                                   | Move a game's accounts to a new Riot key                             |
-| `report-mock [--game <game>] [--channel <id>]`                       | Post a mock match card                                               |
-| `report-match <riot-id> --game <game> [--channel <id>]`              | Report a real recent match through the polling pipeline              |
-
-`<target>` is a Discord user ID, a Discord name or a Riot ID. A missing
-argument is prompted for, `--json` prints JSON and never prompts, and every
-command takes `--help`.
 
 ## Development
 
