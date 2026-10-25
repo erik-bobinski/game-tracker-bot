@@ -1,17 +1,16 @@
 # game-tracker-bot
 
-A Discord bot that reports finished matches for opted-in users. Someone signs
-up with their Riot ID in a server, and when they finish a game the bot posts a
-scoreboard card to the channel that server picked, or a scoreboard embed if the
-card fails to render. If several signed-up users played the same match, each
-server gets one post naming the ones who signed up there.
+A Discord bot that posts a scoreboard to your server when someone finishes a
+game.
 
-One bot process serves every server it's in. A Riot account is polled once no
-matter how many servers report it, so API usage grows with players, not servers.
+The goal is to be **game agnostic**: League of Legends, Teamfight Tactics and
+VALORANT are the current implementations, but supporting another game should
+mean writing one adapter, not touching the rest of the app.
 
-The goal is to be **game agnostic**: League of Legends, Valorant, and Teamfight
-Tactics are the current implementations, but supporting another game should mean
-writing one adapter, not touching the rest of the app.
+Players sign up with their Riot ID and pick the games to report, and each
+server picks the channel its reports go to. A match several signed-up players
+were in is posted once per server, naming the ones who signed up there, and
+each account is polled once however many servers report it.
 
 ## Commands
 
@@ -19,214 +18,144 @@ writing one adapter, not touching the rest of the app.
 | -------------------------------- | ---------------------------------------------------------------------------------- |
 | `/setup <channel>`               | Pick the channel this server's reports go to (Manage Server)                       |
 | `/signup <riot_name> <riot_tag>` | Start reporting your matches in this server, or switch your Riot ID                |
-| `/track`                         | Pick one or more games to report, in every server you're signed up in              |
-| `/untrack`                       | Pick one or more games, or all of them, to stop reporting                          |
+| `/track`                         | Pick games to report, in every server you're signed up in                          |
+| `/untrack`                       | Pick games, or all of them, to stop reporting                                      |
+| `/link`                          | Sign in with Riot so your VALORANT matches can be reported                         |
 | `/signout`                       | Stop reporting your matches here; your data is deleted when no server reports them |
 | `/rank_check <user> <game>`      | Post the current rank of someone signed up here, with their tier emblem            |
 | `/pause` / `/resume`             | Stop or restart this server's reports (Manage Server)                              |
-| `/link`                          | Sign in with Riot to add games Riot only shares with consent (VALORANT)            |
 
-Every game is opt-in. Signup reports nothing until you pick games, and it
-sends the `/track` picker right away.
+Every game is opt-in: signing up reports nothing until you pick games, and it
+opens the `/track` picker right away. Riot only shares VALORANT matches for
+players who signed in with Riot, so with Riot's VALORANT API, VALORANT also
+needs `/link`.
 
 Commands only work in servers. Server admins can hand `/setup`, `/pause` and
-`/resume` to other roles under Server Settings → Integrations. `/link` only
-exists once the bot has a Riot Sign On client, see
-[VALORANT through Riot's API](#valorant-through-riots-api).
+`/resume` to other roles under Server Settings → Integrations.
 
-## Deployment
+## Running it
 
-Production runs on [Railway](https://game-tracker-bot.up.railway.app).
-Pushes to `master` in `erik-bobinski/game-tracker-bot` run GitHub Actions CI
-and automatically deploy to the existing Railway service. Its persistent
-`/data` volume keeps the bot database across deployments.
-
-## Admin CLI
-
-The same operations, without Discord. It runs inside the production container,
-next to the bot:
-
-```sh
-railway ssh --service game-tracker-bot
-pnpm admin <command>
-```
-
-| Command                                                              | What it does                                                         |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `status`                                                             | Polling state, the database in use, every server and tracked account |
-| `signup <riot-id> --discord-id <id> [--guild <id>] [--game <game>…]` | Sign someone up, reporting in that server, with the games given      |
-| `track <target> --game <game>… \| --all`                             | Start reporting games for a signed-up account                        |
-| `untrack <target> --game <game>… \| --all`                           | Stop reporting games for a signed-up account                         |
-| `rekey <lol\|tft>`                                                   | Move a game's accounts to its current Riot key, see below            |
-| `signout <target>`                                                   | Stop tracking an account everywhere and delete its data              |
-| `setup <guild-id> --channel <id> [--adopt]`                          | Set a server's report channel; `--adopt` adds accounts in no server  |
-| `pause` / `resume`                                                   | Stop or restart all reports, in every server                         |
-| `rank-check <target> [--game <game>]`                                | Look up a tracked account's current rank                             |
-| `report-mock [--game <game>] [--channel <id>]`                       | Post a mock match card                                               |
-| `report-match <riot-id> --game <game> [--channel <id>]`              | Report a real recent match through the polling pipeline              |
-
-Posting commands use `--channel`, or `NOTIFICATION_CHANNEL_ID` without it.
-
-`<target>` is a Discord user ID, a Discord name, or a Riot ID — whichever you
-have. Leave an argument off and the command asks for it. `--json` prints the
-result as JSON and never prompts, for scripts. Every command takes `--help`.
-
-## Architecture
-
-TypeScript on [Effect](https://effect.website) v4, with [dfx](https://github.com/tim-smart/dfx)
-for Discord and SQLite for storage. Every piece is an Effect service, wired
-together as layers in `src/index.ts`.
-
-```
-src/
-  index.ts                     layer wiring and entry point
-  admin/                       the admin CLI, a second entry point
-  services/
-    polling/                   ticks every 3 minutes, respects the global pause flag
-    match-engine/              the core loop, see below
-    game/
-      index.ts                 game-agnostic domain types
-      game-adapters/           one adapter per game, behind a shared interface
-      game-api/                raw API clients and decode schemas
-    discord/                   gateway, slash commands, embeds
-    database/                  SQLite, migrations, account storage
-    rso/                       Riot Sign On, for games that need a player's opt-in
-    web/                       public pages, and where Riot's sign-in returns to
-```
-
-**The match engine** is where it comes together. Each tick it loads every
-account that some unpaused server with a channel reports and polls all of
-them, then waits 3 minutes before the next tick. A poll asks the game adapter
-for the ids of the account's recent matches, one request, and drops the ones
-already reported. Each new match is fetched once, however many tracked
-players were in it, then enriched (rank lookups) and posted once per server,
-naming the players who signed up there, and recorded as reported.
-
-**Riot rate limits** are respected per key and routing host. The client reads
-the limits off each response's `X-App-Rate-Limit` header and paces requests
-under them, so swapping a personal key for a production one raises the ceiling
-without code changes. HenrikDev requests are paced the same way, under the
-per-minute limit its `X-RateLimit-*` headers state.
-
-### Adding a game
-
-1. Add the game to `gameIds` and `games` in `src/services/game/index.ts`. Display
-   names and Discord/admin choices are derived from that registry.
-2. Add an API client and decode schemas under `src/services/game/game-api/`.
-3. Implement `GameAdapter` in `src/services/game/game-adapters/`: resolve an
-   account, list its recent match ids in one request, fetch a match and map it
-   to `MatchDetails`, optionally enrich it, and fetch rank data. Set
-   `requiresOptIn` if the game's data may only be shown for players who signed
-   in with Riot.
-4. Register the adapter in `GameAdaptersLive` and provide its API-client layer
-   from `src/index.ts`.
-5. Add a development report mock, then run `pnpm typecheck` and test
-   `/dev_report`.
-
-Keep game-specific API shapes inside the client and adapter. Once they produce
-the shared types, polling, deduplication, storage, and Discord reporting should
-not need game-specific branches. Match reports are a versus scoreboard or a
-placement board, switched on `match.kind`.
-
-**Failures degrade rather than crash.** One undecodable match is skipped, not
-fatal. A failed rank lookup drops the icon but still posts the report. A failed
-poll is logged and retried on the next tick. A server whose post fails doesn't
-hold up the others; if its channel was deleted or the bot lost access, the
-channel is unset until someone runs `/setup` again. When the bot is removed from
-a server, that server's signups go with it.
-
-## Setup
-
-Requires Node and pnpm.
+Requires Node 24 and pnpm.
 
 ```sh
 pnpm install
-cp .env.example .env
-```
-
-Fill in `.env`:
-
-| Variable                  | How to get it                                                                                                                                       |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DISCORD_BOT_TOKEN`       | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot                                                            |
-| `NOTIFICATION_CHANNEL_ID` | Optional. Where the admin CLI posts test reports without `--channel`: right-click a channel → Copy Channel ID (needs Developer Mode on)             |
-| `RIOT_API_KEY`            | [developer.riotgames.com](https://developer.riotgames.com), key of a League of Legends product                                                      |
-| `RIOT_TFT_API_KEY`        | [developer.riotgames.com](https://developer.riotgames.com), key of a separate Teamfight Tactics product. Riot keys only reach their own game's APIs |
-| `HENRIK_API_KEY`          | [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN). Only used until `RIOT_VAL_API_KEY` is set                                               |
-| `PORT`                    | Optional, default 3000. The web server's port; Railway sets it                                                                                      |
-
-`RIOT_REGION`, `VAL_REGION` and `VAL_PLATFORM` are optional. Each account's
-region is resolved and stored at signup; these are only fallbacks.
-
-Invite the bot with the `bot` and `applications.commands` scopes, then run
-`/setup` in your server to pick the report channel; the bot needs to view it,
-send messages, embed links and attach files there. Commands register
-themselves on startup.
-
-```sh
+cp .env.example .env   # then fill it in, see below
 pnpm start
 ```
 
-The web server serves the bot's public pages at `/`, `/terms` and `/privacy`,
-which Discord and Riot ask for when a bot goes public. Riot verifies a
-production applicant's site with a string, which `RIOT_VERIFICATION` serves at
-`/riot.txt`.
+Invite the bot with the `bot` and `applications.commands` scopes, then run
+`/setup` in your server. The bot needs to view the report channel, send
+messages, embed links and attach files there. Commands register themselves on
+startup.
 
-### VALORANT through Riot's API
+### Configuration
 
-Until Riot grants a VALORANT production key, VALORANT comes from HenrikDev's
-unofficial API, whose free tier only covers a few dozen players. Riot only
-issues VALORANT keys to approved products, and only lets a player's data be
-shown once they sign in with Riot (RSO) to opt in. With the key and an RSO
-client, set:
+Riot keys come from [developer.riotgames.com](https://developer.riotgames.com),
+one product per game, since a key only reaches its own game's APIs.
 
-| Variable            | What it is                                                                         |
-| ------------------- | ---------------------------------------------------------------------------------- |
-| `RIOT_VAL_API_KEY`  | Key of a VALORANT product. Switches VALORANT to Riot's API                         |
-| `RSO_CLIENT_ID`     | The product's RSO client, which turns on `/link`                                   |
-| `RSO_CLIENT_SECRET` | Its secret, which also signs the sign-in links                                     |
-| `PUBLIC_URL`        | The bot's public address; register `<PUBLIC_URL>/rso/callback` as the redirect URI |
+| Variable            | What it is                                                                                                      |
+| ------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `DISCORD_BOT_TOKEN` | [Discord Developer Portal](https://discord.com/developers/applications) → your app → Bot                        |
+| `RIOT_API_KEY`      | League of Legends key                                                                                           |
+| `RIOT_TFT_API_KEY`  | Teamfight Tactics key                                                                                           |
+| `RIOT_VAL_API_KEY`  | VALORANT key. Without it, VALORANT comes from HenrikDev's unofficial API instead                                |
+| `RSO_CLIENT_ID`     | The VALORANT product's Riot Sign On client, which turns on `/link`                                              |
+| `RSO_CLIENT_SECRET` | Its secret, which also signs the sign-in links                                                                  |
+| `PUBLIC_URL`        | The bot's public address. Register `<PUBLIC_URL>/rso/callback` as the RSO redirect URI                          |
+| `HENRIK_API_KEY`    | Only without `RIOT_VAL_API_KEY`, from the [HenrikDev Discord](https://discord.com/invite/X3GaVkX2YN)            |
+| `DB_PATH`           | Optional, default `game-tracker.sqlite`. Keep it on a persistent volume                                         |
+| `RIOT_VERIFICATION` | Optional. The string Riot gives to verify your site, served at `/riot.txt`                                      |
+| `PORT`              | Optional, default 3000                                                                                          |
+| `RIOT_REGION`       | Optional, default `americas`. Each account's region is stored at signup, so this and the next two are fallbacks |
+| `VAL_REGION`        | Optional, default `na`. HenrikDev only                                                                          |
+| `VAL_PLATFORM`      | Optional, default `pc`. HenrikDev only                                                                          |
 
-Players then run `/link` to sign in with Riot. Riot encrypts player ids per key,
-so VALORANT signups made through Henrik stop polling until their owners
-`/link`, which replaces them.
+Set `RIOT_VAL_API_KEY` together with the RSO variables: with Riot's VALORANT
+API, matches are only reported for players who ran `/link`.
 
-### Switching to a new Riot key
+The web server also serves the public pages Discord and Riot ask for, at `/`,
+`/terms` and `/privacy`, and is where Riot's sign-in returns to.
 
-Riot encrypts player ids per product key, so after moving LoL or TFT to another
-key, such as a production one, the stored accounts stop polling until they're
-moved over. With the new key in `RIOT_API_KEY` or `RIOT_TFT_API_KEY`:
+### Switching to production keys
+
+Riot encrypts player IDs separately for every key, so stored accounts have to
+move when a game's key changes. The bot reads each key's rate limits off
+Riot's responses, so the higher production limits apply on their own.
+
+**League of Legends and TFT.** Set the new key, keep the old one valid until
+this is done, and run:
 
 ```sh
-RIOT_PREVIOUS_KEY=<the key they were stored under> pnpm admin rekey lol
+RIOT_PREVIOUS_KEY=<old LoL key> pnpm admin rekey lol
+RIOT_PREVIOUS_KEY=<old TFT key> pnpm admin rekey tft
 ```
 
-### Moving off the single-channel setup
+Each account keeps its reported matches and rank history. Accounts that can't
+be moved are listed, and rerunning skips the ones already moved.
 
-Before multi-server support, every account reported to `NOTIFICATION_CHANNEL_ID`.
-After upgrading, those accounts report in no server until they're adopted:
+**VALORANT.** Set `RIOT_VAL_API_KEY`, `RSO_CLIENT_ID`, `RSO_CLIENT_SECRET` and
+`PUBLIC_URL`. Each player then runs `/link` once; their VALORANT matches are
+reported from then on.
 
-```sh
-pnpm admin setup <server-id> --channel <channel-id> --adopt
-```
+## Development
 
-## Local development
-
-Run a second bot application in a separate test server, with its own token and
-API keys, and set `DEV_MODE=true`. That registers three extra commands:
+Run a second bot application in a test server, with its own token and keys,
+and set `DEV_MODE=true` for three extra commands:
 
 | Command                              | What it does                                                               |
 | ------------------------------------ | -------------------------------------------------------------------------- |
 | `/dev_clear`                         | Forget reported matches, so the next poll re-reports your real recent ones |
-| `/dev_report <game>`                 | Post a report built from mock API responses, no game required              |
+| `/dev_report <game>`                 | Post a report built from mock API responses                                |
 | `/dev_signup <riot_name> <riot_tag>` | Track a Riot account under a fake Discord identity                         |
 
-`/dev_signup` exists because tracked users are just database rows — Discord
-membership is never checked. Registering a friend's Riot ID under a fabricated
-identity lets you produce real multi-user reports while you're the only person
-in the test server.
+Tracked users are just database rows, so `/dev_signup` lets you produce real
+multi-player reports while you're alone in the test server.
 
 ```sh
 pnpm dev          # loads .env
 pnpm typecheck
 ```
+
+## Architecture
+
+TypeScript on [Effect](https://effect.website) v4, with
+[dfx](https://github.com/tim-smart/dfx) for Discord and SQLite for storage.
+Every piece is an Effect service, wired together in `src/index.ts`.
+
+```
+src/
+  index.ts           layer wiring and entry point
+  admin/             the admin CLI, a second entry point
+  services/
+    polling/         ticks every 3 minutes, unless paused
+    match-engine/    finds new matches and reports them
+    game/            game-agnostic types, one adapter and API client per game
+    discord/         gateway, slash commands, embeds and cards
+    database/        SQLite storage and migrations
+    rso/             Riot Sign On, for games that need a player's opt-in
+    web/             public pages and the sign-in callback
+```
+
+Each tick, the match engine polls every account that an active server reports.
+One request per account lists its recent matches; each new match is fetched
+once, however many tracked players were in it, then posted once per server and
+recorded. Riot and HenrikDev requests are paced under the rate limits their
+responses state.
+
+Failures stay small: an undecodable match is skipped, a failed rank lookup
+drops the emblem, a failed poll is retried on the next tick, and a server whose
+channel is gone has it unset until someone runs `/setup` again.
+
+### Adding a game
+
+1. Add it to `gameIds` and `games` in `src/services/game/index.ts`.
+2. Add an API client and decode schemas under `src/services/game/game-api/`.
+3. Implement `GameAdapter` in `src/services/game/game-adapters/`: resolve an
+   account, list its recent match ids, fetch a match into `MatchDetails`, and
+   fetch ranks. Set `requiresOptIn` if Riot only shares the game for players
+   who signed in with Riot.
+4. Register it in `GameAdaptersLive` and provide its client from `src/index.ts`.
+5. Add a mock for `/dev_report`, then run `pnpm typecheck`.
+
+Game-specific shapes stay inside the client and adapter; polling, storage and
+reporting work on the shared types.
