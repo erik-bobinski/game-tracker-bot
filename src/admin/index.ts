@@ -734,6 +734,18 @@ const rekey = Command.make(
       );
       return yield* Effect.forEach(tracked, ({ account, state }) =>
         Effect.gen(function* () {
+          // the current key reads a puuid it issued, so a rerun skips
+          // accounts that already moved
+          const onCurrentKey = yield* riot
+            .getPlatformId(game, state.puuid)
+            .pipe(Effect.option);
+          if (Option.isSome(onCurrentKey)) {
+            return {
+              discordUserId: account.discordUserId,
+              riotId: riotId(account),
+              status: "current" as const,
+            };
+          }
           const res = yield* previous.get(
             `/riot/account/v1/accounts/by-puuid/${encodeURIComponent(state.puuid)}`,
           );
@@ -746,10 +758,17 @@ const rekey = Command.make(
             game,
             state: { ...state, puuid },
           });
+          // the old key read their name as it is now, renamed or not
+          yield* database.updateRiotId({
+            game,
+            puuid,
+            riotName: gameName,
+            riotTag: tagLine,
+          });
           return {
             discordUserId: account.discordUserId,
             riotId: `${gameName}#${tagLine}`,
-            moved: true,
+            status: "moved" as const,
           };
         }).pipe(
           // one account that can't be read doesn't stop the rest
@@ -757,7 +776,7 @@ const rekey = Command.make(
             Effect.succeed({
               discordUserId: account.discordUserId,
               riotId: riotId(account),
-              moved: false,
+              status: "failed" as const,
               error: error instanceof Error ? error.message : String(error),
             }),
           ),
@@ -772,11 +791,12 @@ const rekey = Command.make(
       orFail("This command needs RIOT_API_KEY and RIOT_TFT_API_KEY"),
     );
 
-    const moved = results.filter((result) => result.moved);
+    const count = (status: (typeof results)[number]["status"]) =>
+      results.filter((result) => result.status === status).length;
     yield* emit(json, { game, accounts: results }, [
-      `Moved ${moved.length} of ${results.length} ${gameNames[game]} accounts to the current key.`,
+      `Moved ${count("moved")} of ${results.length} ${gameNames[game]} accounts to the current key, ${count("current")} already on it.`,
       ...results
-        .filter((result) => !result.moved)
+        .filter((result) => result.status === "failed")
         .map(
           (result) =>
             `Not moved: ${result.riotId} (${result.discordUserId})${"error" in result ? `: ${result.error}` : ""}`,
