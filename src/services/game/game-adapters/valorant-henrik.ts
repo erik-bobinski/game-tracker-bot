@@ -22,6 +22,7 @@ import {
   type ValRawMatch,
 } from "../game-api/val/match-schema.ts";
 import {
+  multiKillFlairs,
   valorantIconUrl,
   valorantRankIconKey as rankIconKey,
   valorantRankIcons,
@@ -85,7 +86,15 @@ export const valMatchToDetails = (
 
   // Henrik reports team deathmatch as a single round
   const roundBased = match.rounds.length > 1;
+  const multiKills = multiKillFlairs(
+    roundBased && match.kills
+      ? match.kills
+          .filter(({ killer, victim }) => killer.team !== victim.team)
+          .map(({ round, killer }) => ({ round, killer: killer.puuid }))
+      : [],
+  );
   const players: Array<VersusPlayer> = match.players.map((player) => {
+    const flairs = multiKills.get(player.puuid);
     const shots =
       player.stats.headshots + player.stats.bodyshots + player.stats.legshots;
     const score = performanceScores?.get(player.puuid);
@@ -114,6 +123,7 @@ export const valMatchToDetails = (
         .filter((part) => part !== undefined)
         .join(" · "),
       sortKey: impact?.value ?? player.stats.kills,
+      ...(flairs ? { flairs } : {}),
     };
   });
 

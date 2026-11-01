@@ -56,6 +56,23 @@ export const ValRawMatch = Schema.Struct({
   players: Schema.Array(ValMatchPlayer),
   teams: Schema.Array(ValMatchTeam),
   rounds: Schema.Array(Schema.Struct({ result: Schema.String })),
+  // only for multikill badges, so a match whose kills are missing or don't
+  // decode is still reported, just without them
+  kills: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        round: Schema.Number,
+        killer: Schema.Struct({ puuid: Puuid, team: Schema.String }),
+        victim: Schema.Struct({ team: Schema.String }),
+      }),
+    ).pipe(
+      Schema.catchDecoding((issue) =>
+        Effect.logWarning(
+          `valorant kills undecodable, reporting without multikill badges: ${SchemaIssue.makeFormatterDefault()(issue)}`,
+        ).pipe(Effect.andThen(Effect.succeedNone)),
+      ),
+    ),
+  ),
 });
 export interface ValRawMatch extends Schema.Schema.Type<typeof ValRawMatch> {}
 

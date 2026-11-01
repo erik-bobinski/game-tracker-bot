@@ -263,7 +263,7 @@ const Row = ({
         borderLeft: `3px solid ${tracked ? colors.gold : colors.row}`,
       }}
     >
-      {mvp || player.flair || change ? (
+      {mvp || player.flairs?.length || change ? (
         <div
           style={{ display: "flex", position: "absolute", top: -5, right: 8 }}
         >
@@ -273,7 +273,9 @@ const Row = ({
               color={changeColor}
             />
           ) : null}
-          {player.flair ? <Badge label={player.flair} color="#ff7a45" /> : null}
+          {player.flairs?.map((flair) => (
+            <Badge label={flair} color="#ff7a45" />
+          ))}
           {mvp ? <Badge label="MVP" color={colors.gold} /> : null}
         </div>
       ) : null}

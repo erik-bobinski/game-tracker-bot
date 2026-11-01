@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema, SchemaIssue } from "effect";
 import { EpochMillis, MatchId, Puuid } from "../../index.ts";
 
 // Riot's own VALORANT api (VAL-MATCH-V1 and VAL-CONTENT-V1), decoding only
@@ -55,6 +55,17 @@ const ValRound = Schema.Struct({
   playerStats: Schema.Array(
     Schema.Struct({
       puuid: Puuid,
+      // the kills this player made in the round, only for multikill badges,
+      // so a round whose kills are missing or don't decode still reports
+      kills: Schema.optionalKey(
+        Schema.Array(Schema.Struct({ killer: Puuid, victim: Puuid })).pipe(
+          Schema.catchDecoding((issue) =>
+            Effect.logWarning(
+              `valorant kills undecodable, reporting without multikill badges: ${SchemaIssue.makeFormatterDefault()(issue)}`,
+            ).pipe(Effect.andThen(Effect.succeedNone)),
+          ),
+        ),
+      ),
       damage: Schema.Array(
         Schema.Struct({
           headshots: Schema.Number,

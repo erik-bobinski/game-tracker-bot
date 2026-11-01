@@ -79,7 +79,7 @@ export const lolMatchToDetails = (match: LolMatch): VersusMatch => {
         sortKey:
           (participant.kills + participant.assists) /
           Math.max(participant.deaths, 1),
-        ...(multiKill ? { flair: multiKill } : {}),
+        ...(multiKill ? { flairs: [multiKill] } : {}),
       };
     });
 
