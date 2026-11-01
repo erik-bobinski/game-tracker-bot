@@ -233,6 +233,22 @@ export const valMockResponse = () => {
       { team_id: "Red", won: false, rounds: { won: 9, lost: 13 } },
     ],
     rounds: Array.from({ length: 22 }, () => ({ result: "Elimination" })),
+    // only the multikills; the card counts nothing else from these
+    kills: (
+      [
+        [1, "Blue", 3, 6],
+        [1, "Blue", 7, 4],
+        [1, "Blue", 12, 4],
+        [1, "Blue", 18, 4],
+        [6, "Red", 10, 5],
+      ] as const
+    ).flatMap(([slot, team, round, count]) =>
+      Array.from({ length: count }, () => ({
+        round,
+        killer: { puuid: `dev-val-${slot}`, team },
+        victim: { team: team === "Blue" ? "Red" : "Blue" },
+      })),
+    ),
   };
 };
 
