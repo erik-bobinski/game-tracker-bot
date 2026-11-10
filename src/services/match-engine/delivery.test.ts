@@ -1,20 +1,13 @@
 import * as HttpClientError from "effect/http/HttpClientError";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
-import { registerAccount } from "../src/services/account/index.ts";
-import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { test } from "node:test";
+import { registerAccount } from "../account/index.ts";
+import { Database as Sqlite } from "bun:sqlite";
+import { expect, test } from "bun:test";
 import { ConfigProvider, Effect, Layer, Result } from "effect";
-import { Database, DatabaseLive } from "../src/services/database/index.ts";
-import { Discord, DiscordError } from "../src/services/discord/index.ts";
-import {
-  MatchEngine,
-  MatchEngineLive,
-} from "../src/services/match-engine/index.ts";
+import { Database, DatabaseLive } from "../database/index.ts";
+import { Discord, DiscordError } from "../discord/index.ts";
+import { MatchEngine, MatchEngineLive } from "./index.ts";
 import {
   CATCH_UP_MATCH_COUNT,
   GameAdapters,
@@ -22,17 +15,17 @@ import {
   emptyEnrichment,
   resolveGameState,
   type GameAdapter,
-} from "../src/services/game/game-adapters/index.ts";
+} from "../game/game-adapters/index.ts";
 import {
   EpochMillis,
   MatchId,
   Puuid,
   type MatchDetails,
-} from "../src/services/game/index.ts";
+} from "../game/index.ts";
 
 // No bot connection, credentials, API calls or production database.
 test("deliveries survive restart, newer matches and partial server failure", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "reporting-test-"));
+  const dbPath = `${Bun.env.TMPDIR ?? "/tmp"}/reporting-test-${crypto.randomUUID()}.sqlite`;
   const puuid = Puuid.make("player-one");
   const secondPuuid = Puuid.make("player-two");
   const posted: string[] = [];
@@ -90,7 +83,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
         Effect.provideService(
           ConfigProvider.ConfigProvider,
           ConfigProvider.fromUnknown({
-            DB_PATH: join(directory, "test.sqlite"),
+            DB_PATH: dbPath,
             LEGACY_DB_PATH: "",
           }),
         ),
@@ -132,15 +125,12 @@ test("deliveries survive restart, newer matches and partial server failure", asy
             [],
           ).pipe(Effect.result);
           if (status === 404)
-            assert.deepEqual(result, Result.succeed("not-found"));
-          else assert.equal(Result.isFailure(result), true);
-          assert.equal(yield* db.getAccount("lookup"), undefined);
+            expect(result).toEqual(Result.succeed("not-found"));
+          else expect(Result.isFailure(result)).toBe(true);
+          expect(yield* db.getAccount("lookup")).toBe(undefined);
         }
         const baseline = yield* resolveGameState(adapter, "test", "test");
-        assert.deepEqual(
-          baseline.reportedMatches.map((m) => m.matchId),
-          recent,
-        );
+        expect(baseline.reportedMatches.map((m) => m.matchId)).toEqual(recent);
         yield* db.addAccount({
           discordUserId: "baseline",
           discordName: "baseline",
@@ -150,8 +140,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
           games: { tft: baseline },
         });
         yield* db.updateGuild("a", { channelId: "a" });
-        assert.equal(
-          (yield* (yield* MatchEngine).pollOnce()).deliveryAttempts,
+        expect((yield* (yield* MatchEngine).pollOnce()).deliveryAttempts).toBe(
           0,
         );
         yield* db.deleteAccount("baseline");
@@ -178,12 +167,12 @@ test("deliveries survive restart, newer matches and partial server failure", asy
         yield* db.updateGuild("a", { channelId: "a" });
         yield* db.updateGuild("b", { channelId: "b" });
         const result = yield* (yield* MatchEngine).pollOnce();
-        assert.equal(result.deliveryAttempts, 4);
-        assert.equal(result.deliveriesSucceeded, 2);
-        assert.equal((yield* db.getPendingDeliveries()).length, 2);
+        expect(result.deliveryAttempts).toBe(4);
+        expect(result.deliveriesSucceeded).toBe(2);
+        expect((yield* db.getPendingDeliveries()).length).toBe(2);
       }),
     );
-    assert.deepEqual(posted, ["old:a:one,two", "new:a:one,two"]);
+    expect(posted).toEqual(["old:a:one,two", "new:a:one,two"]);
     // New layer/database connection, and neither match is in the recent API list.
     recent = [];
     failing = false;
@@ -191,16 +180,14 @@ test("deliveries survive restart, newer matches and partial server failure", asy
       Effect.gen(function* () {
         const db = yield* Database;
         yield* db.updateGuild("b", { paused: true });
-        assert.equal(
-          (yield* (yield* MatchEngine).pollOnce()).deliveryAttempts,
+        expect((yield* (yield* MatchEngine).pollOnce()).deliveryAttempts).toBe(
           0,
         );
-        assert.equal((yield* db.getPendingDeliveries()).length, 2);
+        expect((yield* db.getPendingDeliveries()).length).toBe(2);
         yield* db.updateGuild("b", { paused: false });
         const result = yield* (yield* MatchEngine).pollOnce();
-        assert.equal(result.deliveriesSucceeded, 2);
-        assert.equal(
-          (yield* (yield* Database).getPendingDeliveries()).length,
+        expect(result.deliveriesSucceeded).toBe(2);
+        expect((yield* (yield* Database).getPendingDeliveries()).length).toBe(
           0,
         );
       }),
@@ -211,7 +198,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
       "old:b:one,two",
       "new:b:one,two",
     ];
-    assert.deepEqual(posted, delivered);
+    expect(posted).toEqual(delivered);
     await run(
       Effect.gen(function* () {
         const db = yield* Database;
@@ -222,7 +209,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
           guildId: "gone",
           players: [{ discordUserId: "one", puuid }],
         });
-        assert.equal((yield* db.getPendingDeliveries()).length, 0);
+        expect((yield* db.getPendingDeliveries()).length).toBe(0);
         yield* db.queueDelivery({
           game: "tft",
           matchId: MatchId.make("cancelled"),
@@ -230,10 +217,10 @@ test("deliveries survive restart, newer matches and partial server failure", asy
           players: [{ discordUserId: "one", puuid }],
         });
         yield* db.removeGames({ discordUserId: "one", games: ["tft"] });
-        assert.deepEqual((yield* db.getPendingDeliveries())[0]?.players, []);
+        expect((yield* db.getPendingDeliveries())[0]?.players).toEqual([]);
         const result = yield* (yield* MatchEngine).pollOnce();
-        assert.equal(result.deliveryAttempts, 0);
-        assert.equal((yield* db.getPendingDeliveries()).length, 0);
+        expect(result.deliveryAttempts).toBe(0);
+        expect((yield* db.getPendingDeliveries()).length).toBe(0);
         yield* db.queueDelivery({
           game: "tft",
           matchId: MatchId.make("signout"),
@@ -241,16 +228,16 @@ test("deliveries survive restart, newer matches and partial server failure", asy
           players: [{ discordUserId: "two", puuid: secondPuuid }],
         });
         yield* db.leaveGuild({ guildId: "b", discordUserId: "two" });
-        assert.deepEqual((yield* db.getPendingDeliveries())[0]?.players, []);
+        expect((yield* db.getPendingDeliveries())[0]?.players).toEqual([]);
       }),
     );
     // A day-old row is dropped instead of posted, and with no history kept
     // for finished deliveries, a player with an emptied history (/dev_clear)
     // gets a shared match reported again.
-    const raw = new DatabaseSync(join(directory, "test.sqlite"));
-    raw.exec(`INSERT INTO match_deliveries (game, match_id, guild_id, players)
+    const raw = new Sqlite(dbPath);
+    raw.run(`INSERT INTO match_deliveries (game, match_id, guild_id, players)
       VALUES ('tft', 'stale', 'a', '[{"discordUserId":"one","puuid":"player-one"},{"discordUserId":"two","puuid":"player-two"}]')`);
-    raw.exec(`UPDATE match_deliveries SET queued_at = '2000-01-01 00:00:00'`);
+    raw.run(`UPDATE match_deliveries SET queued_at = '2000-01-01 00:00:00'`);
     raw.close();
     recent = [MatchId.make("old")];
     await run(
@@ -272,24 +259,23 @@ test("deliveries survive restart, newer matches and partial server failure", asy
           },
         });
         const result = yield* (yield* MatchEngine).pollOnce();
-        assert.equal(result.deliveryAttempts, 1);
-        assert.equal((yield* db.getPendingDeliveries()).length, 0);
-        assert.deepEqual(
+        expect(result.deliveryAttempts).toBe(1);
+        expect((yield* db.getPendingDeliveries()).length).toBe(0);
+        expect(
           (yield* db.getAccount("three"))?.games.tft?.reportedMatches.map(
             (m) => m.matchId,
           ),
-          ["old"],
-        );
+        ).toEqual([MatchId.make("old")]);
       }),
     );
-    assert.deepEqual(posted, [...delivered, "old:a:three"]);
+    expect(posted).toEqual([...delivered, "old:a:three"]);
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    await Bun.file(dbPath).delete();
   }
 });
 
 test("catch-up posts a bounded backlog and pins live rank movement to the newest match", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "catch-up-test-"));
+  const dbPath = `${Bun.env.TMPDIR ?? "/tmp"}/catch-up-test-${crypto.randomUUID()}.sqlite`;
   const puuid = Puuid.make("player-one");
   // newest first, as the apis list them
   const history = ["m7", "m6", "m5", "m4", "m3", "m2", "m1"].map((id) =>
@@ -394,28 +380,27 @@ test("catch-up posts a bounded backlog and pins live rank movement to the newest
         // missed matches oldest first, and skips m2. The rank movement goes on
         // the newest ranked one, not the unranked m7 after it.
         yield* engine.pollOnce();
-        assert.deepEqual(posted, ["m3", "m4", "m5", "m6:40:true", "m7"]);
-        assert.deepEqual(
-          (yield* db.getAccount("one"))?.games.tft?.rankSnapshots,
+        expect(posted).toEqual(["m3", "m4", "m5", "m6:40:true", "m7"]);
+        expect((yield* db.getAccount("one"))?.games.tft?.rankSnapshots).toEqual(
           { RANKED_TFT: { standing: "Gold I", points: 40 } },
         );
 
         // the next poll is a normal one, and m2 stays skipped
         yield* engine.pollOnce();
-        assert.deepEqual(counts, [CATCH_UP_MATCH_COUNT, RECENT_MATCH_COUNT]);
-        assert.equal(posted.length, 5);
+        expect(counts).toEqual([CATCH_UP_MATCH_COUNT, RECENT_MATCH_COUNT]);
+        expect(posted.length).toBe(5);
       }).pipe(
         Effect.provide(live),
         Effect.provideService(
           ConfigProvider.ConfigProvider,
           ConfigProvider.fromUnknown({
-            DB_PATH: join(directory, "test.sqlite"),
+            DB_PATH: dbPath,
             LEGACY_DB_PATH: "",
           }),
         ),
       ),
     );
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    await Bun.file(dbPath).delete();
   }
 });

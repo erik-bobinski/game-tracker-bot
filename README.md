@@ -185,21 +185,14 @@ out removes the player's queued identity immediately. Retries use the current
 report channel.
 
 Discord posting and SQLite acknowledgement are not atomic. A shutdown waits for
-the pair to finish, but a crash between them can still produce a duplicate. Only the poll that discovers a match holds its rank
-changes; later retries, in the same process or after a restart, fetch the match
+the pair to finish, but a crash between them can still produce a duplicate.
+Only the poll that discovers a match holds its rank changes; later retries, in the same process or after a restart, fetch the match
 again and omit rank movement rather than calculate a misleading delta from newer
 rank snapshots. A posted delivery's row is deleted; each player's own reported
 match history is what stops a rediscovery from posting again.
 
-Use Node 24+ and the pinned pnpm version:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm test
-```
-
-The regression test uses temporary SQLite files and stubbed game/Discord services.
+`src/services/match-engine/delivery.test.ts` covers this with temporary SQLite
+files and stubbed game and Discord services, run by `bun run check`.
 It needs no credentials and does not connect a bot. Live Discord command registration
 and UI behavior still need verification in a dedicated development server.
 

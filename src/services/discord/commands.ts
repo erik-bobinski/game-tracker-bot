@@ -356,20 +356,32 @@ const status = ({ database, gameAdapters, rso }: CommandDeps) =>
           return adapter?.requiresOptIn && !account?.games[game]?.optedInAt;
         });
 
-        const next = [
-          !account?.guildIds.includes(guildId) &&
+        // each next step, shown only when it applies
+        const steps: ReadonlyArray<readonly [boolean | undefined, string]> = [
+          [
+            !account?.guildIds.includes(guildId),
             "Run `/signup` to receive reports here.",
-          selected.length === 0 &&
+          ],
+          [
+            selected.length === 0,
             "Run `/track` to choose games (applies to every subscribed server).",
-          !guild?.channelId && "Ask a server admin to run `/setup`.",
-          guild?.paused && "Ask a server admin to run `/resume`.",
-          paused &&
+          ],
+          [!guild?.channelId, "Ask a server admin to run `/setup`."],
+          [guild?.paused, "Ask a server admin to run `/resume`."],
+          [
+            paused,
             "Bot polling is paused globally; ask the bot operator to resume it.",
-          missingConsent.length > 0 &&
-            (Option.isSome(rso)
+          ],
+          [
+            missingConsent.length > 0,
+            Option.isSome(rso)
               ? "Run `/link` to consent to reporting those games."
-              : "Riot sign-in is not available yet for consent-based games."),
-        ].filter((line) => typeof line === "string");
+              : "Riot sign-in is not available yet for consent-based games.",
+          ],
+        ];
+        const next = steps.flatMap(([applies, line]) =>
+          applies ? [line] : [],
+        );
         return privateReply(
           [
             `Account: ${account ? `${account.riotName}#${account.riotTag}` : "not signed up"}`,

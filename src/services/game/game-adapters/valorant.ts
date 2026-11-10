@@ -4,11 +4,7 @@ import type {
   ValContent,
   ValMatch,
 } from "../game-api/val/riot-match-schema.ts";
-import {
-  GameApiError,
-  emptyEnrichment,
-  type GameAdapter,
-} from "./adapter.ts";
+import { GameApiError, emptyEnrichment, type GameAdapter } from "./adapter.ts";
 import type {
   MatchDetails,
   MatchId,
