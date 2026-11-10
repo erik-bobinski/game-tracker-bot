@@ -893,7 +893,10 @@ const rankCheck = (deps: CommandDeps) =>
                 });
           }),
           Effect.catch((error) =>
-            logApiError("rank_check failed", error).pipe(
+            (error._tag === "GameApiError"
+              ? logApiError("rank_check failed", error)
+              : Effect.logError("rank_check failed", error)
+            ).pipe(
               Effect.andThen(
                 followUp({ content: "Rank lookup failed, try again :(" }),
               ),

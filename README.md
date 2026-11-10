@@ -35,12 +35,13 @@ Commands only work in servers. Server admins can hand `/setup`, `/pause` and
 
 ## Running it
 
-Requires Node 24 and pnpm.
+Requires [Bun](https://bun.sh) (the version in `package.json`'s
+`packageManager`).
 
 ```sh
-pnpm install
-cp .env.example .env   # then fill it in, see below
-pnpm start
+bun install
+cp .env.example .env   # then fill it in, see below; bun loads it
+bun start
 ```
 
 Invite the bot with the `bot` and `applications.commands` scopes, then run
@@ -86,8 +87,8 @@ Riot's responses, so the higher production limits apply on their own.
 this is done, and run:
 
 ```sh
-RIOT_PREVIOUS_KEY=<old LoL key> pnpm admin rekey lol
-RIOT_PREVIOUS_KEY=<old TFT key> pnpm admin rekey tft
+RIOT_PREVIOUS_KEY=<old LoL key> bun run admin rekey lol
+RIOT_PREVIOUS_KEY=<old TFT key> bun run admin rekey tft
 ```
 
 Each account keeps its reported matches and rank history. Accounts that can't
@@ -112,14 +113,14 @@ Tracked users are just database rows, so `/dev_signup` lets you produce real
 multi-player reports while you're alone in the test server.
 
 ```sh
-pnpm dev          # loads .env
-pnpm typecheck
+bun dev           # restarts on change, loads .env
+bun run check     # format, lint, typecheck, tests and audit, as CI runs them
 ```
 
 ## Architecture
 
-TypeScript on [Effect](https://effect.website) v4, with
-[dfx](https://github.com/tim-smart/dfx) for Discord and SQLite for storage.
+TypeScript on [Effect](https://effect.website) v4 and [Bun](https://bun.sh),
+with [dfx](https://github.com/tim-smart/dfx) for Discord and SQLite for storage.
 Every piece is an Effect service, wired together in `src/index.ts`.
 
 ```
@@ -150,12 +151,13 @@ channel is gone has it unset until someone runs `/setup` again.
 
 1. Add it to `gameIds` and `games` in `src/services/game/index.ts`.
 2. Add an API client and decode schemas under `src/services/game/game-api/`.
-3. Implement `GameAdapter` in `src/services/game/game-adapters/`: resolve an
-   account, list its recent match ids, fetch a match into `MatchDetails`, and
-   fetch ranks. Set `requiresOptIn` if Riot only shares the game for players
-   who signed in with Riot.
+3. Implement `GameAdapter` (`game-adapters/adapter.ts`) as a service and layer
+   in `src/services/game/game-adapters/`, as `lol.ts` does: resolve an account,
+   list its recent match ids, fetch a match into `MatchDetails`, and fetch
+   ranks. Set `requiresOptIn` if Riot only shares the game for players who
+   signed in with Riot.
 4. Register it in `GameAdaptersLive` and provide its client from `src/index.ts`.
-5. Add a mock for `/dev_report`, then run `pnpm typecheck`.
+5. Add a mock for `/dev_report`, then run `bun run check`.
 
 Game-specific shapes stay inside the client and adapter; polling, storage and
 reporting work on the shared types.

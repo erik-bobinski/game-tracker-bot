@@ -10,12 +10,10 @@ Cloud agents prove bot behavior by running the live app plus the admin CLI again
 ## Launch
 
 ```bash
-export NVM_DIR="${NVM_DIR:-$HOME/.nvm}" && . "$NVM_DIR/nvm.sh" && nvm use 24
-export PATH="$NVM_BIN:$PATH"
-pnpm verify
+bun run verify
 ```
 
-`pnpm verify` typechecks, starts the bot (`pnpm start`, not `pnpm dev`), waits until the process is up, drives admin commands, writes JSON evidence to `/opt/cursor/artifacts/verify-<run-id>/`, and leaves the bot running.
+`bun run verify` typechecks, starts the bot (`bun start`, not `bun dev`), waits until the process is up, drives admin commands, writes JSON evidence to `/opt/cursor/artifacts/verify-<run-id>/`, and leaves the bot running.
 
 Isolation uses `DB_PATH=/tmp/riot-verify-<run-id>.sqlite` so production data is never touched.
 
@@ -28,8 +26,8 @@ Cloud-agent traps (Railway project tokens, ssh keys, READY race, Henrik 404) are
 Before driving features manually:
 
 ```bash
-pnpm typecheck
-pnpm admin status --json
+bun run typecheck
+bun run admin status --json
 ```
 
 For the live bot, confirm the process log contains `slash commands registered` and either `discord gateway ready` or `application started`. dfx can emit READY before `makeDiscord` subscribes; slash-command registration plus application start still means the bot is up. The Discord service now subscribes to READY before rank-emoji REST so the first READY is less often missed.
@@ -39,8 +37,8 @@ For the live bot, confirm the process log contains `slash commands registered` a
 Verification needs a real Riot account. Resolution order:
 
 1. `VERIFY_RIOT_ID=name#tag` — explicit override. Skip this when proving Railway lookup.
-2. `PRODUCTION_DB_PATH=/path/to/game-tracker.sqlite` — read accounts via `pnpm admin status --json`
-3. Railway token (`RAILWAY_API_TOKEN`, `RAILWAY_API_KEY`, or `RAILWAY_TOKEN`) — `railway ssh --service game-tracker-bot -- pnpm admin status --json`
+2. `PRODUCTION_DB_PATH=/path/to/game-tracker.sqlite` — read accounts via `bun run admin status --json`
+3. Railway token (`RAILWAY_API_TOKEN`, `RAILWAY_API_KEY`, or `RAILWAY_TOKEN`) — `railway ssh --service game-tracker-bot -- bun run admin status --json`
 
 Pick the first account with tracked games when reading production status.
 
@@ -66,7 +64,7 @@ export RAILWAY_SERVICE=game-tracker-bot
 export RAILWAY_ENVIRONMENT=production   # or the environment id
 ```
 
-`pnpm verify` already forwards those into `railway ssh --project --service --environment`.
+`bun run verify` already forwards those into `railway ssh --project --service --environment`.
 
 SSH also needs a key registered with Railway and `ssh.railway.com` in `known_hosts`:
 
@@ -74,7 +72,7 @@ SSH also needs a key registered with Railway and `ssh.railway.com` in `known_hos
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
 railway ssh keys add -k ~/.ssh/id_ed25519.pub -n cursor-cloud-verify
 ssh-keyscan -t ed25519 ssh.railway.com >> ~/.ssh/known_hosts
-railway ssh --service game-tracker-bot -- pnpm admin status --json
+railway ssh --service game-tracker-bot -- bun run admin status --json
 ```
 
 Banners from ssh go to stderr. JSON for `admin status` is on stdout; the harness slices from the first `{`.
@@ -89,14 +87,14 @@ Manual equivalents:
 
 ```bash
 export DB_PATH=/tmp/riot-verify-manual.sqlite
-pnpm start   # separate terminal
-pnpm admin signup <riot-id> --discord-id verify-agent-user --json
-pnpm admin track verify-agent-user --game lol --json
-pnpm admin report-mock --game lol --json
-pnpm admin status --json
+bun start   # separate terminal
+bun run admin signup <riot-id> --discord-id verify-agent-user --json
+bun run admin track verify-agent-user --game lol --json
+bun run admin report-mock --game lol --json
+bun run admin status --json
 ```
 
-To check a change against live data, report a real match through the polling path with `pnpm admin report-match 'name#tag' --game <game>`. See [features/report-match.md](features/report-match.md).
+To check a change against live data, report a real match through the polling path with `bun run admin report-match 'name#tag' --game <game>`. See [features/report-match.md](features/report-match.md).
 
 ## Evidence
 
@@ -111,8 +109,8 @@ A Henrik 404 on Valorant during track is not a harness failure. That game lands 
 
 ## Cleanup
 
-`pnpm verify` deletes only its isolated sqlite file. It does not kill the bot process.
+`bun run verify` deletes only its isolated sqlite file. It does not kill the bot process.
 
 ## Helpers
 
-`pnpm verify` runs `tsx src/verify/index.ts`. Riot ID resolution lives in `src/verify/production-riot-id.ts`.
+`bun run verify` runs `bun src/verify/index.ts`. Riot ID resolution lives in `src/verify/production-riot-id.ts`.

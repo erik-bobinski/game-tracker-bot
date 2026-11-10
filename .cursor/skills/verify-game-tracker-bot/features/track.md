@@ -1,6 +1,6 @@
 # Track and untrack
 
-Picks which games a signed-up account reports (`/track`, `/untrack`, `pnpm admin track`, `pnpm admin untrack`). Signup tracks no games on its own.
+Picks which games a signed-up account reports (`/track`, `/untrack`, `bun run admin track`, `bun run admin untrack`). Signup tracks no games on its own.
 
 ## Sub-features
 
@@ -10,15 +10,15 @@ Picks which games a signed-up account reports (`/track`, `/untrack`, `pnpm admin
 
 ## How to get to it (user POV)
 
-Discord: `/track` or `/untrack` opens a multi-select, so one use picks any number of games. `/signup` sends the same track picker. Operator: `pnpm admin track <target> --game <game> [--game <game>…] --json` (or `--all`), same for `untrack`. Target is a discord id, name, or riot id.
+Discord: `/track` or `/untrack` opens a multi-select, so one use picks any number of games. `/signup` sends the same track picker. Operator: `bun run admin track <target> --game <game> [--game <game>…] --json` (or `--all`), same for `untrack`. Target is a discord id, name, or riot id.
 
 ## Driving it with admin CLI
 
 Preconditions: account already signed up in the same `DB_PATH`.
 
-- Action: `pnpm admin track verify-agent-user --game lol --json`
+- Action: `bun run admin track verify-agent-user --game lol --json`
 - Observable: JSON has `added`, `alreadyTracked`, `needsLink`, `notFound` arrays; a second run has empty `added`.
-- Action: `pnpm admin untrack verify-agent-user --game lol --json`
+- Action: `bun run admin untrack verify-agent-user --game lol --json`
 - Observable: JSON has `removed`, `notTracked`, `remaining` arrays.
 
 ## Gotchas

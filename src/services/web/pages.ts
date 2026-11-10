@@ -79,12 +79,12 @@ const discordText = (text: string) =>
 const message = (author: string, body: string, only?: string) =>
   `<div class="message">${only ? `<small>Only ${only} can see this</small>` : ""}<strong class="author">${escapeHtml(author)}</strong>${body}</div>`;
 
-const demoCaptions: Record<GameId, string> = {
+const demoCaptions = {
   lol: "A ranked League of Legends game: both teams' champions, KDA, CS, damage and ranks, with the LP each signed-up player gained or lost.",
   tft: "A ranked Teamfight Tactics game: all eight placements with each player's level and rank.",
   valorant:
     "A competitive VALORANT game: only the players who signed in with Riot are named and ranked. Everyone else shows as their agent and stats.",
-};
+} satisfies Record<GameId, string>;
 
 export interface Demo {
   readonly game: GameId;

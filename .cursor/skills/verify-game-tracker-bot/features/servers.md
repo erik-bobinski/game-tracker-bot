@@ -7,7 +7,7 @@ report it.
 
 ## Sub-features
 
-- `setup` — a server's report channel, set with `/setup` or `pnpm admin setup`
+- `setup` — a server's report channel, set with `/setup` or `bun run admin setup`
 - `fan-out` — one post per server, naming the players who signed up there
 - `unreachable channel` — Unknown Channel or Missing Access unsets that server's channel
 
@@ -17,16 +17,16 @@ Preconditions: dev bot token, a Riot key that isn't expired (the TFT key lasts,
 the dev League key dies daily), isolated `DB_PATH`. The dev server id is the
 `guild_id` of `NOTIFICATION_CHANNEL_ID` (`GET /channels/{id}` with the bot token).
 
-1. `pnpm admin setup <dev-server-id> --channel <dev-channel-id>`
-2. `pnpm admin signup <riot-id> --discord-id verify-agent-user --guild <dev-server-id> --json`
-3. A second server that can't be posted to: `pnpm admin setup 111111111111111111 --channel 222222222222222222`, then
+1. `bun run admin setup <dev-server-id> --channel <dev-channel-id>`
+2. `bun run admin signup <riot-id> --discord-id verify-agent-user --guild <dev-server-id> --json`
+3. A second server that can't be posted to: `bun run admin setup 111111111111111111 --channel 222222222222222222`, then
    `sqlite3 $DB_PATH "INSERT INTO guild_accounts (guild_id, discord_user_id) VALUES ('111111111111111111','verify-agent-user')"`
 4. Make recent matches look new: `sqlite3 $DB_PATH "UPDATE account_games SET reported_matches='[]'"`
-5. `pnpm start`, wait for `poll finished`
+5. `bun start`, wait for `poll finished`
 
 Observable: `matchesReported` above 0, the cards in the dev channel, a
 `report channel unreachable` warning for the fake server, and
-`pnpm admin status --json` showing that server's `channelId` unset.
+`bun run admin status --json` showing that server's `channelId` unset.
 
 ## Gotchas
 

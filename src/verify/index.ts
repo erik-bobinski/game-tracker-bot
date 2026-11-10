@@ -1,14 +1,11 @@
-import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { Schema } from "effect";
 import { resolveVerifyRiotId } from "./production-riot-id.ts";
 
-const workspace = join(dirname(fileURLToPath(import.meta.url)), "../..");
-const runId = process.env.VERIFY_RUN_ID ?? `verify-${Date.now()}`;
-const dbPath = process.env.VERIFY_DB_PATH ?? `/tmp/riot-verify-${runId}.sqlite`;
+const workspace = Bun.fileURLToPath(new URL("../..", import.meta.url));
+const runId = Bun.env.VERIFY_RUN_ID ?? `verify-${Date.now()}`;
+const dbPath = Bun.env.VERIFY_DB_PATH ?? `/tmp/riot-verify-${runId}.sqlite`;
 const artifactDir =
-  process.env.VERIFY_ARTIFACT_DIR ?? `/opt/cursor/artifacts/verify-${runId}`;
+  Bun.env.VERIFY_ARTIFACT_DIR ?? `/opt/cursor/artifacts/verify-${runId}`;
 const devDiscordId = "verify-agent-user";
 const botSession = "riot-bot-verify";
 const gatewayTimeoutMs = 60_000;
@@ -34,34 +31,39 @@ const record = (result: StepResult) => {
 };
 
 const tmux = (args: ReadonlyArray<string>) =>
-  spawnSync("tmux", ["-f", "/exec-daemon/tmux.portal.conf", ...args], {
-    encoding: "utf-8",
-  });
+  Bun.spawnSync(["tmux", "-f", "/exec-daemon/tmux.portal.conf", ...args]);
 
 const sharedEnv = () => ({
-  ...process.env,
+  ...Bun.env,
   DB_PATH: dbPath,
   DEV_MODE: "true",
   LOG_LEVEL: "Warn",
 });
 
 const run = (args: ReadonlyArray<string>, env = sharedEnv()) => {
-  const result = spawnSync("pnpm", args, {
+  const result = Bun.spawnSync(["bun", "run", ...args], {
     cwd: workspace,
     env,
-    encoding: "utf-8",
   });
+  const stdout = result.stdout.toString();
+  const stderr = result.stderr.toString();
   return {
-    step: `pnpm ${args.join(" ")}`,
-    ok: result.status === 0,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-    detail:
-      result.status === 0
-        ? undefined
-        : (result.stderr || result.stdout || `exit ${result.status}`).trim(),
+    step: `bun run ${args.join(" ")}`,
+    ok: result.success,
+    stdout,
+    stderr,
+    detail: result.success
+      ? undefined
+      : (stderr || stdout || `exit ${result.exitCode}`).trim(),
   } satisfies StepResult;
 };
+
+const TrackResult = Schema.fromJsonString(
+  Schema.Struct({
+    added: Schema.optional(Schema.Array(Schema.String)),
+    removed: Schema.optional(Schema.Array(Schema.String)),
+  }),
+);
 
 const parseJsonStdout = (stdout: string) => {
   const marker = stdout.lastIndexOf('{\n  "');
@@ -76,7 +78,7 @@ const parseJsonStdout = (stdout: string) => {
   if (!jsonText) {
     throw new Error(`no json object in stdout: ${stdout.slice(0, 200)}`);
   }
-  return JSON.parse(jsonText) as Record<string, unknown>;
+  return Schema.decodeUnknownSync(TrackResult)(jsonText);
 };
 
 const stopBotSessions = () => {
@@ -99,19 +101,15 @@ const startBot = () => {
     "-l",
   ]);
   const command = [
-    'export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"',
-    '. "$NVM_DIR/nvm.sh"',
-    "nvm use 24",
-    'export PATH="$NVM_BIN:$PATH"',
     `export DB_PATH="${dbPath}" DEV_MODE=true LOG_LEVEL=Info`,
     `cd "${workspace}"`,
-    "pnpm start",
+    "bun start",
   ].join(" && ");
   tmux(["send-keys", "-t", `${botSession}:0.0`, command, "C-m"]);
 };
 
 const captureBotLog = () =>
-  tmux(["capture-pane", "-t", `${botSession}:0.0`, "-p"]).stdout ?? "";
+  tmux(["capture-pane", "-t", `${botSession}:0.0`, "-p"]).stdout.toString();
 
 const waitForBotReady = () => {
   const deadline = Date.now() + gatewayTimeoutMs;
@@ -129,7 +127,7 @@ const waitForBotReady = () => {
         stdout: output,
       } satisfies StepResult;
     }
-    spawnSync("sleep", ["1"]);
+    Bun.sleepSync(1000);
   }
   return {
     step: "wait for discord gateway ready",
@@ -139,47 +137,47 @@ const waitForBotReady = () => {
   } satisfies StepResult;
 };
 
-const writeArtifacts = (riotId: string) => {
-  mkdirSync(artifactDir, { recursive: true });
-  writeFileSync(
-    join(artifactDir, "results.json"),
+// Bun.write creates the artifact directory
+const writeArtifacts = async (riotId: string) => {
+  await Bun.write(
+    `${artifactDir}/results.json`,
     JSON.stringify({ runId, dbPath, riotId, results }, null, 2),
   );
   const botLog = results.find((entry) => entry.step === "bot log tail");
   if (botLog?.stdout) {
-    writeFileSync(join(artifactDir, "bot.log"), botLog.stdout);
+    await Bun.write(`${artifactDir}/bot.log`, botLog.stdout);
   }
 };
 
-const fail = (message: string, riotId = "unknown"): never => {
-  writeArtifacts(riotId);
+const fail = async (message: string, riotId = "unknown"): Promise<never> => {
+  await writeArtifacts(riotId);
   console.error(`[verify] ${message}`);
   process.exit(1);
 };
 
-const main = () => {
-  mkdirSync(artifactDir, { recursive: true });
-  if (exists(dbPath)) rmSync(dbPath);
+const main = async () => {
+  const db = Bun.file(dbPath);
+  if (await db.exists()) await db.delete();
 
   let riotId = "";
   try {
-    riotId = resolveVerifyRiotId(workspace);
+    riotId = await resolveVerifyRiotId(workspace);
     console.log(`[verify] using riot id ${riotId}`);
   } catch (error) {
-    fail(error instanceof Error ? error.message : String(error));
+    await fail(error instanceof Error ? error.message : String(error));
   }
 
   record(run(["typecheck"]));
-  if (!results.at(-1)?.ok) fail("typecheck failed", riotId);
+  if (!results.at(-1)?.ok) await fail("typecheck failed", riotId);
 
   startBot();
   const ready = waitForBotReady();
   record(ready);
-  if (!ready.ok) fail("bot did not become ready", riotId);
+  if (!ready.ok) await fail("bot did not become ready", riotId);
 
   const [riotName, riotTag] = riotId.split("#");
   if (!riotName || !riotTag) {
-    fail(`resolved riot id must be name#tag, got ${riotId}`, riotId);
+    await fail(`resolved riot id must be name#tag, got ${riotId}`, riotId);
   }
 
   record(
@@ -192,27 +190,24 @@ const main = () => {
       "--json",
     ]),
   );
-  if (!results.at(-1)?.ok) fail("signup failed", riotId);
+  if (!results.at(-1)?.ok) await fail("signup failed", riotId);
 
   const trackLol = ["admin", "track", devDiscordId, "--game", "lol", "--json"];
   const firstTrack = run(trackLol);
   record(firstTrack);
-  if (!firstTrack.ok) fail("first track failed", riotId);
-  const firstTrackPayload = parseJsonStdout(firstTrack.stdout) as {
-    added: ReadonlyArray<string>;
-  };
-  if (!firstTrackPayload.added.includes("lol")) {
-    fail("first track should add lol", riotId);
+  if (!firstTrack.ok) await fail("first track failed", riotId);
+  if (!parseJsonStdout(firstTrack.stdout).added?.includes("lol")) {
+    await fail("first track should add lol", riotId);
   }
 
   const secondTrack = run(trackLol);
   record(secondTrack);
-  if (!secondTrack.ok) fail("second track failed", riotId);
-  const secondTrackPayload = parseJsonStdout(secondTrack.stdout) as {
-    added: ReadonlyArray<string>;
-  };
-  if (secondTrackPayload.added.length > 0) {
-    fail("second track should be idempotent (added should be empty)", riotId);
+  if (!secondTrack.ok) await fail("second track failed", riotId);
+  if ((parseJsonStdout(secondTrack.stdout).added ?? []).length > 0) {
+    await fail(
+      "second track should be idempotent (added should be empty)",
+      riotId,
+    );
   }
 
   const untrack = run([
@@ -224,21 +219,18 @@ const main = () => {
     "--json",
   ]);
   record(untrack);
-  if (!untrack.ok) fail("untrack failed", riotId);
-  const untrackPayload = parseJsonStdout(untrack.stdout) as {
-    removed: ReadonlyArray<string>;
-  };
-  if (!untrackPayload.removed.includes("lol")) {
-    fail("untrack should remove lol", riotId);
+  if (!untrack.ok) await fail("untrack failed", riotId);
+  if (!parseJsonStdout(untrack.stdout).removed?.includes("lol")) {
+    await fail("untrack should remove lol", riotId);
   }
 
   record(run(["admin", "status", "--json"]));
 
   record(run(["admin", "report-mock", "--game", "lol", "--json"]));
-  if (!results.at(-1)?.ok) fail("report-mock lol failed", riotId);
+  if (!results.at(-1)?.ok) await fail("report-mock lol failed", riotId);
 
   record(run(["admin", "report-mock", "--game", "tft", "--json"]));
-  if (!results.at(-1)?.ok) fail("report-mock tft failed", riotId);
+  if (!results.at(-1)?.ok) await fail("report-mock tft failed", riotId);
 
   record(run(["admin", "signout", devDiscordId, "--yes", "--json"]));
 
@@ -248,24 +240,15 @@ const main = () => {
     stdout: captureBotLog(),
   });
 
-  writeArtifacts(riotId);
+  await writeArtifacts(riotId);
   console.log(`[verify] passed; artifacts in ${artifactDir}`);
   console.log(`[verify] bot left running in tmux session ${botSession}`);
 };
 
-function exists(path: string) {
-  try {
-    readFileSync(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 try {
-  main();
+  await main();
 } catch (error) {
   console.error("[verify] unexpected error", error);
-  writeArtifacts("unknown");
+  await writeArtifacts("unknown");
   process.exit(1);
 }

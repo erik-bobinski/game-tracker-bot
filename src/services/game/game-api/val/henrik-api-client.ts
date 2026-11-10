@@ -1,9 +1,9 @@
 import { Config, Context, Effect, Layer, Redacted, Schema } from "effect";
-import * as HttpBody from "effect/unstable/http/HttpBody";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
-import * as HttpClientError from "effect/unstable/http/HttpClientError";
-import { RateLimiter } from "effect/unstable/persistence";
+import * as HttpBody from "effect/http/HttpBody";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpClientError from "effect/http/HttpClientError";
+import { RateLimiter } from "effect/persistence";
 import { RiotRateLimiterLive } from "../riot/http.ts";
 import { Puuid, type MatchId, type ResolvedAccount } from "../../index.ts";
 import {
@@ -68,13 +68,13 @@ export class HenrikApiClient extends Context.Service<
 export const HenrikApiClientLive = Layer.effect(
   HenrikApiClient,
   Effect.gen(function* () {
-    const apiKey = yield* Config.redacted("HENRIK_API_KEY");
+    const apiKey = yield* Config.Redacted("HENRIK_API_KEY");
     // the region an account plays in; only used when signup couldn't store one
-    const defaultRegion = yield* Config.string("VAL_REGION").pipe(
+    const defaultRegion = yield* Config.String("VAL_REGION").pipe(
       Config.withDefault("na"),
     );
     // henrik's "platform" is pc/console, unlike riot's, which is a shard
-    const platform = yield* Config.string("VAL_PLATFORM").pipe(
+    const platform = yield* Config.String("VAL_PLATFORM").pipe(
       Config.withDefault("pc"),
     );
     const client = (yield* HttpClient.HttpClient).pipe(
@@ -146,9 +146,9 @@ export const HenrikApiClientLive = Layer.effect(
       )(json);
       return new Map(
         data.players.flatMap(({ subject, scores }) =>
-          typeof scores?.performanceScore === "number"
-            ? [[subject, Math.round(scores.performanceScore)] as const]
-            : [],
+          scores?.performanceScore == null
+            ? []
+            : [[subject, Math.round(scores.performanceScore)] as const],
         ),
       );
     });

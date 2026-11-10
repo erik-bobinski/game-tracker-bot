@@ -1,35 +1,37 @@
 import { Config, Context, Effect, Layer, Schema } from "effect";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
-import * as HttpClientError from "effect/unstable/http/HttpClientError";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpClientError from "effect/http/HttpClientError";
 import { MatchId, Puuid } from "../../index.ts";
 import { LolLeagueEntries, LolMatch } from "../lol/match-schema.ts";
-import { makeRiotHttpClient, RiotRateLimiterLive } from "../riot/http.ts";
+import { riotHttpClient, RiotRateLimiterLive } from "../riot/http.ts";
 import { TftLeagueEntries, TftMatch } from "../tft/match-schema.ts";
 
 // A platformId is the shard an account lives on (riot's "platform routing
 // value"), not pc/console. match-v5 is routed by regional cluster instead, so
 // an account's matches are only visible on the cluster its shard belongs to.
-const CLUSTERS: Record<string, string> = {
-  na1: "americas",
-  br1: "americas",
-  la1: "americas",
-  la2: "americas",
-  pbe1: "americas",
-  euw1: "europe",
-  eun1: "europe",
-  tr1: "europe",
-  ru: "europe",
-  me1: "europe",
-  kr: "asia",
-  jp1: "asia",
-  oc1: "sea",
-  ph2: "sea",
-  sg2: "sea",
-  th2: "sea",
-  tw2: "sea",
-  vn2: "sea",
-};
+const CLUSTERS = new Map(
+  Object.entries({
+    na1: "americas",
+    br1: "americas",
+    la1: "americas",
+    la2: "americas",
+    pbe1: "americas",
+    euw1: "europe",
+    eun1: "europe",
+    tr1: "europe",
+    ru: "europe",
+    me1: "europe",
+    kr: "asia",
+    jp1: "asia",
+    oc1: "sea",
+    ph2: "sea",
+    sg2: "sea",
+    th2: "sea",
+    tw2: "sea",
+    vn2: "sea",
+  }),
+);
 
 const MatchIds = Schema.Array(MatchId);
 
@@ -91,21 +93,21 @@ export const RiotApiLive = Layer.effect(
   Effect.gen(function* () {
     // account-v1 answers for any account from any cluster, so this only picks
     // the nearest one; per-account routing comes from the stored platformId
-    const defaultCluster = yield* Config.string("RIOT_REGION").pipe(
+    const defaultCluster = yield* Config.String("RIOT_REGION").pipe(
       Config.withDefault("americas"),
     );
 
     // Riot scopes each product key to one game and encrypts puuids per key,
     // so tft calls, account lookups included, go out under the tft key
     const clients = {
-      lol: yield* makeRiotHttpClient(
+      lol: yield* riotHttpClient(
         "lol",
-        yield* Config.redacted("RIOT_API_KEY"),
+        yield* Config.Redacted("RIOT_API_KEY"),
         defaultCluster,
       ),
-      tft: yield* makeRiotHttpClient(
+      tft: yield* riotHttpClient(
         "tft",
-        yield* Config.redacted("RIOT_TFT_API_KEY"),
+        yield* Config.Redacted("RIOT_TFT_API_KEY"),
         defaultCluster,
       ),
     };
@@ -145,7 +147,7 @@ export const RiotApiLive = Layer.effect(
       path: string,
     ) => {
       const cluster =
-        (platformId ? CLUSTERS[platformId] : undefined) ?? defaultCluster;
+        (platformId ? CLUSTERS.get(platformId) : undefined) ?? defaultCluster;
       return clients[game]
         .pipe(
           HttpClient.mapRequest(

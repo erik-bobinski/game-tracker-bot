@@ -1,9 +1,9 @@
 import { Cache, Config, Context, Effect, Exit, Layer, Schema } from "effect";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
-import * as HttpClientError from "effect/unstable/http/HttpClientError";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpClientError from "effect/http/HttpClientError";
 import { MatchId, Puuid } from "../../index.ts";
-import { makeRiotHttpClient, RiotRateLimiterLive } from "../riot/http.ts";
+import { riotHttpClient, RiotRateLimiterLive } from "../riot/http.ts";
 import {
   ValActiveShard,
   ValContent,
@@ -51,14 +51,14 @@ export class RiotValApiClient extends Context.Service<
 export const RiotValApiLive = Layer.effect(
   RiotValApiClient,
   Effect.gen(function* () {
-    const cluster = yield* Config.string("RIOT_REGION").pipe(
+    const cluster = yield* Config.String("RIOT_REGION").pipe(
       Config.withDefault("americas"),
     );
     // a key of a VALORANT product; riot encrypts puuids per key, so accounts
     // are looked up under it too
-    const http = yield* makeRiotHttpClient(
+    const http = yield* riotHttpClient(
       "val",
-      yield* Config.redacted("RIOT_VAL_API_KEY"),
+      yield* Config.Redacted("RIOT_VAL_API_KEY"),
       cluster,
     );
     const onShard = (shard: string, path: string) =>

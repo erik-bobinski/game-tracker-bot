@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
 import {
   riotRankDisplay,
@@ -22,7 +22,7 @@ import {
   emptyEnrichment,
   logApiWarning,
   type GameAdapter,
-} from "./index.ts";
+} from "./adapter.ts";
 
 const RANKED_TFT = "RANKED_TFT";
 
@@ -99,144 +99,153 @@ export const tftMatchToDetails = (match: TftMatch): PlacementMatch => {
     game: "tft",
     date: match.info.game_datetime,
     mode: tftQueue(queueId, gameType ?? undefined),
-    ...(routingRegion ? { routingRegion } : {}),
+    routingRegion: routingRegion || undefined,
     durationSeconds: Math.floor(match.info.game_length),
     players,
   };
 };
 
-export const makeTftGameAdapter = Effect.gen(function* () {
-  const riotClient = yield* RiotApiClient;
+export class TftAdapter extends Context.Service<TftAdapter, GameAdapter>()(
+  "app/TftAdapter",
+) {}
 
-  const adapter: GameAdapter = {
-    game: "tft",
-    requiresOptIn: false,
-    iconUrl:
-      "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/content/src/leagueclient/gamemodeassets/tft/img/game-select-icon-active.png",
-    rankIcons: riotRankIcons,
-    resolveAccount: Effect.fn("GameAdapter.tft.resolveAccount")(function* (
-      name: string,
-      tag: string,
-    ) {
-      const puuid = yield* riotClient.getAccountByRiotId("tft", name, tag);
-      const region = yield* riotClient.getPlatformId("tft", puuid);
-      return { puuid, region };
-    }),
-    getRecentMatchIds: Effect.fn("GameAdapter.tft.getRecentMatchIds")(
-      function* (puuid: Puuid, region: Region | undefined) {
-        return yield* riotClient.getMatchIds(
-          "tft",
-          puuid,
-          region,
-          RECENT_MATCH_COUNT,
-        );
-      },
-      Effect.mapError(
-        (cause) =>
-          new GameApiError({
-            game: "tft",
-            operation: "getRecentMatchIds",
-            cause,
-          }),
-      ),
-    ),
-    getMatch: Effect.fn("GameAdapter.tft.getMatch")(
-      function* (matchId: MatchId, region: Region | undefined) {
-        const match = yield* riotClient.getTftMatch(matchId, region);
-        return match && tftMatchToDetails(match);
-      },
-      Effect.mapError(
-        (cause) =>
-          new GameApiError({ game: "tft", operation: "getMatch", cause }),
-      ),
-    ),
-    enrichMatch: Effect.fn("GameAdapter.tft.enrichMatch")(function* ({
-      match,
-      trackedPlayers,
-    }) {
-      if (match.kind !== "placement") return emptyEnrichment(match);
-      if (match.mode !== "Ranked TFT") return emptyEnrichment(match);
-      const platformId = match.routingRegion;
-      if (!platformId) return emptyEnrichment(match);
+export const TftAdapterLive = Layer.effect(
+  TftAdapter,
+  Effect.gen(function* () {
+    const riotClient = yield* RiotApiClient;
 
-      const ranks = new Map<Puuid, RankedTft>();
-      yield* Effect.forEach(
-        match.players,
-        (player) =>
-          riotClient.getTftLeagueEntries(player.puuid, platformId).pipe(
-            Effect.map((entries) => {
-              const entry = rankedTftEntry(entries);
-              if (entry) ranks.set(player.puuid, entry);
+    const adapter: GameAdapter = {
+      game: "tft",
+      requiresOptIn: false,
+      iconUrl:
+        "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/content/src/leagueclient/gamemodeassets/tft/img/game-select-icon-active.png",
+      rankIcons: riotRankIcons,
+      resolveAccount: Effect.fn("GameAdapter.tft.resolveAccount")(function* (
+        name: string,
+        tag: string,
+      ) {
+        const puuid = yield* riotClient.getAccountByRiotId("tft", name, tag);
+        const region = yield* riotClient.getPlatformId("tft", puuid);
+        return { puuid, region };
+      }),
+      getRecentMatchIds: Effect.fn("GameAdapter.tft.getRecentMatchIds")(
+        function* (puuid: Puuid, region: Region | undefined) {
+          return yield* riotClient.getMatchIds(
+            "tft",
+            puuid,
+            region,
+            RECENT_MATCH_COUNT,
+          );
+        },
+        Effect.mapError(
+          (cause) =>
+            new GameApiError({
+              game: "tft",
+              operation: "getRecentMatchIds",
+              cause,
             }),
-            Effect.catch((error) =>
-              logApiWarning("rank unavailable for tft player", error).pipe(
-                Effect.annotateLogs({ puuid: player.puuid }),
+        ),
+      ),
+      getMatch: Effect.fn("GameAdapter.tft.getMatch")(
+        function* (matchId: MatchId, region: Region | undefined) {
+          const match = yield* riotClient.getTftMatch(matchId, region);
+          return match && tftMatchToDetails(match);
+        },
+        Effect.mapError(
+          (cause) =>
+            new GameApiError({ game: "tft", operation: "getMatch", cause }),
+        ),
+      ),
+      enrichMatch: Effect.fn("GameAdapter.tft.enrichMatch")(function* ({
+        match,
+        trackedPlayers,
+      }) {
+        if (match.kind !== "placement") return emptyEnrichment(match);
+        if (match.mode !== "Ranked TFT") return emptyEnrichment(match);
+        const platformId = match.routingRegion;
+        if (!platformId) return emptyEnrichment(match);
+
+        const ranks = new Map<Puuid, RankedTft>();
+        yield* Effect.forEach(
+          match.players,
+          (player) =>
+            riotClient.getTftLeagueEntries(player.puuid, platformId).pipe(
+              Effect.map((entries) => {
+                const entry = rankedTftEntry(entries);
+                if (entry) ranks.set(player.puuid, entry);
+              }),
+              Effect.catch((error) =>
+                logApiWarning("rank unavailable for tft player", error).pipe(
+                  Effect.annotateLogs({ puuid: player.puuid }),
+                ),
               ),
             ),
-          ),
-        { concurrency: 1 },
-      );
-
-      const rankUpdates = new Map<Puuid, RankUpdate>();
-      const updatedRankSnapshots = new Map<Puuid, RankSnapshots>();
-      for (const tracked of trackedPlayers) {
-        const entry = ranks.get(tracked.puuid);
-        if (!entry) continue;
-        const { update, snapshot } = riotRankStep(
-          tracked.previousRankSnapshots[RANKED_TFT],
-          entry,
+          { concurrency: 1 },
         );
-        rankUpdates.set(tracked.puuid, update);
-        updatedRankSnapshots.set(tracked.puuid, {
-          ...tracked.previousRankSnapshots,
-          [RANKED_TFT]: snapshot,
-        });
-      }
 
-      return {
-        match: {
-          ...match,
-          players: match.players.map((player) => {
-            const entry = ranks.get(player.puuid);
-            if (!entry) return player;
-            const { iconKey, division, label } = riotRankDisplay(entry);
-            return {
-              ...player,
-              rank: label,
-              rankIconKey: iconKey,
-              ...(division ? { rankDivision: division } : {}),
-            };
-          }),
-        },
-        rankUpdates,
-        updatedRankSnapshots,
-      };
-    }),
-    getRank: Effect.fn("GameAdapter.tft.getRank")(
-      function* (puuid: Puuid, region: Region | undefined) {
-        if (!region) {
-          yield* Effect.logWarning("no stored platformId for tft rank lookup");
-          return undefined;
+        const rankUpdates = new Map<Puuid, RankUpdate>();
+        const updatedRankSnapshots = new Map<Puuid, RankSnapshots>();
+        for (const tracked of trackedPlayers) {
+          const entry = ranks.get(tracked.puuid);
+          if (!entry) continue;
+          const { update, snapshot } = riotRankStep(
+            tracked.previousRankSnapshots[RANKED_TFT],
+            entry,
+          );
+          rankUpdates.set(tracked.puuid, update);
+          updatedRankSnapshots.set(tracked.puuid, {
+            ...tracked.previousRankSnapshots,
+            [RANKED_TFT]: snapshot,
+          });
         }
 
-        const entry = rankedTftEntry(
-          yield* riotClient.getTftLeagueEntries(puuid, region),
-        );
-        if (!entry) return undefined;
-
-        const { iconKey, label } = riotRankDisplay(entry);
         return {
-          tier: label,
-          detail: `${entry.leaguePoints} LP · ${entry.wins}W ${entry.losses}L`,
-          iconKey,
-        } satisfies RankInfo;
-      },
-      Effect.mapError(
-        (cause) =>
-          new GameApiError({ game: "tft", operation: "getRank", cause }),
-      ),
-    ),
-  };
+          match: {
+            ...match,
+            players: match.players.map((player) => {
+              const entry = ranks.get(player.puuid);
+              if (!entry) return player;
+              const { iconKey, division, label } = riotRankDisplay(entry);
+              return {
+                ...player,
+                rank: label,
+                rankIconKey: iconKey,
+                rankDivision: division || undefined,
+              };
+            }),
+          },
+          rankUpdates,
+          updatedRankSnapshots,
+        };
+      }),
+      getRank: Effect.fn("GameAdapter.tft.getRank")(
+        function* (puuid: Puuid, region: Region | undefined) {
+          if (!region) {
+            yield* Effect.logWarning(
+              "no stored platformId for tft rank lookup",
+            );
+            return undefined;
+          }
 
-  return adapter;
-});
+          const entry = rankedTftEntry(
+            yield* riotClient.getTftLeagueEntries(puuid, region),
+          );
+          if (!entry) return undefined;
+
+          const { iconKey, label } = riotRankDisplay(entry);
+          return {
+            tier: label,
+            detail: `${entry.leaguePoints} LP · ${entry.wins}W ${entry.losses}L`,
+            iconKey,
+          } satisfies RankInfo;
+        },
+        Effect.mapError(
+          (cause) =>
+            new GameApiError({ game: "tft", operation: "getRank", cause }),
+        ),
+      ),
+    };
+
+    return TftAdapter.of(adapter);
+  }),
+);

@@ -1,12 +1,21 @@
-import { Config, Context, Effect, Layer, Option, Schema } from "effect";
-import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-node";
-import { SqlSchema } from "effect/unstable/sql";
-import { SqlClient } from "effect/unstable/sql/SqlClient";
-import type { SqlError } from "effect/unstable/sql/SqlError";
-import { existsSync, readFileSync, renameSync } from "node:fs";
+import {
+  Config,
+  Context,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Schema,
+} from "effect";
+import { BunFileSystem } from "@effect/platform-bun";
+import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-bun";
+import { SqlSchema } from "effect/sql";
+import { SqlClient } from "effect/sql/SqlClient";
+import type { SqlError } from "effect/sql/SqlError";
 import {
   EpochMillis,
   GameId,
+  gameIds,
   MatchId,
   Puuid,
   RankSnapshots,
@@ -201,7 +210,7 @@ const LegacyDatabaseJson = Schema.fromJsonString(LegacyDatabase);
 const decodeLegacyDatabase = (json: string) =>
   Schema.decodeUnknownEffect(LegacyDatabaseJson)(
     json.replace(
-      /(\"discord_user_id\"\s*:\s*)(\d+)/g,
+      /("discord_user_id"\s*:\s*)(\d+)/g,
       (_, prefix: string, id: string) => `${prefix}"${id}"`,
     ),
   );
@@ -301,7 +310,7 @@ const migrations = SqliteMigrator.fromRecord({
   }),
 });
 
-export const databasePath = Config.string("DB_PATH").pipe(
+export const databasePath = Config.String("DB_PATH").pipe(
   Config.withDefault("game-tracker.sqlite"),
 );
 
@@ -319,14 +328,15 @@ const makeDatabase = Effect.gen(function* () {
     yield* sql`ALTER TABLE account_games ADD COLUMN rank_snapshots TEXT NOT NULL DEFAULT '{}'`;
   }
 
-  const legacyPath = yield* Config.string("LEGACY_DB_PATH").pipe(
+  const legacyPath = yield* Config.String("LEGACY_DB_PATH").pipe(
     Config.withDefault(""),
   );
   if (legacyPath) {
+    const fs = yield* FileSystem.FileSystem;
     const backupPath = `${legacyPath}.migrated.bak`;
-    const legacyJson = yield* Effect.sync(() =>
-      existsSync(legacyPath) ? readFileSync(legacyPath, "utf8") : undefined,
-    );
+    const legacyJson = (yield* fs.exists(legacyPath))
+      ? yield* fs.readFileString(legacyPath)
+      : undefined;
 
     if (legacyJson !== undefined) {
       const decoded = yield* decodeLegacyDatabase(legacyJson);
@@ -373,15 +383,15 @@ const makeDatabase = Effect.gen(function* () {
         }
       }).pipe(sql.withTransaction);
 
-      yield* Effect.sync(() => renameSync(legacyPath, backupPath));
+      yield* fs.rename(legacyPath, backupPath);
       yield* Effect.logInfo("migrated legacy database").pipe(
         Effect.annotateLogs({ accounts: legacyAccounts.length, backupPath }),
       );
     }
 
-    const backupJson = yield* Effect.sync(() =>
-      existsSync(backupPath) ? readFileSync(backupPath, "utf8") : undefined,
-    );
+    const backupJson = (yield* fs.exists(backupPath))
+      ? yield* fs.readFileString(backupPath)
+      : undefined;
     if (backupJson !== undefined) {
       const decoded = yield* decodeLegacyDatabase(backupJson);
       const legacyAccounts = "accounts" in decoded ? decoded.accounts : decoded;
@@ -518,11 +528,12 @@ const makeDatabase = Effect.gen(function* () {
     for (const guildId of account.guildIds) {
       yield* subscribe({ guildId, discordUserId: account.discordUserId });
     }
-    for (const [game, state] of Object.entries(account.games)) {
-      if (state === undefined || !state?.puuid) continue;
+    for (const game of gameIds) {
+      const state = account.games[game];
+      if (!state?.puuid) continue;
       yield* insertGameRow({
         discordUserId: account.discordUserId,
-        game: game as GameId,
+        game,
         puuid: state.puuid,
         reportedMatches: state.reportedMatches,
         region: state.region ?? null,
@@ -994,5 +1005,5 @@ const DatabaseSchemaLive = SqliteMigrator.layer({
 }).pipe(Layer.provideMerge(SqliteLive));
 
 export const DatabaseLive = Layer.effect(Database, makeDatabase).pipe(
-  Layer.provide(DatabaseSchemaLive),
+  Layer.provide([DatabaseSchemaLive, BunFileSystem.layer]),
 );

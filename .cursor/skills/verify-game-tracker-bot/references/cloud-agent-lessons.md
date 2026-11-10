@@ -1,6 +1,6 @@
 # Cloud agent lessons
 
-Lessons from running `pnpm verify` on Cursor Cloud against Railway production.
+Lessons from running `bun run verify` on Cursor Cloud against Railway production.
 
 ## Railway tokens on Cursor Cloud
 
@@ -39,7 +39,7 @@ The CLI reads `RAILWAY_API_TOKEN`. Cursor Cloud may inject `RAILWAY_API_KEY` or 
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
 railway ssh keys add -k ~/.ssh/id_ed25519.pub -n cursor-cloud-verify
 ssh-keyscan -t ed25519 ssh.railway.com >> ~/.ssh/known_hosts
-railway ssh --service game-tracker-bot -- pnpm admin status --json
+railway ssh --service game-tracker-bot -- bun run admin status --json
 ```
 
 Banners go to stderr. JSON is on stdout; slice from the first `{`.
@@ -50,7 +50,7 @@ Do not set `VERIFY_RIOT_ID` when ssh works. The harness picks the first producti
 
 dfx can emit READY before `makeDiscord` subscribes. `src/services/discord/index.ts` subscribes to READY before rank-emoji and command REST.
 
-`pnpm verify` treats the process as up when it sees `discord gateway ready`, or both `slash commands registered` and `application started`. READY often arrives a moment later. Do not fail the run only because READY was late.
+`bun run verify` treats the process as up when it sees `discord gateway ready`, or both `slash commands registered` and `application started`. READY often arrives a moment later. Do not fail the run only because READY was late.
 
 ## Valorant Henrik 404
 
@@ -58,6 +58,6 @@ A 404 whose body asks the player to finish a game is a missing game, not a harne
 
 ## Cloud runtime
 
-- Node 24. Node 22 crashes on the sqlite native import.
-- `pnpm start` with ambient env. `pnpm dev` wants a `.env` file that does not exist here.
+- Bun from `~/.bun/bin` (the install script puts it on `PATH`).
+- `bun start` with ambient env. There is no `.env` file here.
 - Leave the verify bot running. The harness deletes only its isolated sqlite file.

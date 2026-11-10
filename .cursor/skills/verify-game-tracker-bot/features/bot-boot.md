@@ -10,18 +10,17 @@ Starts the live Discord bot process and confirms it is serving commands. Uses on
 
 ## How to get to it (user POV)
 
-Run `pnpm start` with `DEV_MODE=true` and an isolated `DB_PATH`.
+Run `bun start` with `DEV_MODE=true` and an isolated `DB_PATH`.
 
-## Driving it with pnpm verify
+## Driving it with bun run verify
 
-Preconditions: Node 24, ambient `DISCORD_BOT_TOKEN`.
+Preconditions: Bun, ambient `DISCORD_BOT_TOKEN`.
 
-- Action: run `pnpm verify` or start `pnpm start` manually.
+- Action: run `bun run verify` or start `bun start` manually.
 - Observable: log contains `slash commands registered` with `devMode: true`, plus `application started` and/or `discord gateway ready`.
 
 ## Gotchas
 
-- Node 22 crashes on `@effect/sql-sqlite-node` import; use Node 24.
-- `pnpm dev` needs a `.env` file; cloud agents use `pnpm start` with ambient env.
+- Cloud agents use `bun start` with ambient env; `bun dev` restarts on every file change.
 - dfx can emit READY before `makeDiscord` subscribes. Waiting only on `discord gateway ready` flakes. Treat `slash commands registered` plus `application started` as a successful boot; READY often shows up a moment later.
 - Rank-emoji REST used to run before the READY subscription and ate the first READY. Subscribe first, then do REST.
