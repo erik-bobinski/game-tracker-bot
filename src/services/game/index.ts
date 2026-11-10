@@ -35,7 +35,7 @@ export interface MatchPlayerIdentity {
   readonly rank?: string | undefined;
   readonly rankIconKey?: string | undefined;
   readonly rankDivision?: string | undefined;
-  readonly flair?: string | undefined;
+  readonly flairs?: ReadonlyArray<string> | undefined;
 }
 
 export interface VersusPlayer extends MatchPlayerIdentity {

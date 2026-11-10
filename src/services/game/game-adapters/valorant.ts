@@ -91,6 +91,34 @@ const queueNames = new Map(
 
 const COMPETITIVE = "competitive";
 
+// Each player's rounds with four or more kills, biggest first, with a count
+// reached in several rounds shown once: ["6K", "3× 4K"]
+export const multiKillFlairs = (
+  kills: Iterable<{ readonly round: number; readonly killer: Puuid }>,
+) => {
+  const perRound = new Map<Puuid, Map<number, number>>();
+  for (const { round, killer } of kills) {
+    const rounds = perRound.get(killer) ?? new Map<number, number>();
+    rounds.set(round, (rounds.get(round) ?? 0) + 1);
+    perRound.set(killer, rounds);
+  }
+  const flairs = new Map<Puuid, ReadonlyArray<string>>();
+  for (const [puuid, rounds] of perRound) {
+    const times = new Map<number, number>();
+    for (const count of rounds.values()) {
+      if (count >= 4) times.set(count, (times.get(count) ?? 0) + 1);
+    }
+    if (times.size === 0) continue;
+    flairs.set(
+      puuid,
+      [...times]
+        .sort(([a], [b]) => b - a)
+        .map(([count, n]) => `${n > 1 ? `${n}× ` : ""}${count}K`),
+    );
+  }
+  return flairs;
+};
+
 export const riotValMatchToDetails = (
   match: ValMatch,
   content: ValContent,
@@ -170,12 +198,30 @@ export const riotValMatchToDetails = (
 
   // team deathmatch is played as a single round
   const roundBased = rounds.length > 1;
+  const teamOf = new Map(
+    players.map((player) => [player.puuid, player.teamId]),
+  );
+  const multiKills = multiKillFlairs(
+    roundBased
+      ? rounds.flatMap((round, index) =>
+          round.playerStats.flatMap(({ kills }) =>
+            (kills ?? [])
+              .filter(
+                ({ killer, victim }) =>
+                  teamOf.get(killer) !== teamOf.get(victim),
+              )
+              .map(({ killer }) => ({ round: index, killer })),
+          ),
+        )
+      : [],
+  );
   const versusPlayers: Array<VersusPlayer> = players.map((player) => {
     const acs = roundBased
       ? Math.floor(player.stats.score / rounds.length)
       : undefined;
     const tally = shots.get(player.puuid);
     const agentId = player.characterId?.toLowerCase();
+    const flairs = multiKills.get(player.puuid);
     return {
       ...identity(player),
       team: player.teamId.toLowerCase(),
@@ -195,6 +241,7 @@ export const riotValMatchToDetails = (
         .filter((part) => part !== undefined)
         .join(" · "),
       sortKey: acs ?? player.stats.kills,
+      flairs,
     };
   });
 

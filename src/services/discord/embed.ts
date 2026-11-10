@@ -110,7 +110,7 @@ const playerRows = (player: VersusPlayer, context: RowContext) => {
     // a crest already names the rank, so only the movement is worth repeating
     icon && movement?.delta ? movement.delta : movement?.full,
     icon || update?.current ? undefined : player.rank,
-    player.flair,
+    ...(player.flairs ?? []),
     player.puuid === context.mvpPuuid ? "MVP" : undefined,
   ]);
   return [headline, `-# ${stats}`].join("\n");
@@ -292,7 +292,7 @@ const placementBoard = (
           ? `${update.delta >= 0 ? "+" : ""}${update.delta} ${update.unit}${update.current ? ` (${update.current})` : ""}`
           : update?.current,
         icon || update?.current ? undefined : player.rank,
-        player.flair,
+        ...(player.flairs ?? []),
       ]);
     })
     .join("\n");
