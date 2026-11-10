@@ -26,10 +26,13 @@ import type {
 } from "../game/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import {
+  SINCE_LAST_CHECK,
   formatDuration,
   matchEmbed,
+  matchHighlights,
   matchSummary,
   matchVerdict,
+  ordinal,
   placementVerdict,
   playerName,
   teamLabel,
@@ -156,7 +159,7 @@ const Badge = ({ label, color }: { label: string; color: string }) => (
       borderRadius: 4,
       backgroundColor: color,
       color: colors.card,
-      fontSize: 8.5,
+      fontSize: 9.5,
       fontWeight: 800,
       letterSpacing: 0.4,
     }}
@@ -224,25 +227,9 @@ const Row = ({
   headline: string;
   detail?: string;
 }) => {
-  const update = report.rankUpdates.get(player.puuid);
-  const delta = rankDelta(update);
-  const change = update?.tierChange;
-  const changeColor = change?.promoted ? colors.up : colors.down;
-  const deltaText = delta ? (
-    <div
-      style={{
-        flexShrink: 0,
-        marginLeft: 5,
-        fontSize: 11.5,
-        fontWeight: 600,
-        color: delta.color,
-      }}
-    >
-      {delta.text}
-    </div>
-  ) : null;
+  // how their rank moved is told by their spotlight; the row only marks a step
+  const change = report.rankUpdates.get(player.puuid)?.tierChange;
   const rankIcon = images.ranks.get(player.puuid);
-  const previousRankIcon = images.previousRanks.get(player.puuid);
   // a player shown without a name was left anonymous, not unranked
   const label =
     change?.to.tier ??
@@ -256,7 +243,7 @@ const Row = ({
         display: "flex",
         alignItems: "center",
         position: "relative",
-        height: 58,
+        height: 54,
         padding: "0 7px 0 5px",
         marginTop: 4,
         borderRadius: 6,
@@ -271,7 +258,7 @@ const Row = ({
           {change ? (
             <Badge
               label={change.promoted ? "Rank up" : "Derank"}
-              color={changeColor}
+              color={change.promoted ? colors.up : colors.down}
             />
           ) : null}
           {player.flairs?.map((flair) => (
@@ -291,68 +278,37 @@ const Row = ({
           marginLeft: 7,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <div
-            style={{
-              flexShrink: 1,
-              minWidth: 0,
-              fontSize: 14,
-              fontWeight: tracked ? 800 : 600,
-              color: colors.text,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {name}
-          </div>
-          {/* the rank line is full with the tier step, so the change moves up */}
-          {change ? deltaText : null}
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: tracked ? 800 : 600,
+            color: colors.text,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {name}
         </div>
         {label ? (
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              marginTop: 3,
-              fontSize: 11.5,
+              marginTop: 2,
+              fontSize: 13,
               color: player.rank ? colors.muted : colors.faint,
             }}
           >
-            {change ? (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  marginRight: 3,
-                }}
-              >
-                {previousRankIcon ? (
-                  <img src={previousRankIcon} width={15} height={15} />
-                ) : (
-                  <div>{change.from.tier}</div>
-                )}
-                <div style={{ marginLeft: 3, color: changeColor }}>›</div>
-              </div>
-            ) : null}
             {rankIcon ? (
               <img
                 src={rankIcon}
-                width={15}
-                height={15}
-                style={{ marginRight: 3 }}
+                width={16}
+                height={16}
+                style={{ marginRight: 4 }}
               />
             ) : null}
-            <div
-              style={
-                change
-                  ? { flexShrink: 0, fontWeight: 600, color: changeColor }
-                  : { flexShrink: 0 }
-              }
-            >
-              {label}
-            </div>
-            {change ? null : deltaText}
+            <div style={{ flexShrink: 0 }}>{label}</div>
           </div>
         ) : null}
       </div>
@@ -371,11 +327,168 @@ const Row = ({
           </div>
         ) : null}
         {detail ? (
-          <div style={{ marginTop: 3, fontSize: 11.5, color: colors.muted }}>
+          <div style={{ marginTop: 2, fontSize: 13, color: colors.muted }}>
             {detail}
           </div>
         ) : null}
       </div>
+    </div>
+  );
+};
+
+// What the card leads with: a strip per tracked player saying how the game went
+// for them and where it left their rank, at a size that still reads on a phone
+const Spotlight = ({
+  player,
+  name,
+  report,
+  images,
+  portrait,
+  result,
+  color,
+  headline,
+}: {
+  player: MatchPlayerIdentity;
+  name: string;
+  report: MatchReport;
+  images: CardImages;
+  portrait: JSXNode;
+  result: string;
+  color: string;
+  headline?: string;
+}) => {
+  const update = report.rankUpdates.get(player.puuid);
+  const delta = rankDelta(update);
+  const change = update?.tierChange;
+  const rankIcon = images.ranks.get(player.puuid);
+  const previousRankIcon = images.previousRanks.get(player.puuid);
+  const label = change?.to.tier ?? update?.current ?? player.rank;
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        height: 44,
+        padding: "0 10px 0 5px",
+        marginBottom: 4,
+        borderRadius: 6,
+        backgroundColor: colors.tracked,
+        borderLeft: `3px solid ${color}`,
+        fontSize: 17,
+        fontWeight: 800,
+      }}
+    >
+      {portrait}
+      <div
+        style={{
+          flexShrink: 1,
+          minWidth: 0,
+          marginLeft: 9,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {name}
+      </div>
+      <div style={{ flexShrink: 0, marginLeft: 10, color }}>{result}</div>
+      {headline ? (
+        <div style={{ flexShrink: 0, marginLeft: 10 }}>{headline}</div>
+      ) : null}
+      <div style={{ display: "flex", flexGrow: 1 }} />
+      {label ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            flexShrink: 0,
+            marginLeft: 10,
+            fontSize: 14,
+            fontWeight: 600,
+            color: colors.muted,
+          }}
+        >
+          {change ? (
+            <div
+              style={{ display: "flex", alignItems: "center", marginRight: 5 }}
+            >
+              {previousRankIcon ? (
+                <img src={previousRankIcon} width={18} height={18} />
+              ) : (
+                <div>{change.from.tier}</div>
+              )}
+              <div
+                style={{
+                  marginLeft: 5,
+                  color: change.promoted ? colors.up : colors.down,
+                }}
+              >
+                ›
+              </div>
+            </div>
+          ) : null}
+          {rankIcon ? (
+            <img
+              src={rankIcon}
+              width={18}
+              height={18}
+              style={{ marginRight: 5 }}
+            />
+          ) : null}
+          <div>{label}</div>
+        </div>
+      ) : null}
+      {delta ? (
+        <div
+          style={{
+            flexShrink: 0,
+            marginLeft: 8,
+            fontSize: 15,
+            color: delta.color,
+          }}
+        >
+          {delta.text}
+        </div>
+      ) : null}
+      {update?.sinceLastCheck && (delta || change) ? (
+        <div
+          style={{
+            flexShrink: 0,
+            marginLeft: 5,
+            fontSize: 13,
+            fontWeight: 400,
+            color: colors.muted,
+          }}
+        >
+          {SINCE_LAST_CHECK}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+const placementTint = (player: PlacementPlayer) =>
+  player.placement === 1 ? colors.gold : player.won ? colors.up : colors.down;
+
+const PlacementTile = ({ player }: { player: PlacementPlayer }) => {
+  const tint = placementTint(player);
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        width: 34,
+        height: 34,
+        borderRadius: 6,
+        backgroundColor: `${tint}2e`,
+        color: tint,
+        fontSize: 18,
+        fontWeight: 800,
+      }}
+    >
+      {String(player.placement)}
     </div>
   );
 };
@@ -395,6 +508,7 @@ const Card = ({
   label,
   details,
   score,
+  spotlights,
   columns,
 }: {
   accent: string;
@@ -403,6 +517,7 @@ const Card = ({
   label: string;
   details: ReadonlyArray<string | undefined>;
   score?: readonly [number, number] | undefined;
+  spotlights: ReadonlyArray<JSXNode>;
   columns: ReadonlyArray<Column>;
 }) => (
   <div
@@ -449,7 +564,7 @@ const Card = ({
         >
           {label.toUpperCase()}
         </div>
-        <div style={{ fontSize: 12, color: colors.muted, marginTop: 1 }}>
+        <div style={{ fontSize: 13.5, color: colors.muted, marginTop: 2 }}>
           {details.filter(Boolean).join("  ·  ")}
         </div>
       </div>
@@ -467,6 +582,9 @@ const Card = ({
         </div>
       ) : null}
     </div>
+    <div style={{ display: "flex", flexDirection: "column", marginBottom: 6 }}>
+      {spotlights}
+    </div>
     <div
       style={{
         display: "flex",
@@ -482,7 +600,7 @@ const Card = ({
               display: "flex",
               alignItems: "center",
               padding: "0 4px",
-              fontSize: 10,
+              fontSize: 11.5,
               fontWeight: 800,
               letterSpacing: 1,
             }}
@@ -491,7 +609,7 @@ const Card = ({
               style={{
                 display: "flex",
                 width: 3,
-                height: 11,
+                height: 12,
                 borderRadius: 2,
                 backgroundColor: column.color,
                 marginRight: 6,
@@ -520,7 +638,7 @@ const Card = ({
 
 const versusCard = (report: VersusReport, images: CardImages) => {
   const { match } = report;
-  const { key, verdict, trackedTeam, teams } = matchVerdict(report);
+  const { key, verdict, trackedTeam, teams, tracked } = matchVerdict(report);
   const trackedPuuids = new Set(report.tracked.map((player) => player.puuid));
   const mvp = [...match.players].sort((a, b) => b.sortKey - a.sortKey)[0]
     ?.puuid;
@@ -538,6 +656,31 @@ const versusCard = (report: VersusReport, images: CardImages) => {
         match.surrendered ? "Surrender" : undefined,
       ]}
       score={trackedTeam?.score}
+      spotlights={tracked.flatMap(({ discordName, puuid, outcome }) => {
+        const player = match.players.find(
+          (candidate) => candidate.puuid === puuid,
+        );
+        return player
+          ? [
+              <Spotlight
+                player={player}
+                name={discordName}
+                report={report}
+                images={images}
+                portrait={
+                  <Icon
+                    src={images.characters.get(puuid)}
+                    size={34}
+                    alt={player.character}
+                  />
+                }
+                result={outcome === "unknown" ? "" : outcome.toUpperCase()}
+                color={verdictColors[outcome]}
+                headline={`${player.kills} / ${player.deaths} / ${player.assists}`}
+              />,
+            ]
+          : [];
+      })}
       columns={teams.flatMap((team, index) => {
         const players = match.players.filter(
           (player) => player.team === team.id,
@@ -584,43 +727,17 @@ const placementCard = (report: PlacementReport, images: CardImages) => {
   const column = (title: string, group: ReadonlyArray<PlacementPlayer>) => ({
     label: title,
     color: group.every((player) => player.won) ? colors.up : colors.down,
-    rows: group.map((player) => {
-      const tint =
-        player.placement === 1
-          ? colors.gold
-          : player.won
-            ? colors.up
-            : colors.down;
-      return (
-        <Row
-          player={player}
-          name={playerName(player)}
-          report={report}
-          images={images}
-          tracked={trackedPuuids.has(player.puuid)}
-          portrait={
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-                width: 34,
-                height: 34,
-                borderRadius: 6,
-                backgroundColor: `${tint}2e`,
-                color: tint,
-                fontSize: 18,
-                fontWeight: 800,
-              }}
-            >
-              {String(player.placement)}
-            </div>
-          }
-          headline={player.stat}
-        />
-      );
-    }),
+    rows: group.map((player) => (
+      <Row
+        player={player}
+        name={playerName(player)}
+        report={report}
+        images={images}
+        tracked={trackedPuuids.has(player.puuid)}
+        portrait={<PlacementTile player={player} />}
+        headline={player.stat}
+      />
+    )),
   });
 
   return (
@@ -630,6 +747,22 @@ const placementCard = (report: PlacementReport, images: CardImages) => {
       game={match.game}
       label={label}
       details={[match.mode, match.map, formatDuration(match.durationSeconds)]}
+      spotlights={report.tracked.flatMap(({ discordName, puuid }) => {
+        const player = players.find((candidate) => candidate.puuid === puuid);
+        return player
+          ? [
+              <Spotlight
+                player={player}
+                name={discordName}
+                report={report}
+                images={images}
+                portrait={<PlacementTile player={player} />}
+                result={`${ordinal(player.placement)} place`.toUpperCase()}
+                color={placementTint(player)}
+              />,
+            ]
+          : [];
+      })}
       columns={[
         column(`Top ${half}`, players.slice(0, half)),
         column(`Bottom ${players.length - half}`, players.slice(half)),
@@ -879,7 +1012,7 @@ export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
   const filename = "match-report.png";
   return yield* rest
     .createMessage(channelId, {
-      content: matchSummary(report),
+      content: [matchSummary(report), ...matchHighlights(report)].join("\n"),
       allowed_mentions: { parse: [] },
       attachments: [{ id: "0", filename }],
     })

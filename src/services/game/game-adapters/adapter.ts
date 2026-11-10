@@ -15,6 +15,10 @@ import {
 // How many of an account's newest matches a poll looks at. Everyone is polled
 // every 3 minutes, too short to finish more than one game.
 export const RECENT_MATCH_COUNT = 3;
+// The first poll after the bot was down or paused looks this far back, so
+// games played meanwhile aren't missed. Henrik sends whole matches in its
+// history, so this costs more and is only used to catch up.
+export const CATCH_UP_MATCH_COUNT = 10;
 
 export class GameApiError extends Schema.TaggedError<GameApiError>()(
   "GameApiError",
@@ -86,6 +90,7 @@ export interface GameAdapter {
   readonly getRecentMatchIds: (
     puuid: Puuid,
     region: Region | undefined,
+    count: number,
   ) => Effect.Effect<ReadonlyArray<MatchId>, GameApiError>;
 
   // undefined for a match that can't be decoded, which a retry won't fix

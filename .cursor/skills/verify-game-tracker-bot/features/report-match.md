@@ -30,7 +30,7 @@ Observable: exit 0 and JSON with `game`, `matchId`, and either `out` or `channel
 
 ## Gotchas
 
-- Only an account's few most recent matches are reachable (`RECENT_MATCH_COUNT`). For a rare mode, find someone who just played it.
+- Only an account's 10 most recent matches are reachable (`CATCH_UP_MATCH_COUNT`). For a rare mode, find someone who just played it.
 - The report is written from the riot account's side, and the summary names them by riot name.
 - No rank snapshot is passed in, so League and TFT LP changes don't show. Valorant RR does, because Henrik's MMR history carries the delta.
 - Rank emojis aren't loaded, so the embed fallback shows no rank icons. Changes to emoji rendering still need the bot itself.

@@ -1,12 +1,16 @@
 import { Discord, DiscordREST, Ix, UI } from "dfx";
-import { DateTime, Effect, Option, Schema } from "effect";
-import type { Account, Database } from "../database/index.ts";
+import { Effect, Option, Schema } from "effect";
+import type { Database } from "../database/index.ts";
 import {
-  logApiError,
-  logApiWarning,
-  resolveGameState,
-  type GameAdapters,
-} from "../game/game-adapters/index.ts";
+  listGameNames,
+  registerAccount,
+  reportedGames,
+  trackGames,
+  untrackGames,
+  formatTrackResult,
+  formatUntrackResult,
+} from "../account/index.ts";
+import { logApiError, type GameAdapters } from "../game/game-adapters/index.ts";
 import {
   discordGameChoices,
   GameId,
@@ -59,248 +63,6 @@ const forManagers = {
   default_member_permissions: Number(Discord.Permissions.ManageGuild),
 };
 
-// The given games for a riot id, each with its current matches pre-reported so
-// the first poll doesn't repost old games. Games that need an opt-in are only
-// looked up for someone who signed in with riot.
-const resolveGames = (
-  gameAdapters: GameAdapters["Service"],
-  riotId: { readonly riotName: string; readonly riotTag: string },
-  optedIn: boolean,
-) =>
-  Effect.gen(function* () {
-    // kept as the record of when they opted in
-    const optedInAt = optedIn
-      ? DateTime.formatIso(yield* DateTime.now)
-      : undefined;
-    // a riot id may exist in only one game, so each lookup fails on its own
-    const resolved = yield* Effect.forEach(
-      gameAdapters.all.filter((adapter) => optedIn || !adapter.requiresOptIn),
-      (adapter) =>
-        resolveGameState(adapter, riotId.riotName, riotId.riotTag).pipe(
-          Effect.map((state) => [
-            {
-              game: adapter.game,
-              state: adapter.requiresOptIn ? { ...state, optedInAt } : state,
-            },
-          ]),
-          // a failed lookup is not the same as "no such account", but
-          // both leave this game untracked
-          Effect.catch((error) =>
-            logApiWarning("resolveAccount failed", error).pipe(
-              Effect.annotateLogs({ game: adapter.game }),
-              Effect.as([]),
-            ),
-          ),
-        ),
-      { concurrency: "unbounded" },
-    );
-    return resolved.flat();
-  });
-
-// Only needs the two services, so the admin cli can call it too. Players pick
-// their games, so only the ones passed in are tracked.
-export const registerAccount = (
-  { database, gameAdapters }: Pick<CommandDeps, "database" | "gameAdapters">,
-  input: Omit<Account, "games">,
-  games: ReadonlyArray<GameId>,
-  { optedIn = false }: { readonly optedIn?: boolean } = {},
-) =>
-  Effect.gen(function* () {
-    // any game finding the riot id proves it exists
-    const exists = yield* Effect.firstSuccessOf(
-      gameAdapters.all.map((adapter) =>
-        adapter.resolveAccount(input.riotName, input.riotTag),
-      ),
-    ).pipe(
-      Effect.as(true),
-      Effect.catch((error) =>
-        logApiWarning("riot id lookup failed", error).pipe(Effect.as(false)),
-      ),
-    );
-    if (!exists) return "not-found" as const;
-
-    const resolved = yield* resolveGames(
-      {
-        all: gameAdapters.all.filter((adapter) => games.includes(adapter.game)),
-      },
-      input,
-      optedIn,
-    );
-
-    const states: Account["games"] = {};
-    for (const { game, state } of resolved) states[game] = state;
-    yield* database.addAccount({ ...input, games: states });
-    return "ok" as const;
-  });
-
-// After a riot sign-in: adds the games that needed it to the account, or,
-// for someone who hadn't signed up, signs them up with the riot id they
-// signed in as.
-export const linkAccount = (
-  deps: Pick<CommandDeps, "database" | "gameAdapters">,
-  link: {
-    readonly discordUserId: string;
-    readonly discordName: string;
-    readonly guildId: string;
-  },
-  riotId: { readonly riotName: string; readonly riotTag: string },
-) =>
-  Effect.gen(function* () {
-    // signing in is how they pick these games
-    const optInAdapters = deps.gameAdapters.all.filter(
-      (adapter) => adapter.requiresOptIn,
-    );
-    const account = yield* deps.database.getAccount(link.discordUserId);
-    if (!account) {
-      return yield* registerAccount(
-        deps,
-        { ...link, ...riotId, guildIds: [link.guildId] },
-        optInAdapters.map((adapter) => adapter.game),
-        { optedIn: true },
-      );
-    }
-
-    const found = yield* resolveGames({ all: optInAdapters }, riotId, true);
-    if (found.length === 0) return "not-found" as const;
-
-    for (const { game, state } of found) {
-      yield* deps.database.addGame({
-        discordUserId: link.discordUserId,
-        game,
-        state,
-      });
-    }
-    yield* deps.database.subscribe({
-      guildId: link.guildId,
-      discordUserId: link.discordUserId,
-    });
-    return "ok" as const;
-  });
-
-const listGameNames = (games: ReadonlyArray<GameId>) =>
-  games.map((game) => gameNames[game]).join(", ");
-
-// A game that needs a riot sign-in only reports once they've signed in, even
-// if an older signup left a row for it.
-const reportedGames = (
-  gameAdapters: GameAdapters["Service"],
-  account: Account,
-) =>
-  gameAdapters.all
-    .filter((adapter) => {
-      const state = account.games[adapter.game];
-      return state && (!adapter.requiresOptIn || state.optedInAt);
-    })
-    .map((adapter) => adapter.game);
-
-// Adds the picked games an account doesn't report yet. The ones that need a
-// riot sign-in are left to /link.
-export const trackGames = (
-  { database, gameAdapters }: Pick<CommandDeps, "database" | "gameAdapters">,
-  account: Account,
-  games: ReadonlyArray<GameId>,
-) =>
-  Effect.gen(function* () {
-    const reported = reportedGames(gameAdapters, account);
-    const alreadyTracked = games.filter((game) => reported.includes(game));
-    const wanted = gameAdapters.all.filter(
-      (adapter) =>
-        games.includes(adapter.game) && !reported.includes(adapter.game),
-    );
-    const needsLink = wanted
-      .filter((adapter) => adapter.requiresOptIn)
-      .map((adapter) => adapter.game);
-
-    const resolved = yield* Effect.forEach(
-      wanted.filter((adapter) => !adapter.requiresOptIn),
-      (adapter) =>
-        resolveGameState(adapter, account.riotName, account.riotTag).pipe(
-          Effect.map((state) => ({ game: adapter.game, state })),
-          Effect.catch((error) =>
-            logApiWarning("track lookup failed", error).pipe(
-              Effect.annotateLogs({ game: adapter.game }),
-              Effect.as({ game: adapter.game, state: undefined }),
-            ),
-          ),
-        ),
-      { concurrency: "unbounded" },
-    );
-
-    const added: Array<GameId> = [];
-    const notFound: Array<GameId> = [];
-    for (const { game, state } of resolved) {
-      if (!state) {
-        notFound.push(game);
-        continue;
-      }
-      yield* database.addGame({
-        discordUserId: account.discordUserId,
-        game,
-        state,
-      });
-      added.push(game);
-    }
-
-    return { added, alreadyTracked, needsLink, notFound };
-  });
-
-export const formatTrackResult = (
-  result: Effect.Success<ReturnType<typeof trackGames>>,
-  canLink: boolean,
-) =>
-  [
-    result.added.length > 0 && `Now reporting: ${listGameNames(result.added)}`,
-    result.alreadyTracked.length > 0 &&
-      `Already reporting: ${listGameNames(result.alreadyTracked)}`,
-    result.needsLink.length > 0 &&
-      (canLink
-        ? `Run \`/link\` to add ${listGameNames(result.needsLink)}.`
-        : `${listGameNames(result.needsLink)} needs a Riot sign-in, which isn't available yet.`),
-    result.notFound.length > 0 &&
-      `Couldn't look up ${listGameNames(result.notFound)} for your Riot ID, try again in a bit.`,
-  ]
-    .filter((line) => line !== false)
-    .join("\n");
-
-// Games are per account, so this stops them in every server it reports in.
-export const untrackGames = (
-  database: Database["Service"],
-  account: Account,
-  games: ReadonlyArray<GameId>,
-) =>
-  Effect.gen(function* () {
-    const removed = games.filter((game) => account.games[game] !== undefined);
-    const notTracked = games.filter(
-      (game) => account.games[game] === undefined,
-    );
-    if (removed.length > 0) {
-      yield* database.removeGames({
-        discordUserId: account.discordUserId,
-        games: removed,
-      });
-    }
-    const remaining = gameIds.filter(
-      (game) => account.games[game] !== undefined && !removed.includes(game),
-    );
-    return { removed, notTracked, remaining };
-  });
-
-export const formatUntrackResult = (
-  result: Effect.Success<ReturnType<typeof untrackGames>>,
-) =>
-  [
-    result.removed.length > 0
-      ? `Stopped reporting: ${listGameNames(result.removed)}`
-      : "Nothing to stop reporting.",
-    result.notTracked.length > 0 &&
-      `Wasn't reporting: ${listGameNames(result.notTracked)}`,
-    result.remaining.length === 0 &&
-      "You're still signed up, with no games. `/signout` removes your tracking from this server, and deletes your data if it's your last one.",
-  ]
-    .filter((line) => line !== false)
-    .join("\n");
-
-// The bot's words the site's walkthrough quotes, so it can't drift from them
 export const trackPrompt =
   "Pick the games to report, in every server you're signed up in:";
 export const signedUpMessage = (username: string) =>
@@ -351,6 +113,12 @@ const signup = (deps: CommandDeps, linkHint: string) =>
           description: "after the # (e.g. NA1)",
           required: true,
         },
+        {
+          type: Discord.ApplicationCommandOptionType.BOOLEAN,
+          name: "replace_account",
+          description:
+            "Confirm replacing your Riot account in every subscribed server",
+        },
       ],
     },
     (i) =>
@@ -379,11 +147,22 @@ const signup = (deps: CommandDeps, linkHint: string) =>
           existing.riotTag.toLowerCase() === riotTag.toLowerCase()
         ) {
           if (existing.guildIds.includes(guildId)) {
-            return reply("You're already signed up, dummy");
+            return privateReply(
+              `You are already signed up here as ${existing.riotName}#${existing.riotTag}. Run \`/status\` to check reporting or \`/track\` to choose games.`,
+            );
           }
           yield* deps.database.subscribe({ guildId, discordUserId: user.id });
           return reply(
             `**${user.username}** just signed up!${setupHint}${linkHint}`,
+          );
+        }
+
+        if (
+          existing &&
+          i.optionValueOrElse("replace_account", () => false) !== true
+        ) {
+          return privateReply(
+            `Replacing ${existing.riotName}#${existing.riotTag} changes your account in every server you signed up in and resets game history and Riot consent. Run \`/signup\` again with \`replace_account: true\` to confirm; consent-based games need \`/link\` again.`,
           );
         }
 
@@ -419,7 +198,7 @@ const signup = (deps: CommandDeps, linkHint: string) =>
 
           yield* followUp(
             existing
-              ? `**${user.username}** switched to ${riotName}#${riotTag}.${setupHint}${linkHint}`
+              ? `**${user.username}** switched to ${riotName}#${riotTag} in every subscribed server.${setupHint}${linkHint}`
               : `${signedUpMessage(user.username)}${setupHint}${linkHint}`,
           );
           const account = yield* deps.database.getAccount(user.id);
@@ -540,12 +319,70 @@ const signout = ({ database }: CommandDeps) =>
         return reply(
           accountDeleted
             ? `**${user.username}** signed out, all data deleted.`
-            : `**${user.username}** signed out of this server's reports.`,
+            : `**${user.username}** signed out of this server's reports. Reporting in your other servers continues.`,
         );
       }).pipe(
         Effect.catch((error) =>
           Effect.logError("signout failed", error).pipe(
             Effect.as(reply("Signout failed, try again in a bit :(")),
+          ),
+        ),
+      ),
+  );
+
+const status = ({ database, gameAdapters, rso }: CommandDeps) =>
+  Ix.global(
+    {
+      name: "status",
+      description: "Check your account and reporting in this server",
+      ...inServers,
+    },
+    (i) =>
+      Effect.gen(function* () {
+        const user = i.interaction.member?.user ?? i.interaction.user;
+        const guildId = i.interaction.guild_id;
+        if (!user || !guildId) return privateReply("Run this in a server.");
+        const [account, guild, paused] = yield* Effect.all([
+          database.getAccount(user.id),
+          database.getGuild(guildId),
+          database.getPollingPaused(),
+        ]);
+        const selected = gameIds.filter((game) => account?.games[game]);
+        const missingConsent = gameAdapters.all
+          .filter(
+            (adapter) =>
+              adapter.requiresOptIn && !account?.games[adapter.game]?.optedInAt,
+          )
+          .map((adapter) => adapter.game);
+        const next = [
+          !account?.guildIds.includes(guildId) &&
+            "Run `/signup` to receive reports here.",
+          selected.length === 0 &&
+            "Run `/track` to choose games (applies to every subscribed server).",
+          !guild?.channelId && "Ask a server admin to run `/setup`.",
+          guild?.paused && "Ask a server admin to run `/resume`.",
+          paused &&
+            "Bot polling is paused globally; ask the bot operator to resume it.",
+          missingConsent.length > 0 &&
+            (Option.isSome(rso)
+              ? "Run `/link` to consent to reporting those games."
+              : "Riot sign-in is not available yet for consent-based games."),
+        ].filter((line) => typeof line === "string");
+        return privateReply(
+          [
+            `Account: ${account ? `${account.riotName}#${account.riotTag}` : "not signed up"}`,
+            `Subscribed here: ${account?.guildIds.includes(guildId) ? "yes" : "no"}`,
+            `Selected games: ${listGameNames(selected) || "none"}`,
+            `Report channel: ${guild?.channelId ? `<#${guild.channelId}>` : "not configured"}`,
+            `Server reports: ${guild?.paused ? "paused" : "enabled"}; bot polling: ${paused ? "paused" : "enabled"}`,
+            `Missing consent: ${listGameNames(missingConsent) || "none"}`,
+            ...next,
+          ].join("\n"),
+        );
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logError("status failed", error).pipe(
+            Effect.as(privateReply("Couldn't load status. Try again shortly.")),
           ),
         ),
       ),
@@ -938,6 +775,7 @@ export const commands = (deps: CommandDeps, devMode: boolean) => {
         signInUrl ? `\nRun \`/link\` to add ${optInGames} as well.` : "",
       ),
     )
+    .add(status(deps))
     .add(signout(deps))
     .add(setup(deps))
     .add(pause(deps))

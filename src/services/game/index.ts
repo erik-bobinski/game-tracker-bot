@@ -104,6 +104,9 @@ export interface RankUpdate {
   readonly delta?: number | undefined;
   readonly current?: string | undefined;
   readonly unit: string;
+  // several of their matches were found in one poll, so the movement covers
+  // all of them since the last check rather than this match alone
+  readonly sinceLastCheck?: boolean;
   // set when the match moved them into another tier
   readonly tierChange?:
     | {

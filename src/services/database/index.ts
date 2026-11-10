@@ -65,9 +65,37 @@ export interface Guild {
   readonly paused: boolean;
 }
 
+const DeliveryKey = Schema.Struct({
+  game: GameId,
+  matchId: MatchId,
+  guildId: Schema.String,
+});
+const DeliveryPlayers = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      discordUserId: Schema.String,
+      puuid: Puuid,
+    }),
+  ),
+);
+const PendingDelivery = Schema.Struct({
+  ...DeliveryKey.fields,
+  players: DeliveryPlayers,
+});
+
 export class Database extends Context.Service<
   Database,
   {
+    readonly queueDelivery: (
+      input: typeof PendingDelivery.Type,
+    ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    readonly getPendingDeliveries: () => Effect.Effect<
+      ReadonlyArray<typeof PendingDelivery.Type>,
+      SqlError | Schema.SchemaError
+    >;
+    readonly finishDelivery: (
+      input: typeof DeliveryKey.Type,
+    ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
     // inserts the account or replaces its riot account, adding its servers to
     // the ones it already reports in
     readonly addAccount: (
@@ -307,6 +335,31 @@ const migrations = SqliteMigrator.fromRecord({
   "6_add_opted_in_at": Effect.gen(function* () {
     const sql = yield* SqlClient;
     yield* sql`ALTER TABLE account_games ADD COLUMN opted_in_at TEXT`;
+  }),
+  // one row per server a discovered match posts to, kept until it posts
+  "7_create_match_deliveries": Effect.gen(function* () {
+    const sql = yield* SqlClient;
+    yield* sql`CREATE TABLE match_deliveries (
+      game TEXT NOT NULL, match_id TEXT NOT NULL,
+      guild_id TEXT NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
+      players TEXT NOT NULL, finished INTEGER NOT NULL DEFAULT 0,
+      queued_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (game, match_id, guild_id)
+    )`;
+    // Remove queued identities immediately when consent/subscriptions are
+    // removed, including while global polling is paused.
+    yield* sql`CREATE TRIGGER delivery_game_removed AFTER DELETE ON account_games BEGIN
+      UPDATE match_deliveries SET players = (
+        SELECT json_group_array(json(value)) FROM json_each(players)
+        WHERE json_extract(value, '$.discordUserId') != OLD.discord_user_id
+      ) WHERE game = OLD.game AND finished = 0;
+    END`;
+    yield* sql`CREATE TRIGGER delivery_subscription_removed AFTER DELETE ON guild_accounts BEGIN
+      UPDATE match_deliveries SET players = (
+        SELECT json_group_array(json(value)) FROM json_each(players)
+        WHERE json_extract(value, '$.discordUserId') != OLD.discord_user_id
+      ) WHERE guild_id = OLD.guild_id AND finished = 0;
+    END`;
   }),
 });
 
@@ -973,7 +1026,37 @@ const makeDatabase = Effect.gen(function* () {
     Effect.annotateLogs({ dbPath }),
   );
 
+  const queueDelivery = SqlSchema.void({
+    Request: PendingDelivery,
+    execute: (
+      row,
+    ) => sql`INSERT INTO match_deliveries (game, match_id, guild_id, players)
+      VALUES (${row.game}, ${row.matchId}, ${row.guildId}, ${row.players})
+      ON CONFLICT (game, match_id, guild_id) DO NOTHING`,
+  });
+  // Pending rows stay until posted or no subscribed player is left, however
+  // long an outage lasts. Finished rows are kept indefinitely so a late
+  // rediscovery cannot repost; queued_at is kept for a future retention policy.
+  const getPendingDeliveries = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: PendingDelivery,
+    execute:
+      () => sql`SELECT game, match_id AS "matchId", guild_id AS "guildId", players
+      FROM match_deliveries WHERE finished = 0 ORDER BY rowid`,
+  });
+  const finishDelivery = SqlSchema.void({
+    Request: DeliveryKey,
+    // Keep a compact tombstone to deduplicate late discovery by another player.
+    execute: (
+      row,
+    ) => sql`UPDATE match_deliveries SET finished = 1, players = '[]'
+      WHERE game = ${row.game} AND match_id = ${row.matchId} AND guild_id = ${row.guildId}`,
+  });
+
   return Database.of({
+    queueDelivery,
+    getPendingDeliveries,
+    finishDelivery,
     addAccount,
     addGame,
     updateRiotId,

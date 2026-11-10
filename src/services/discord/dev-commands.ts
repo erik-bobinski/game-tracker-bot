@@ -13,10 +13,10 @@ import { lolMatchToDetails } from "../game/game-adapters/lol.ts";
 import { tftMatchToDetails } from "../game/game-adapters/tft.ts";
 import { valMatchToDetails } from "../game/game-adapters/valorant-henrik.ts";
 import type { MatchReport } from "./embed.ts";
+import { registerAccount } from "../account/index.ts";
 import {
   deferredReply,
   inServers,
-  registerAccount,
   reply,
   type CommandDeps,
 } from "./commands.ts";

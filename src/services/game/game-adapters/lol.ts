@@ -7,7 +7,6 @@ import {
 } from "../game-api/riot/ranks.ts";
 import {
   GameApiError,
-  RECENT_MATCH_COUNT,
   emptyEnrichment,
   logApiWarning,
   type GameAdapter,
@@ -139,13 +138,8 @@ export const LolAdapterLive = Layer.effect(
         return { puuid, region };
       }),
       getRecentMatchIds: Effect.fn("GameAdapter.lol.getRecentMatchIds")(
-        function* (puuid: Puuid, region: Region | undefined) {
-          return yield* riotClient.getMatchIds(
-            "lol",
-            puuid,
-            region,
-            RECENT_MATCH_COUNT,
-          );
+        function* (puuid: Puuid, region: Region | undefined, count: number) {
+          return yield* riotClient.getMatchIds("lol", puuid, region, count);
         },
         Effect.mapError(
           (cause) =>

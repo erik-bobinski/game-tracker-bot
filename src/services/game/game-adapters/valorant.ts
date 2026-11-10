@@ -6,7 +6,6 @@ import type {
 } from "../game-api/val/riot-match-schema.ts";
 import {
   GameApiError,
-  RECENT_MATCH_COUNT,
   emptyEnrichment,
   type GameAdapter,
 } from "./adapter.ts";
@@ -330,11 +329,9 @@ export const RiotValorantAdapterLive = Layer.effect(
         },
       ),
       getRecentMatchIds: Effect.fn("GameAdapter.valorant.getRecentMatchIds")(
-        function* (puuid: Puuid, region: Region | undefined) {
+        function* (puuid: Puuid, region: Region | undefined, count: number) {
           const history = yield* client.getMatchlist(puuid, shardOf(region));
-          return history
-            .slice(0, RECENT_MATCH_COUNT)
-            .map((entry) => entry.matchId);
+          return history.slice(0, count).map((entry) => entry.matchId);
         },
         Effect.mapError(
           (cause) =>

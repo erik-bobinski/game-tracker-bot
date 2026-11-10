@@ -18,12 +18,15 @@ each account is polled once however many servers report it.
 | -------------------------------- | ---------------------------------------------------------------------------------- |
 | `/setup <channel>`               | Pick the channel this server's reports go to (Manage Server)                       |
 | `/signup <riot_name> <riot_tag>` | Start reporting your matches in this server, or switch your Riot ID                |
+| `/status`                        | Privately check account, games, consent and server reporting settings              |
 | `/track`                         | Pick games to report, in every server you're signed up in                          |
 | `/untrack`                       | Pick games, or all of them, to stop reporting                                      |
 | `/link`                          | Sign in with Riot so your VALORANT matches can be reported                         |
 | `/signout`                       | Stop reporting your matches here; your data is deleted when no server reports them |
 | `/rank_check <user> <game>`      | Post the current rank of someone signed up here, with their tier emblem            |
 | `/pause` / `/resume`             | Stop or restart this server's reports (Manage Server)                              |
+
+Replacing an existing Riot ID with `/signup` requires `replace_account: true` after a warning. It changes the account in every subscribed server and resets consent-based games.
 
 Every game is opt-in: signing up reports nothing until you pick games, and it
 opens the `/track` picker right away. Riot only shares VALORANT matches for
@@ -143,6 +146,13 @@ once, however many tracked players were in it, then posted once per server and
 recorded. Riot and HenrikDev requests are paced under the rate limits their
 responses state.
 
+After the bot was down or paused (no poll for 10 minutes), the next poll looks
+back 10 matches instead of 3 and posts at most the 5 newest each player missed,
+oldest first; older ones are skipped and logged. League and TFT rank movement
+is the live rank against the last saved one, so when several of a player's
+matches are found in one poll only the newest shows it, labelled since last
+check.
+
 Failures stay small: an undecodable match is skipped, a failed rank lookup
 drops the emblem, a failed poll is retried on the next tick, and a server whose
 channel is gone has it unset until someone runs `/setup` again.
@@ -161,3 +171,41 @@ channel is gone has it unset until someone runs `/setup` again.
 
 Game-specific shapes stay inside the client and adapter; polling, storage and
 reporting work on the shared types.
+
+## Delivery retries and local checks
+
+Discovered matches are queued in SQLite per game, match and server before player
+history advances. Each poll retries unfinished deliveries, even when the match
+has left the recent API results, and stay queued however long an outage lasts
+until they post or no subscribed player is left in them. Successful destinations
+are not posted again. Paused servers retain their pending deliveries; untracking
+or signing out removes the player's queued identity immediately. Retries use the
+current report channel.
+
+Discord posting and SQLite acknowledgement are not atomic: a crash between them
+can produce a duplicate. Only the poll that discovers a match holds its rank
+changes; later retries, in the same process or after a restart, fetch the match
+again and omit rank movement rather than calculate a misleading delta from newer
+rank snapshots. Completed delivery keys are kept indefinitely so a late
+rediscovery by another player is not reposted. Follow-up work: a retention rule
+for those keys that is provably safe for newly tracked players, and bounded
+catch-up for a server whose channel keeps failing (each retry refetches the
+match).
+
+Use Node 24+ and the pinned pnpm version:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+```
+
+The regression test uses temporary SQLite files and stubbed game/Discord services.
+It needs no credentials and does not connect a bot. Live Discord command registration
+and UI behavior still need verification in a dedicated development server.
+
+Live testing needs a separate Discord application, never the production token:
+the bot syncs its commands globally for its application. With `DEV_MODE=true`,
+`DEV_GUILD_ID` must name the dev server, and startup stops before connecting if
+the bot is in any other server. That check cannot prove the token belongs to a
+dedicated dev application, so confirm that before starting it.
