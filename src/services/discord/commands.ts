@@ -348,12 +348,14 @@ const status = ({ database, gameAdapters, rso }: CommandDeps) =>
           database.getPollingPaused(),
         ]);
         const selected = gameIds.filter((game) => account?.games[game]);
-        const missingConsent = gameAdapters.all
-          .filter(
-            (adapter) =>
-              adapter.requiresOptIn && !account?.games[adapter.game]?.optedInAt,
-          )
-          .map((adapter) => adapter.game);
+
+        // picked games that won't report until they sign in with riot
+        const missingConsent = selected.filter((game) => {
+          const adapter = gameAdapters.all.find((a) => a.game === game);
+
+          return adapter?.requiresOptIn && !account?.games[game]?.optedInAt;
+        });
+
         const next = [
           !account?.guildIds.includes(guildId) &&
             "Run `/signup` to receive reports here.",

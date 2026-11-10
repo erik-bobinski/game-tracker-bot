@@ -156,6 +156,13 @@ const fail = async (message: string, riotId = "unknown"): Promise<never> => {
 };
 
 const main = async () => {
+  // the bot refuses DEV_MODE without the one server its dev token may be in
+  if (!Bun.env.DEV_GUILD_ID) {
+    return fail(
+      "DEV_GUILD_ID is unset: set it to the dev bot's only server (see .env.example)",
+    );
+  }
+
   const db = Bun.file(dbPath);
   if (await db.exists()) await db.delete();
 

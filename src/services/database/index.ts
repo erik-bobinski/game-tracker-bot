@@ -89,6 +89,10 @@ export class Database extends Context.Service<
     readonly queueDelivery: (
       input: typeof PendingDelivery.Type,
     ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    readonly expireDeliveries: () => Effect.Effect<
+      ReadonlyArray<typeof DeliveryKey.Type>,
+      SqlError | Schema.SchemaError
+    >;
     readonly getPendingDeliveries: () => Effect.Effect<
       ReadonlyArray<typeof PendingDelivery.Type>,
       SqlError | Schema.SchemaError
@@ -336,13 +340,13 @@ const migrations = SqliteMigrator.fromRecord({
     const sql = yield* SqlClient;
     yield* sql`ALTER TABLE account_games ADD COLUMN opted_in_at TEXT`;
   }),
-  // one row per server a discovered match posts to, kept until it posts
+  // one row per server a discovered match posts to, deleted once it posts
   "7_create_match_deliveries": Effect.gen(function* () {
     const sql = yield* SqlClient;
     yield* sql`CREATE TABLE match_deliveries (
       game TEXT NOT NULL, match_id TEXT NOT NULL,
       guild_id TEXT NOT NULL REFERENCES guilds(guild_id) ON DELETE CASCADE,
-      players TEXT NOT NULL, finished INTEGER NOT NULL DEFAULT 0,
+      players TEXT NOT NULL,
       queued_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (game, match_id, guild_id)
     )`;
@@ -352,13 +356,13 @@ const migrations = SqliteMigrator.fromRecord({
       UPDATE match_deliveries SET players = (
         SELECT json_group_array(json(value)) FROM json_each(players)
         WHERE json_extract(value, '$.discordUserId') != OLD.discord_user_id
-      ) WHERE game = OLD.game AND finished = 0;
+      ) WHERE game = OLD.game;
     END`;
     yield* sql`CREATE TRIGGER delivery_subscription_removed AFTER DELETE ON guild_accounts BEGIN
       UPDATE match_deliveries SET players = (
         SELECT json_group_array(json(value)) FROM json_each(players)
         WHERE json_extract(value, '$.discordUserId') != OLD.discord_user_id
-      ) WHERE guild_id = OLD.guild_id AND finished = 0;
+      ) WHERE guild_id = OLD.guild_id;
     END`;
   }),
 });
@@ -1031,30 +1035,38 @@ const makeDatabase = Effect.gen(function* () {
     execute: (
       row,
     ) => sql`INSERT INTO match_deliveries (game, match_id, guild_id, players)
-      VALUES (${row.game}, ${row.matchId}, ${row.guildId}, ${row.players})
+      SELECT ${row.game}, ${row.matchId}, ${row.guildId}, ${row.players}
+      WHERE EXISTS (SELECT 1 FROM guilds WHERE guild_id = ${row.guildId})
       ON CONFLICT (game, match_id, guild_id) DO NOTHING`,
   });
-  // Pending rows stay until posted or no subscribed player is left, however
-  // long an outage lasts. Finished rows are kept indefinitely so a late
-  // rediscovery cannot repost; queued_at is kept for a future retention policy.
+
+  // A day-old row is dropped rather than retried: henrik can only refetch a
+  // match still in a player's recent history, and a channel failing that long
+  // shouldn't flood with its backlog once it works again.
+  const expireDeliveries = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: DeliveryKey,
+    execute: () => sql`DELETE FROM match_deliveries
+      WHERE queued_at < datetime('now', '-1 day')
+      RETURNING game, match_id AS "matchId", guild_id AS "guildId"`,
+  });
+
   const getPendingDeliveries = SqlSchema.findAll({
     Request: Schema.Void,
     Result: PendingDelivery,
     execute:
       () => sql`SELECT game, match_id AS "matchId", guild_id AS "guildId", players
-      FROM match_deliveries WHERE finished = 0 ORDER BY rowid`,
+      FROM match_deliveries ORDER BY rowid`,
   });
   const finishDelivery = SqlSchema.void({
     Request: DeliveryKey,
-    // Keep a compact tombstone to deduplicate late discovery by another player.
-    execute: (
-      row,
-    ) => sql`UPDATE match_deliveries SET finished = 1, players = '[]'
+    execute: (row) => sql`DELETE FROM match_deliveries
       WHERE game = ${row.game} AND match_id = ${row.matchId} AND guild_id = ${row.guildId}`,
   });
 
   return Database.of({
     queueDelivery,
+    expireDeliveries,
     getPendingDeliveries,
     finishDelivery,
     addAccount,

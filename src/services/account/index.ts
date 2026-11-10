@@ -71,20 +71,23 @@ export const registerAccount = (
 ) =>
   Effect.gen(function* () {
     // any game finding the riot id proves it exists
-    const lookups = yield* Effect.forEach(gameAdapters.all, (adapter) =>
-      adapter.resolveAccount(input.riotName, input.riotTag).pipe(
-        Effect.as("found" as const),
-        Effect.catch((error) =>
-          logApiWarning("riot id lookup failed", error).pipe(
-            Effect.as(
-              HttpClientError.isHttpClientError(error) &&
-                error.response?.status === 404
-                ? ("not-found" as const)
-                : ("unavailable" as const),
+    const lookups = yield* Effect.forEach(
+      gameAdapters.all,
+      (adapter) =>
+        adapter.resolveAccount(input.riotName, input.riotTag).pipe(
+          Effect.as("found" as const),
+          Effect.catch((error) =>
+            logApiWarning("riot id lookup failed", error).pipe(
+              Effect.as(
+                HttpClientError.isHttpClientError(error) &&
+                  error.response?.status === 404
+                  ? ("not-found" as const)
+                  : ("unavailable" as const),
+              ),
             ),
           ),
         ),
-      ),
+      { concurrency: "unbounded" },
     );
     if (!lookups.includes("found")) {
       if (

@@ -212,8 +212,9 @@ const makeMatchEngine = Effect.gen(function* () {
       .sort((a, b) => (a.match?.date ?? 0) - (b.match?.date ?? 0));
 
     // lol and tft diff the live rank against the last saved one, so when
-    // several of a player's matches turn up in one poll the movement can't be
-    // split between them: only the newest shows it, labelled as covering all
+    // several of a player's matches in one queue turn up in one poll the
+    // movement can't be split between them: only the newest shows it,
+    // labelled as covering all. Keyed by mode, since each queue ranks apart.
     const foundThisPoll = new Map<
       string,
       { matchId: MatchId; count: number }
@@ -221,7 +222,7 @@ const makeMatchEngine = Effect.gen(function* () {
     for (const { adapter, matchId, players, match } of ready) {
       for (const player of players) {
         if (!match || match.date <= player.lastReportedAt) continue;
-        const key = `${adapter.game}:${player.puuid}`;
+        const key = `${adapter.game}:${player.puuid}:${match.mode}`;
         const count = (foundThisPoll.get(key)?.count ?? 0) + 1;
         foundThisPoll.set(key, { matchId, count });
       }
@@ -275,7 +276,11 @@ const makeMatchEngine = Effect.gen(function* () {
         for (const player of fresh) {
           const snapshots = enrichment.updatedRankSnapshots.get(player.puuid);
           if (!snapshots) continue;
-          const found = foundThisPoll.get(`${adapter.game}:${player.puuid}`);
+
+          const found = foundThisPoll.get(
+            `${adapter.game}:${player.puuid}:${match.mode}`,
+          );
+
           const update = rankUpdates.get(player.puuid);
           if (found && found.count > 1) {
             // the newest match diffs against the snapshot this one leaves
@@ -331,6 +336,16 @@ const makeMatchEngine = Effect.gen(function* () {
     let deliveryAttempts = 0;
     let deliveriesSucceeded = 0;
     const matchesReported = new Set<string>();
+    const expired = yield* database.expireDeliveries();
+
+    if (expired.length > 0) {
+      yield* Effect.logWarning("dropped day-old match deliveries").pipe(
+        Effect.annotateLogs({
+          deliveries: expired.map((d) => `${d.game}:${d.matchId}:${d.guildId}`),
+        }),
+      );
+    }
+
     const deliveries = yield* database.getPendingDeliveries();
     for (const delivery of deliveries) {
       const adapter = gameAdapters.all.find((a) => a.game === delivery.game);
@@ -338,11 +353,13 @@ const makeMatchEngine = Effect.gen(function* () {
       // Read each player just before posting: signout, untrack and account
       // replacement must keep queued reports from exposing a former
       // subscriber, even one who left earlier in this poll.
-      const accounts = yield* Effect.forEach(delivery.players, (player) =>
-        database.getAccount(player.discordUserId),
-      );
-      const tracked = delivery.players.flatMap((player, index) => {
-        const account = accounts[index];
+      const current = yield* database.getAccounts();
+
+      const tracked = delivery.players.flatMap((player) => {
+        const account = current.find(
+          (candidate) => candidate.discordUserId === player.discordUserId,
+        );
+
         const state = account?.games[delivery.game];
         return account &&
           account.guildIds.includes(delivery.guildId) &&
@@ -371,21 +388,34 @@ const makeMatchEngine = Effect.gen(function* () {
           cached?.match ??
           (yield* adapter.getMatch(delivery.matchId, tracked[0]?.region));
         if (!match) return; // Leave queued if the API cannot currently decode it.
+
+        // a retry refetches the match without its rank changes
+        if (!cached) reports.set(key, { ...emptyEnrichment(match), tracked });
+        // only this server's players: the others' rank changes aren't its
+        const trackedPuuids = new Set(tracked.map((p) => p.puuid));
+
         const report = {
           tracked,
           match,
-          rankUpdates:
-            cached?.rankUpdates ?? emptyEnrichment(match).rankUpdates,
+          rankUpdates: new Map(
+            [...(cached?.rankUpdates ?? [])].filter(([puuid]) =>
+              trackedPuuids.has(puuid),
+            ),
+          ),
         };
-        reports.set(key, report);
+
         deliveryAttempts += 1;
-        yield* discord.notifyMatch(
-          { guildId: delivery.guildId, channelId },
-          report,
+        // Discord and SQLite cannot commit atomically. Not letting a shutdown
+        // land between them leaves only a crash to duplicate a delivery.
+        yield* Effect.uninterruptible(
+          Effect.andThen(
+            discord.notifyMatch(
+              { guildId: delivery.guildId, channelId },
+              report,
+            ),
+            database.finishDelivery(delivery),
+          ),
         );
-        // Discord and SQLite cannot commit atomically. A crash after posting
-        // but before this write can duplicate a delivery on the next poll.
-        yield* database.finishDelivery(delivery);
         deliveriesSucceeded += 1;
         matchesReported.add(key);
       }).pipe(
@@ -398,7 +428,9 @@ const makeMatchEngine = Effect.gen(function* () {
       );
     }
 
-    yield* Ref.set(lastPollAt, startedAt);
+    // the gap that matters is from this poll's end to the next one's start
+    yield* Ref.set(lastPollAt, yield* Clock.currentTimeMillis);
+
     return {
       catchingUp,
       accountsScanned: accounts.length,

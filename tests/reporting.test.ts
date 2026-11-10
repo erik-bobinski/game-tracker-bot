@@ -215,11 +215,11 @@ test("deliveries survive restart, newer matches and partial server failure", asy
     await run(
       Effect.gen(function* () {
         const db = yield* Database;
-        // A rediscovery cannot reopen a completed destination.
+        // a server removed mid-poll is skipped rather than failing the poll
         yield* db.queueDelivery({
           game: "tft",
           matchId: MatchId.make("old"),
-          guildId: "a",
+          guildId: "gone",
           players: [{ discordUserId: "one", puuid }],
         });
         assert.equal((yield* db.getPendingDeliveries()).length, 0);
@@ -244,9 +244,9 @@ test("deliveries survive restart, newer matches and partial server failure", asy
         assert.deepEqual((yield* db.getPendingDeliveries())[0]?.players, []);
       }),
     );
-    // A >1 day outage: every row is backdated, the pending one still posts
-    // (to the remaining subscriber only) and the old completed key still stops
-    // a newly tracked player with no history from reposting a shared match.
+    // A day-old row is dropped instead of posted, and with no history kept
+    // for finished deliveries, a player with an emptied history (/dev_clear)
+    // gets a shared match reported again.
     const raw = new DatabaseSync(join(directory, "test.sqlite"));
     raw.exec(`INSERT INTO match_deliveries (game, match_id, guild_id, players)
       VALUES ('tft', 'stale', 'a', '[{"discordUserId":"one","puuid":"player-one"},{"discordUserId":"two","puuid":"player-two"}]')`);
@@ -282,7 +282,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
         );
       }),
     );
-    assert.deepEqual(posted, [...delivered, "stale:a:two"]);
+    assert.deepEqual(posted, [...delivered, "old:a:three"]);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -313,7 +313,8 @@ test("catch-up posts a bounded backlog and pins live rank movement to the newest
         game: "tft",
         matchId: id,
         date: EpochMillis.make(Number(id.slice(1)) * 100),
-        mode: "test",
+        // the newest is an unranked game, which moves no rank
+        mode: id === "m7" ? "normal" : "ranked",
         durationSeconds: 60,
         players: [
           {
@@ -328,18 +329,22 @@ test("catch-up posts a bounded backlog and pins live rank movement to the newest
       }),
     // like lol and tft: the live rank diffed against the last saved one
     enrichMatch: ({ match, trackedPlayers }) =>
-      Effect.succeed({
-        match,
-        rankUpdates: new Map(
-          trackedPlayers.map((p) => [p.puuid, { delta: 40, unit: "LP" }]),
-        ),
-        updatedRankSnapshots: new Map(
-          trackedPlayers.map((p) => [
-            p.puuid,
-            { RANKED_TFT: { standing: "Gold I", points: 40 } },
-          ]),
-        ),
-      }),
+      Effect.succeed(
+        match.mode === "normal"
+          ? emptyEnrichment(match)
+          : {
+              match,
+              rankUpdates: new Map(
+                trackedPlayers.map((p) => [p.puuid, { delta: 40, unit: "LP" }]),
+              ),
+              updatedRankSnapshots: new Map(
+                trackedPlayers.map((p) => [
+                  p.puuid,
+                  { RANKED_TFT: { standing: "Gold I", points: 40 } },
+                ]),
+              ),
+            },
+      ),
     getRank: () => Effect.succeed(undefined),
   };
   const live = MatchEngineLive.pipe(
@@ -386,9 +391,10 @@ test("catch-up posts a bounded backlog and pins live rank movement to the newest
         yield* db.updateGuild("a", { channelId: "a" });
 
         // first poll after boot looks back further, posts the newest five
-        // missed matches oldest first, and skips m2
+        // missed matches oldest first, and skips m2. The rank movement goes on
+        // the newest ranked one, not the unranked m7 after it.
         yield* engine.pollOnce();
-        assert.deepEqual(posted, ["m3", "m4", "m5", "m6", "m7:40:true"]);
+        assert.deepEqual(posted, ["m3", "m4", "m5", "m6:40:true", "m7"]);
         assert.deepEqual(
           (yield* db.getAccount("one"))?.games.tft?.rankSnapshots,
           { RANKED_TFT: { standing: "Gold I", points: 40 } },

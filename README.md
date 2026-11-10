@@ -175,22 +175,21 @@ reporting work on the shared types.
 ## Delivery retries and local checks
 
 Discovered matches are queued in SQLite per game, match and server before player
-history advances. Each poll retries unfinished deliveries, even when the match
-has left the recent API results, and stay queued however long an outage lasts
-until they post or no subscribed player is left in them. Successful destinations
-are not posted again. Paused servers retain their pending deliveries; untracking
-or signing out removes the player's queued identity immediately. Retries use the
-current report channel.
+history advances. Each poll retries unposted deliveries until they post, no
+subscribed player is left in them, or they are a day old. A day-old delivery is
+dropped and logged: HenrikDev can only refetch a match still in a player's
+recent history, and a channel that has failed that long shouldn't flood with
+its backlog once it works again. A server that already got a match isn't posted
+it again. Paused servers keep their pending deliveries; untracking or signing
+out removes the player's queued identity immediately. Retries use the current
+report channel.
 
-Discord posting and SQLite acknowledgement are not atomic: a crash between them
-can produce a duplicate. Only the poll that discovers a match holds its rank
+Discord posting and SQLite acknowledgement are not atomic. A shutdown waits for
+the pair to finish, but a crash between them can still produce a duplicate. Only the poll that discovers a match holds its rank
 changes; later retries, in the same process or after a restart, fetch the match
 again and omit rank movement rather than calculate a misleading delta from newer
-rank snapshots. Completed delivery keys are kept indefinitely so a late
-rediscovery by another player is not reposted. Follow-up work: a retention rule
-for those keys that is provably safe for newly tracked players, and bounded
-catch-up for a server whose channel keeps failing (each retry refetches the
-match).
+rank snapshots. A posted delivery's row is deleted; each player's own reported
+match history is what stops a rediscovery from posting again.
 
 Use Node 24+ and the pinned pnpm version:
 
