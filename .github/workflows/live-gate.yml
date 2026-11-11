@@ -1,0 +1,58 @@
+name: Live verification gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: live-status-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    if: github.repository == 'erik-bobinski/game-tracker-bot'
+    runs-on: ubuntu-latest
+    steps:
+      # Metadata only: NEVER check out PR code or load game/Infisical secrets
+      # in this privileged pull_request_target workflow.
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const repo = context.repo;
+            const pull_number = context.issue.number;
+            const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number });
+            const sha = pr.head.sha;
+            if (sha !== context.payload.pull_request.head.sha) return;
+            const name = 'Live verification gate';
+            const statuses = await github.paginate(github.rest.repos.listCommitStatuses, { ...repo, ref: sha, per_page: 100 });
+            const previous = statuses.find(status => status.context === name);
+            if (previous?.state === 'success' && previous.creator?.login === 'github-actions[bot]' && previous.description === 'Bounded live verification passed for this commit.') {
+              core.info('This exact commit already passed live verification.');
+              return;
+            }
+            // Treat large/truncated diffs conservatively. No game APIs are called.
+            let required = true;
+            if (pr.changed_files <= 3000) {
+              const files = await github.paginate(github.rest.pulls.listFiles, { ...repo, pull_number, per_page: 100 });
+              required = files.some(({ filename }) => {
+                if (filename.endsWith('.md') || filename.endsWith('.test.ts')) return false;
+                return filename.startsWith('src/') || filename.startsWith('patches/') ||
+                  ['package.json', 'bun.lock', 'Dockerfile', '.github/workflows/ci.yml', '.github/workflows/live.yml', '.github/workflows/live-gate.yml'].includes(filename);
+              });
+            }
+            const { data: current } = await github.rest.pulls.get({ ...repo, pull_number });
+            if (current.head.sha !== sha) {
+              core.info('PR changed while checking; its synchronize event will evaluate the new commit.');
+              return;
+            }
+            await github.rest.repos.createCommitStatus({
+              ...repo, sha, context: name,
+              state: required ? 'pending' : 'success',
+              description: required ? 'Maintainer must run bounded live verification for this commit.' : 'Live verification not required for these changes.',
+              target_url: pr.html_url,
+            });

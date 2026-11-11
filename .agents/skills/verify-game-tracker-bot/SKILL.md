@@ -30,12 +30,15 @@ infisical run --projectId '<project-id>' --env dev --path /live-testing -- \
   env DEV_MODE=true bun run test:live
 ```
 
-Infisical `dev /live-testing` should contain only the dev bot token and API
+The dedicated Infisical **Game Tracker Live Testing** project, `dev /live-testing`,
+contains only the dev bot token and API
 credentials needed by the adapters (`DISCORD_BOT_TOKEN`, `RIOT_API_KEY`,
 `RIOT_TFT_API_KEY`, `HENRIK_API_KEY`, optional region/platform settings). The
 current adapter layer reads all three provider keys even when only one game is
-exercised. Do not grant CI the root folder containing other automation secrets,
-1Password tokens, Railway credentials or production bot credentials.
+exercised. CI has a read-only Viewer identity in this isolated project and no
+organization access. The regular app project's root contains other automation
+secrets; never grant that project to this identity. Folder-scoped custom roles
+require a paid Infisical plan, so project isolation provides the boundary here.
 
 Select the account once from an owner-approved production user or ask its owner;
 store only the Riot ID as configuration. Do not enumerate the production servers
@@ -83,15 +86,60 @@ does not silently count optional-enrichment authentication failures as success.
 
 ## GitHub Actions setup
 
-`.github/workflows/live.yml` is manual-only; it does not run on PR pushes or
-forks. It runs this same command and serializes all branches with one concurrency
-group. Do not add a matrix or automatic reruns. GitHub may coalesce queued manual
-runs; this is intentional protection from a burst of API checks.
+Regular CI runs format, lint, typecheck, offline tests and audit on public PRs.
+The **Live verification relevance** job reads the diff without game API
+credentials. It recommends live verification for runtime `src/` changes,
+dependencies, dependency patches, Dockerfile or the CI/live workflows; docs,
+skills and test-only edits are skipped. Runtime formatting changes are treated
+conservatively as relevant. A single-game change recommends that game; shared or
+multi-game changes recommend the configured smoke-test game, without a matrix.
+
+**Live API verification** appears as **Skipped** on every PR by default,
+including fork PRs. Relevance does not grant permission to call APIs. Maintainers
+can explicitly enable `run_live` when manually running the regular CI workflow
+on a trusted branch, after which the same bounded live workflow is called.
+
+A separate required **Live verification gate** commit status enforces merging.
+For relevant changes it stays pending until the manual live run succeeds on the
+exact head SHA; unrelated changes pass without an API call. Failed/cancelled live
+runs cannot pass it. A new push needs new evidence. The metadata-only
+`live-gate.yml` uses `pull_request_target` to update this status for fork PRs:
+it must never check out contributor code or load game/Infisical credentials.
+Its status writes and the manual result publisher serialize per SHA so a late
+metadata update cannot overwrite a completed test. Keep this workflow trusted.
+
+`master` requires `check` and `Live verification gate`, both from GitHub Actions,
+with branches up to date and admin enforcement enabled. A skipped live job does
+not satisfy the separate pending gate. Do not mark the gate successful based on
+a local run, an older commit, or the successful metadata-only job. Gate workflow
+changes take effect for public PRs once on the base branch; missing required
+status is blocking during initial setup too.
+
+To test a reviewed public/fork PR, open Actions → **Live pipeline verification**
+→ **Run workflow** from the trusted default branch, enter the PR number and
+choose the affected game (or `configured`). The metadata-only resolve job pins
+the PR's current head repository and full commit SHA and displays a review link.
+Review that exact commit before approving the `live-testing` environment. Later
+contributor pushes cannot change the code this run checks out. It runs offline
+checks again on that commit before fetching scoped dev credentials. This is an
+explicit decision to execute reviewed contributor code with those credentials;
+never approve unreviewed code, including install scripts and workflow changes.
+
+The actual live-test workflow accepts only maintainer dispatches from the upstream repo
+(also through the regular CI's explicit opt-in). It has no `pull_request_target`,
+comment, label or PR-update trigger. The separate PR-target gate only uses GitHub metadata.
+Copies in forks cannot use the upstream's
+Infisical identity: its OIDC subject is bound to the upstream repository and
+protected environment. Keep the default read-only token policy for fork PRs.
+
+All live runs share one concurrency group. Do not add automatic reruns. GitHub
+may coalesce queued manual runs; this protects against a burst of API checks.
 
 Create a protected GitHub environment `live-testing` with a required reviewer and
-trusted branch restrictions. Set its variables to the names shown above, plus
+trusted branch restrictions (manual PR runs use the default branch's trusted
+workflow, then check out the pinned PR commit). Set its variables to the names shown above, plus
 `INFISICAL_PROJECT_ID` and `INFISICAL_IDENTITY_ID`. Configure an Infisical machine
-identity with OIDC, read access only to `dev /live-testing`, issuer
+identity with OIDC and Viewer access only to the dedicated live-testing project, issuer
 `https://token.actions.githubusercontent.com`, audience `infisical`, and subject
 `repo:erik-bobinski/game-tracker-bot:environment:live-testing`. Follow the
 [Infisical GitHub OIDC guide](https://infisical.com/docs/documentation/platform/identities/oidc-auth/github).
