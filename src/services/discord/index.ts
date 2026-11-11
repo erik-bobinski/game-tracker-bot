@@ -189,6 +189,20 @@ const makeDiscord = Effect.gen(function* () {
                   ...player,
                   discordName: member.nick ?? member.user.username,
                 })),
+                // Discord's answer (usually 10007 Unknown Member, someone who
+                // left) says enough; the whole response is noise
+                Effect.catchTag("ErrorResponse", (error) =>
+                  Effect.logWarning(
+                    "server member unavailable; reporting the signup name",
+                  ).pipe(
+                    Effect.annotateLogs({
+                      discordUserId: player.discordUserId,
+                      code: error.data.code,
+                      reason: error.data.message,
+                    }),
+                    Effect.as(player),
+                  ),
+                ),
                 Effect.catch((error) =>
                   Effect.logWarning(
                     "server member unavailable; reporting the signup name",

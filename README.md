@@ -148,10 +148,9 @@ responses state.
 
 After the bot was down or paused (no poll for 10 minutes), the next poll looks
 back 10 matches instead of 3 and posts at most the 5 newest each player missed,
-oldest first; older ones are skipped and logged. League and TFT rank movement
-is the live rank against the last saved one, so when several of a player's
-matches are found in one poll only the newest shows it, labelled since last
-check.
+oldest first; older ones are skipped and logged. League and TFT LP changes come
+from the live rank against the last saved one, so they only show when exactly
+one ranked game was played since then; otherwise the report shows current LP.
 
 Failures stay small: an undecodable match is skipped, a failed rank lookup
 drops the emblem, a failed poll is retried on the next tick, and a server whose
@@ -186,9 +185,9 @@ report channel.
 
 Discord posting and SQLite acknowledgement are not atomic. A shutdown waits for
 the pair to finish, but a crash between them can still produce a duplicate.
-Only the poll that discovers a match holds its rank changes; later retries, in the same process or after a restart, fetch the match
-again and omit rank movement rather than calculate a misleading delta from newer
-rank snapshots. A posted delivery's row is deleted; each player's own reported
+Only the poll that discovers a match holds its rank changes. A later retry
+enriches the match again without the saved rank snapshots, so it shows current
+ranks and only movement that needs no snapshot (Valorant's per-match RR). A posted delivery's row is deleted; each player's own reported
 match history is what stops a rediscovery from posting again.
 
 `src/services/match-engine/delivery.test.ts` covers this with temporary SQLite

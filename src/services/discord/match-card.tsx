@@ -26,7 +26,6 @@ import type {
 } from "../game/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import {
-  SINCE_LAST_CHECK,
   formatDuration,
   matchEmbed,
   matchHighlights,
@@ -448,19 +447,6 @@ const Spotlight = ({
           }}
         >
           {delta.text}
-        </div>
-      ) : null}
-      {update?.sinceLastCheck && (delta || change) ? (
-        <div
-          style={{
-            flexShrink: 0,
-            marginLeft: 5,
-            fontSize: 13,
-            fontWeight: 400,
-            color: colors.muted,
-          }}
-        >
-          {SINCE_LAST_CHECK}
         </div>
       ) : null}
     </div>

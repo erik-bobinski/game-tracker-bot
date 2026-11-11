@@ -5,7 +5,6 @@ import { Discord } from "../discord/index.ts";
 import {
   CATCH_UP_MATCH_COUNT,
   enrichOrSkip,
-  emptyEnrichment,
   GameAdapters,
   logApiWarning,
   RECENT_MATCH_COUNT,
@@ -211,23 +210,6 @@ const makeMatchEngine = Effect.gen(function* () {
       .filter((entry) => entry !== undefined)
       .sort((a, b) => (a.match?.date ?? 0) - (b.match?.date ?? 0));
 
-    // lol and tft diff the live rank against the last saved one, so when
-    // several of a player's matches in one queue turn up in one poll the
-    // movement can't be split between them: only the newest shows it,
-    // labelled as covering all. Keyed by mode, since each queue ranks apart.
-    const foundThisPoll = new Map<
-      string,
-      { matchId: MatchId; count: number }
-    >();
-    for (const { adapter, matchId, players, match } of ready) {
-      for (const player of players) {
-        if (!match || match.date <= player.lastReportedAt) continue;
-        const key = `${adapter.game}:${player.puuid}:${match.mode}`;
-        const count = (foundThisPoll.get(key)?.count ?? 0) + 1;
-        foundThisPoll.set(key, { matchId, count });
-      }
-    }
-
     for (const {
       adapter,
       matchId,
@@ -272,36 +254,16 @@ const makeMatchEngine = Effect.gen(function* () {
             previousRankSnapshots: currentRankSnapshots.get(puuid) ?? {},
           })),
         });
-        const rankUpdates = new Map(enrichment.rankUpdates);
         for (const player of fresh) {
           const snapshots = enrichment.updatedRankSnapshots.get(player.puuid);
           if (!snapshots) continue;
-
-          const found = foundThisPoll.get(
-            `${adapter.game}:${player.puuid}:${match.mode}`,
-          );
-
-          const update = rankUpdates.get(player.puuid);
-          if (found && found.count > 1) {
-            // the newest match diffs against the snapshot this one leaves
-            if (found.matchId !== matchId) {
-              rankUpdates.delete(player.puuid);
-              continue;
-            }
-            if (update) {
-              rankUpdates.set(player.puuid, {
-                ...update,
-                sinceLastCheck: true,
-              });
-            }
-          }
           rankSnapshotsByDiscordUserId[player.discordUserId] = snapshots;
           currentRankSnapshots.set(player.puuid, snapshots);
         }
         reports.set(`${adapter.game}:${matchId}`, {
           tracked: fresh,
           match: enrichment.match,
-          rankUpdates,
+          rankUpdates: enrichment.rankUpdates,
         });
         // Persist all destinations before advancing player discovery history.
         for (const guildId of new Set(fresh.flatMap((p) => p.guildIds))) {
@@ -383,26 +345,31 @@ const makeMatchEngine = Effect.gen(function* () {
       const channelId = guild.channelId;
       const key = `${delivery.game}:${delivery.matchId}`;
       yield* Effect.gen(function* () {
-        const cached = reports.get(key);
-        const match =
-          cached?.match ??
-          (yield* adapter.getMatch(delivery.matchId, tracked[0]?.region));
-        if (!match) return; // Leave queued if the API cannot currently decode it.
-
-        // a retry refetches the match without its rank changes
-        if (!cached) reports.set(key, { ...emptyEnrichment(match), tracked });
+        // A retry has lost the discovering poll's rank changes, so it enriches
+        // the match again without the saved snapshots: names and current
+        // ranks come back, and only movement that needs no snapshot (exact
+        // per-match RR) is shown. Nothing it reads is saved.
+        const report =
+          reports.get(key) ??
+          (yield* Effect.gen(function* () {
+            const match = yield* adapter.getMatch(
+              delivery.matchId,
+              tracked[0]?.region,
+            );
+            if (!match) return undefined;
+            const enrichment = yield* enrichOrSkip(adapter, {
+              match,
+              trackedPlayers: tracked.map(({ puuid, region }) => ({
+                puuid,
+                region,
+                previousRankSnapshots: {},
+              })),
+            });
+            return { tracked, ...enrichment };
+          }));
+        if (!report) return; // Leave queued if the API cannot currently decode it.
         // only this server's players: the others' rank changes aren't its
         const trackedPuuids = new Set(tracked.map((p) => p.puuid));
-
-        const report = {
-          tracked,
-          match,
-          rankUpdates: new Map(
-            [...(cached?.rankUpdates ?? [])].filter(([puuid]) =>
-              trackedPuuids.has(puuid),
-            ),
-          ),
-        };
 
         deliveryAttempts += 1;
         // Discord and SQLite cannot commit atomically. Not letting a shutdown
@@ -411,7 +378,15 @@ const makeMatchEngine = Effect.gen(function* () {
           Effect.andThen(
             discord.notifyMatch(
               { guildId: delivery.guildId, channelId },
-              report,
+              {
+                tracked,
+                match: report.match,
+                rankUpdates: new Map(
+                  [...report.rankUpdates].filter(([puuid]) =>
+                    trackedPuuids.has(puuid),
+                  ),
+                ),
+              },
             ),
             database.finishDelivery(delivery),
           ),

@@ -274,7 +274,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
   }
 });
 
-test("catch-up posts a bounded backlog and pins live rank movement to the newest match", async () => {
+test("catch-up posts a bounded backlog after downtime", async () => {
   const dbPath = `${Bun.env.TMPDIR ?? "/tmp"}/catch-up-test-${crypto.randomUUID()}.sqlite`;
   const puuid = Puuid.make("player-one");
   // newest first, as the apis list them
@@ -299,8 +299,7 @@ test("catch-up posts a bounded backlog and pins live rank movement to the newest
         game: "tft",
         matchId: id,
         date: EpochMillis.make(Number(id.slice(1)) * 100),
-        // the newest is an unranked game, which moves no rank
-        mode: id === "m7" ? "normal" : "ranked",
+        mode: "test",
         durationSeconds: 60,
         players: [
           {
@@ -313,24 +312,7 @@ test("catch-up posts a bounded backlog and pins live rank movement to the newest
           },
         ],
       }),
-    // like lol and tft: the live rank diffed against the last saved one
-    enrichMatch: ({ match, trackedPlayers }) =>
-      Effect.succeed(
-        match.mode === "normal"
-          ? emptyEnrichment(match)
-          : {
-              match,
-              rankUpdates: new Map(
-                trackedPlayers.map((p) => [p.puuid, { delta: 40, unit: "LP" }]),
-              ),
-              updatedRankSnapshots: new Map(
-                trackedPlayers.map((p) => [
-                  p.puuid,
-                  { RANKED_TFT: { standing: "Gold I", points: 40 } },
-                ]),
-              ),
-            },
-      ),
+    enrichMatch: ({ match }) => Effect.succeed(emptyEnrichment(match)),
     getRank: () => Effect.succeed(undefined),
   };
   const live = MatchEngineLive.pipe(
@@ -342,10 +324,7 @@ test("catch-up posts a bounded backlog and pins live rank movement to the newest
           application: { name: "test", inviteUrl: "" },
           notifyMatch: (_target, report) =>
             Effect.sync(() => {
-              const update = report.rankUpdates.get(puuid);
-              posted.push(
-                `${report.match.matchId}${update ? `:${update.delta}:${update.sinceLastCheck}` : ""}`,
-              );
+              posted.push(report.match.matchId);
             }),
         }),
       ),
@@ -377,13 +356,9 @@ test("catch-up posts a bounded backlog and pins live rank movement to the newest
         yield* db.updateGuild("a", { channelId: "a" });
 
         // first poll after boot looks back further, posts the newest five
-        // missed matches oldest first, and skips m2. The rank movement goes on
-        // the newest ranked one, not the unranked m7 after it.
+        // missed matches oldest first, and skips m2
         yield* engine.pollOnce();
-        expect(posted).toEqual(["m3", "m4", "m5", "m6:40:true", "m7"]);
-        expect((yield* db.getAccount("one"))?.games.tft?.rankSnapshots).toEqual(
-          { RANKED_TFT: { standing: "Gold I", points: 40 } },
-        );
+        expect(posted).toEqual(["m3", "m4", "m5", "m6", "m7"]);
 
         // the next poll is a normal one, and m2 stays skipped
         yield* engine.pollOnce();

@@ -70,22 +70,18 @@ const rankEmoji = (
   );
 };
 
-export const SINCE_LAST_CHECK = "since last check";
-
 // "▲ 18 LP" on its own, and with the new standing appended for rows that have
 // no crest to name it: "▲ 18 LP · Challenger", or "▲ 18 LP · Gold I → Platinum
-// IV" across a tier. A movement covering several matches says so, instead of
-// passing for this match's alone.
+// IV" across a tier.
 const rankMovement = (update: RankUpdate | undefined) => {
   if (!update) return undefined;
-  const since = update.sinceLastCheck ? ` ${SINCE_LAST_CHECK}` : "";
   const delta =
     update.delta === undefined
       ? undefined
-      : `${update.delta > 0 ? "▲" : update.delta < 0 ? "▼" : "▬"} ${Math.abs(update.delta)} ${update.unit}${since}`;
+      : `${update.delta > 0 ? "▲" : update.delta < 0 ? "▼" : "▬"} ${Math.abs(update.delta)} ${update.unit}`;
   const change =
     update.tierChange &&
-    `${update.tierChange.from.tier} → ${update.tierChange.to.tier}${delta ? "" : since}`;
+    `${update.tierChange.from.tier} → ${update.tierChange.to.tier}`;
   return { delta, full: joinParts([delta, change ?? update.current]) };
 };
 
