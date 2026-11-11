@@ -15,66 +15,11 @@ permissions:
   contents: read
 
 jobs:
-  live-scope:
-    name: Live verification relevance (no credentials)
-    runs-on: ubuntu-latest
-    outputs:
-      game: ${{ steps.scope.outputs.game }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Flag runtime changes without running live tests
-        id: scope
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          base="$BASE_SHA"
-          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
-            base=$(git rev-parse "$HEAD_SHA^")
-          fi
-          git diff --name-only -z "$base...$HEAD_SHA" > "$RUNNER_TEMP/live-changes"
-          needed=false
-          game=""
-          shared=false
-          while IFS= read -r -d '' file; do
-            case "$file" in
-              *.test.ts|*.md) continue ;;
-              src/*|package.json|bun.lock|Dockerfile|patches/*|.github/workflows/live.yml|.github/workflows/live-gate.yml|.github/workflows/ci.yml) ;;
-              *) continue ;;
-            esac
-            needed=true
-            case "$file" in
-              src/services/game/game-adapters/lol.ts|src/services/game/game-api/lol/*) affected=lol ;;
-              src/services/game/game-adapters/tft.ts|src/services/game/game-api/tft/*) affected=tft ;;
-              src/services/game/game-adapters/valorant*.ts|src/services/game/game-api/val/*) affected=valorant ;;
-              *) affected=configured ;;
-            esac
-            if [[ "$affected" == configured || ( -n "$game" && "$game" != "$affected" ) ]]; then
-              shared=true
-            fi
-            game="$affected"
-          done < "$RUNNER_TEMP/live-changes"
-          if [[ "$shared" == true || -z "$game" ]]; then game=configured; fi
-          printf 'game=%s\n' "$game" >> "$GITHUB_OUTPUT"
-          if [[ "$needed" == true ]]; then
-            {
-              echo '### Live verification recommended — disabled by default'
-              echo 'Runtime/dependency changes were found. This job has no game API credentials and runs no live test.'
-              printf 'After reviewing the code, a maintainer can run **Live pipeline verification** from Actions with PR number **%s** and game **%s**.\n' "${PR_NUMBER:-not applicable}" "$game"
-              echo 'For shared changes, use the configured smoke-test game; run another game manually only when needed.'
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'No live verification needed: only documentation, tests or unrelated files changed.' >> "$GITHUB_STEP_SUMMARY"
-          fi
   live:
-    name: Live API verification
-    needs: [check, live-scope]
-    # Public PRs always show this job as skipped, even when relevant. Only a
-    # maintainer's explicit workflow dispatch can enable credentialed tests.
+    name: Manual live verification
+    needs: check
+    # Manual fallback only. Automatic contributor trust and one-use PR labels
+    # are handled by the default branch's live-gate.yml controller.
     if: github.repository == 'erik-bobinski/game-tracker-bot' && github.event_name == 'workflow_dispatch' && inputs.run_live
     permissions:
       contents: read
@@ -83,7 +28,7 @@ jobs:
       statuses: write
     uses: ./.github/workflows/live.yml
     with:
-      game: ${{ needs.live-scope.outputs.game }}
+      game: configured
   check:
     runs-on: ubuntu-latest
     steps:

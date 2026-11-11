@@ -84,78 +84,83 @@ them as public CI artifacts. Delete local PNG evidence after review. Raw provide
 responses, tokens and production databases are not saved. A failed run exits nonzero and
 does not silently count optional-enrichment authentication failures as success.
 
-## GitHub Actions setup
+## CI trust and manual opt-in
 
-Regular CI runs format, lint, typecheck, offline tests and audit on public PRs.
-The **Live verification relevance** job reads the diff without game API
-credentials. It recommends live verification for runtime `src/` changes,
-dependencies, dependency patches, Dockerfile or the CI/live workflows; docs,
-skills and test-only edits are skipped. Runtime formatting changes are treated
-conservatively as relevant. A single-game change recommends that game; shared or
-multi-game changes recommend the configured smoke-test game, without a matrix.
+This follows T3 Code's [PR Vouch](https://github.com/pingdotgg/t3code/blob/main/.github/workflows/pr-vouch.yml)
+and [one-use fork preview label](https://github.com/pingdotgg/t3code/blob/main/.github/workflows/mobile-eas-preview-fork.yml)
+patterns, adapted to real API tests:
 
-**Live API verification** appears as **Skipped** on every PR by default,
-including fork PRs. Relevance does not grant permission to call APIs. Maintainers
-can explicitly enable `run_live` when manually running the regular CI workflow
-on a trusted branch, after which the same bounded live workflow is called.
+- Normal CI runs format, lint, typecheck, offline tests and audit for public PRs.
+- The trusted `live-gate.yml` workflow reads GitHub metadata to determine whether
+  runtime `src/`, dependencies, dependency patches, Dockerfile, trust policy or
+  CI/live workflows changed. Docs and test-only changes need no API call.
+  Single-game changes select that game; shared changes use the configured game.
+- Write collaborators, including the repository owner, and contributors in the
+  default branch's `.github/VOUCHED.td` get relevant live tests automatically.
+  Vouch is checked with the same pinned `mitchellh/vouch` action T3 Code uses.
+  Arbitrary bot accounts are not automatically trusted for test credentials.
+- To give another contributor the bypass, add `github:username` to VOUCHED.td
+  and merge it after review. Do not copy another project's trusted usernames.
+  The action reads the default branch's list, so a PR cannot vouch for itself.
+  Trust grants use of dev test credentials for future code; it is not a cosmetic
+  label. No new identity or per-person workflow edits are needed.
+- For anyone else, a write maintainer reviews the code and applies **live:verify**
+  in the PR's **Labels** menu. The workflow checks the labeler's repository
+  permission, consumes the label, and pins the approved head SHA before running.
+  Removing the label first cancels that approval. A new push needs a new label;
+  an old label/event never approves new code. This is the direct PR-UI trigger.
 
-A separate required **Live verification gate** commit status enforces merging.
-For relevant changes it stays pending until the manual live run succeeds on the
-exact head SHA; unrelated changes pass without an API call. Failed/cancelled live
-runs cannot pass it. A new push needs new evidence. The metadata-only
-`live-gate.yml` uses `pull_request_target` to update this status for fork PRs:
-it must never check out contributor code or load game/Infisical credentials.
-Its status writes and the manual result publisher serialize per SHA so a late
-metadata update cannot overwrite a completed test. Keep this workflow trusted.
+The controller never checks out contributor code or reads game credentials.
+Only after trust or explicit one-commit approval does it call the shared live
+workflow. That workflow runs normal checks on the pinned code, then the bounded
+pipeline. No further environment approval is required: the trust/label decision
+is the approval. Do not run unreviewed foreign code with dev credentials.
 
-`master` requires `check` and `Live verification gate`, both from GitHub Actions,
-with branches up to date and admin enforcement enabled. A skipped live job does
-not satisfy the separate pending gate. Do not mark the gate successful based on
-a local run, an older commit, or the successful metadata-only job. Gate workflow
-changes take effect for public PRs once on the base branch; missing required
-status is blocking during initial setup too.
+For an explicit rerun, Actions → **Live pipeline verification** → **Run workflow**
+on the default branch also accepts a PR number and game. The regular CI workflow
+retains a manual `run_live` fallback for an allowed trusted branch. Its **Manual
+live verification** job is normally skipped; automatic selection happens in
+**Live verification gate**, not that manual job.
 
-To test a reviewed public/fork PR, open Actions → **Live pipeline verification**
-→ **Run workflow** from the trusted default branch, enter the PR number and
-choose the affected game (or `configured`). The metadata-only resolve job pins
-the PR's current head repository and full commit SHA and displays a review link.
-Review that exact commit before approving the `live-testing` environment. Later
-contributor pushes cannot change the code this run checks out. It runs offline
-checks again on that commit before fetching scoped dev credentials. This is an
-explicit decision to execute reviewed contributor code with those credentials;
-never approve unreviewed code, including install scripts and workflow changes.
+The separate required **Live verification gate** commit status remains pending
+when live testing is needed but not authorized. It passes only after the exact
+commit's test succeeds. Unrelated changes pass without an API call. Failed or
+cancelled runs cannot pass it. `master` requires this status and `check` from
+GitHub Actions, branches up to date, with admin enforcement. Never mark it passed
+based on local evidence or an older SHA. Gate updates and result publication
+serialize per SHA; all API runs share one concurrency group. No automatic reruns
+or game matrix. GitHub may coalesce queued runs to limit bursts.
 
-The actual live-test workflow accepts only maintainer dispatches from the upstream repo
-(also through the regular CI's explicit opt-in). It has no `pull_request_target`,
-comment, label or PR-update trigger. The separate PR-target gate only uses GitHub metadata.
-Copies in forks cannot use the upstream's
-Infisical identity: its OIDC subject is bound to the upstream repository and
-protected environment. Keep the default read-only token policy for fork PRs.
+The controller uses `pull_request_target` solely for metadata/trust selection;
+its definition and trust list must come from the protected default branch.
+Never add PR checkout or dependency scripts to the privileged selection job.
+The later live job deliberately executes the trusted/reviewed PR with read-only
+dev secrets, without a persisted GitHub token; status publication uses a separate
+runner. The controller activates after its workflow reaches the base branch.
+A missing required status is blocking during initial setup too.
 
-All live runs share one concurrency group. Do not add automatic reruns. GitHub
-may coalesce queued manual runs; this protects against a burst of API checks.
+The single `live-testing` environment has no extra required reviewer. Restrict
+its deployment policy to the trusted default branch. Store its non-secret test
+configuration plus `INFISICAL_PROJECT_ID` and `INFISICAL_IDENTITY_ID` as environment
+variables. The Infisical identity has no organization access and Viewer access
+only in **Game Tracker Live Testing**, not the regular app project. Its token
+lives for three minutes. It trusts issuer `https://token.actions.githubusercontent.com`,
+audience `infisical`, and the exact immutable environment subject. Obtain the
+repository prefix with:
 
-Create a protected GitHub environment `live-testing` with a required reviewer and
-trusted branch restrictions (manual PR runs use the default branch's trusted
-workflow, then check out the pinned PR commit). Set its variables to the names shown above, plus
-`INFISICAL_PROJECT_ID` and `INFISICAL_IDENTITY_ID`. Configure an Infisical machine
-identity with OIDC and Viewer access only to the dedicated live-testing project, issuer
-`https://token.actions.githubusercontent.com`, audience `infisical`, and subject
-`repo:erik-bobinski@123090127/game-tracker-bot@1274834145:environment:live-testing`.
-This repository uses GitHub's immutable subject format. When configuring or
-moving the workflow, read `gh api repos/<owner>/<repo>/actions/oidc/customization/sub`
-and use its exact `sub_claim_prefix` followed by `:environment:live-testing`.
-Do not replace it with the older name-only format or loosen it to a wildcard.
-Keep the exact repository, owner-ID and `event_name: workflow_dispatch` bound claims.
-Follow the
+```sh
+gh api repos/<owner>/<repo>/actions/oidc/customization/sub
+```
+
+Append `:environment:live-testing` to `sub_claim_prefix`; don't use the older
+name-only format or a wildcard subject. Bound claims restrict the exact upstream
+repository, repository/owner IDs, the `workflow_dispatch` and `pull_request_target`
+events, and only `ci.yml`, `live.yml`, `live-gate.yml` workflow refs on the default
+branch. Infisical accepts comma-separated allowed claim values. This trusts the
+upstream workflow definitions, not arbitrary fork workflow edits. Keep fork
+GITHUB_TOKEN permissions read-only. No persistent GitHub secret, Railway access,
+per-contributor identity or production bot token is needed. See the
 [Infisical GitHub OIDC guide](https://infisical.com/docs/documentation/platform/identities/oidc-auth/github).
-No persistent GitHub secret or production/Railway access is needed. Review the
-selected code before approving a run: it will receive dev credentials.
-
-The workflow is only usable after this one-time environment/identity setup and
-the workflow is available in GitHub. Committing YAML alone does not configure
-the external permissions. Keep regular CI mandatory; live checks are additional
-evidence and may fail due to provider outages or an expired development key.
 
 ## Desktop Discord checklist for agents
 

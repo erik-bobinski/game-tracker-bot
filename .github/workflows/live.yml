@@ -20,6 +20,9 @@ on:
       game:
         type: string
         default: configured
+      expected_sha:
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -32,7 +35,7 @@ concurrency:
 jobs:
   resolve:
     name: Pin the commit for maintainer review
-    if: github.repository == 'erik-bobinski/game-tracker-bot'
+    if: github.repository == 'erik-bobinski/game-tracker-bot' && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request_target')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -46,6 +49,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pull_request }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: |
           repository="$GITHUB_REPOSITORY"
           sha="$GITHUB_SHA"
@@ -58,16 +62,19 @@ jobs:
           fi
           [[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          if [[ -n "$EXPECTED_SHA" && "$sha" != "$EXPECTED_SHA" ]]; then
+            echo 'PR advanced after selection; the new commit needs a fresh trust/label decision.'
+            exit 1
+          fi
           printf 'repository=%s\nsha=%s\n' "$repository" "$sha" >> "$GITHUB_OUTPUT"
           {
-            echo '### Review this exact commit before approving live verification'
+            echo '### Pinned commit for bounded live verification'
             printf '[%s@%s](https://github.com/%s/commit/%s)\n' "$repository" "$sha" "$repository" "$sha"
             echo 'The live job executes this code with scoped dev credentials. Later PR pushes do not change this run.'
           } >> "$GITHUB_STEP_SUMMARY"
   live:
     name: Live verification at ${{ needs.resolve.outputs.sha }}
     needs: resolve
-    if: github.repository == 'erik-bobinski/game-tracker-bot' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: live-testing
     timeout-minutes: 6
@@ -123,7 +130,7 @@ jobs:
   report:
     name: Record the required gate for the tested commit
     needs: [resolve, live]
-    if: always() && github.repository == 'erik-bobinski/game-tracker-bot' && github.event_name == 'workflow_dispatch' && needs.resolve.result == 'success'
+    if: always() && github.repository == 'erik-bobinski/game-tracker-bot' && needs.resolve.result == 'success'
     runs-on: ubuntu-latest
     concurrency:
       group: live-status-${{ needs.resolve.outputs.sha }}
