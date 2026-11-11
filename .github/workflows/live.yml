@@ -1,0 +1,60 @@
+name: Live pipeline verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+# One shared group, regardless of branch. Never interrupt an in-flight post.
+concurrency:
+  group: game-tracker-live-apis
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    environment: live-testing
+    timeout-minutes: 6
+    env:
+      INFISICAL_PROJECT_ID: ${{ vars.INFISICAL_PROJECT_ID }}
+      INFISICAL_IDENTITY_ID: ${{ vars.INFISICAL_IDENTITY_ID }}
+      LIVE_RIOT_ID: ${{ vars.LIVE_RIOT_ID }}
+      LIVE_GAME: ${{ vars.LIVE_GAME }}
+      LIVE_DISCORD_APPLICATION_ID: ${{ vars.LIVE_DISCORD_APPLICATION_ID }}
+      DEV_GUILD_ID: ${{ vars.DEV_GUILD_ID }}
+      NOTIFICATION_CHANNEL_ID: ${{ vars.NOTIFICATION_CHANNEL_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Install pinned Infisical CLI
+        run: |
+          curl -fsSLO https://github.com/Infisical/cli/releases/download/v0.44.9/cli_0.44.9_linux_amd64.tar.gz
+          echo '4005a430258df60401ae5288ab0412371f2e56f224ed461758dd2ec83887d556  cli_0.44.9_linux_amd64.tar.gz' | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/infisical"
+          tar -xzf cli_0.44.9_linux_amd64.tar.gz -C "$RUNNER_TEMP/infisical" infisical
+          echo "$RUNNER_TEMP/infisical" >> "$GITHUB_PATH"
+      - name: Run the same bounded command used locally
+        run: |
+          test -n "$INFISICAL_IDENTITY_ID"
+          test -n "$INFISICAL_PROJECT_ID"
+          oidc=$(curl -fsS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=infisical" | jq -er '.value')
+          echo "::add-mask::$oidc"
+          INFISICAL_TOKEN=$(infisical login --method=oidc-auth --machine-identity-id="$INFISICAL_IDENTITY_ID" --jwt="$oidc" --plain --silent)
+          echo "::add-mask::$INFISICAL_TOKEN"
+          export INFISICAL_TOKEN
+          infisical run --silent --projectId "$INFISICAL_PROJECT_ID" --env dev --path /live-testing -- \
+            env DEV_MODE=true DEV_GUILD_ID="$DEV_GUILD_ID" NOTIFICATION_CHANNEL_ID="$NOTIFICATION_CHANNEL_ID" \
+            LIVE_RIOT_ID="$LIVE_RIOT_ID" LIVE_GAME="$LIVE_GAME" LIVE_DISCORD_APPLICATION_ID="$LIVE_DISCORD_APPLICATION_ID" \
+            bun run test:live
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: live-verification
+          # This repository is public; do not publish real-player PNGs.
+          path: artifacts/live/results.json
+          retention-days: 7

@@ -1,116 +1,24 @@
 ---
 name: verify-game-tracker-bot
-description: Headless end-to-end verification for the riot-tracker Discord bot. Use when cloud agents need to prove bot changes work without Discord or Gmail login.
+description: Bounded live reporting-pipeline verification with real account data, APIs, SQLite and dev Discord, plus desktop slash-command checks.
 ---
 
 # Verify game-tracker-bot
 
-Cloud agents prove bot behavior by running the live app plus the admin CLI against an isolated sqlite file. No Discord web login is required.
+Read [the canonical live testing guide](../../../docs/live-testing.md) before
+running any live verification. It documents `bun run test:live` (also `verify`),
+Infisical configuration, budgets, CI setup, desktop checks and cleanup.
 
-## Launch
+Use one approved real account, one game, one match and only the dedicated test
+Discord server. No production DB copy or account enumeration. Game APIs,
+enrichment, SQLite, card rendering and Discord REST remain real. The command
+does not start or leave a bot gateway running, and stops on throttling.
 
-```bash
-bun run verify
-```
+For changes visible to a user, also exercise slash commands in the desktop
+Discord app as the dedicated `agent` account, only in `riot-tracker-testing`.
+Record permissions/configuration which prevented any requested checks.
 
-`bun run verify` typechecks, starts the bot (`bun start`, not `bun dev`), waits until the process is up, drives admin commands, writes JSON evidence to `/opt/cursor/artifacts/verify-<run-id>/`, and leaves the bot running.
-
-Isolation uses `DB_PATH=/tmp/riot-verify-<run-id>.sqlite` so production data is never touched.
-
-Do not set `VERIFY_RIOT_ID` when a Railway token is available. The harness resolves a production Riot ID itself.
-
-Cloud-agent traps (Railway project tokens, ssh keys, READY race, Henrik 404) are in [references/cloud-agent-lessons.md](references/cloud-agent-lessons.md).
-
-## Doctor
-
-Before driving features manually:
-
-```bash
-bun run typecheck
-bun run admin status --json
-```
-
-For the live bot, confirm the process log contains `slash commands registered` and either `discord gateway ready` or `application started`. dfx can emit READY before `makeDiscord` subscribes; slash-command registration plus application start still means the bot is up. The Discord service now subscribes to READY before rank-emoji REST so the first READY is less often missed.
-
-## Riot ID resolution
-
-Verification needs a real Riot account. Resolution order:
-
-1. `VERIFY_RIOT_ID=name#tag` — explicit override. Skip this when proving Railway lookup.
-2. `PRODUCTION_DB_PATH=/path/to/game-tracker.sqlite` — read accounts via `bun run admin status --json`
-3. Railway token (`RAILWAY_API_TOKEN`, `RAILWAY_API_KEY`, or `RAILWAY_TOKEN`) — `railway ssh --service game-tracker-bot -- bun run admin status --json`
-
-Pick the first account with tracked games when reading production status.
-
-### Railway tokens and ssh
-
-Cursor Cloud often injects a **project/workspace** token as `RAILWAY_API_TOKEN` (a UUID). That token:
-
-- Fails `railway whoami`, `railway list`, and `railway link` with `Unauthorized` (`me` is not allowed).
-- Still answers GraphQL `projects` and can `railway ssh` once a project/service/environment are named.
-
-Do not treat a whoami failure as "Railway is unusable." Discover IDs, then ssh:
-
-```bash
-railway api 'query { projects { edges { node { id name } } } }'
-railway api 'query { project(id: "<project-id>") { name services { edges { node { id name } } } environments { edges { node { id name } } } } }'
-```
-
-Export what ssh needs (names or ids work for `--service` / `--environment`):
-
-```bash
-export RAILWAY_PROJECT_ID=<project-id>
-export RAILWAY_SERVICE=game-tracker-bot
-export RAILWAY_ENVIRONMENT=production   # or the environment id
-```
-
-`bun run verify` already forwards those into `railway ssh --project --service --environment`.
-
-SSH also needs a key registered with Railway and `ssh.railway.com` in `known_hosts`:
-
-```bash
-ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
-railway ssh keys add -k ~/.ssh/id_ed25519.pub -n cursor-cloud-verify
-ssh-keyscan -t ed25519 ssh.railway.com >> ~/.ssh/known_hosts
-railway ssh --service game-tracker-bot -- bun run admin status --json
-```
-
-Banners from ssh go to stderr. JSON for `admin status` is on stdout; the harness slices from the first `{`.
-
-## Drive
-
-Read `.cursor/skills/verify-game-tracker-bot/features/README.md` before running individual recipes.
-
-The bundled verifier exercises: typecheck → bot boot → signup → track lol (twice, idempotent) → untrack lol → status → report-mock → signout.
-
-Manual equivalents:
-
-```bash
-export DB_PATH=/tmp/riot-verify-manual.sqlite
-bun start   # separate terminal
-bun run admin signup <riot-id> --discord-id verify-agent-user --json
-bun run admin track verify-agent-user --game lol --json
-bun run admin report-mock --game lol --json
-bun run admin status --json
-```
-
-To check a change against live data, report a real match through the polling path with `bun run admin report-match 'name#tag' --game <game>`. See [features/report-match.md](features/report-match.md).
-
-## Evidence
-
-Capture under `/opt/cursor/artifacts/verify-<run-id>/`:
-
-- `results.json` — every step with stdout/stderr
-- `bot.log` — boot excerpt showing the process is up
-
-Proof standards: exercise real Riot/Henrik APIs, real sqlite writes, real Discord REST for `report-mock`. Do not log into Discord web.
-
-A Henrik 404 on Valorant during track is not a harness failure. That game lands in `notFound`; League can still track. A second track of the same game must have `added: []`.
-
-## Cleanup
-
-`bun run verify` deletes only its isolated sqlite file. It does not kill the bot process.
-
-## Helpers
-
-`bun run verify` runs `bun src/verify/index.ts`. Riot ID resolution lives in `src/verify/production-riot-id.ts`.
+The old tmux harness and automatic Railway production-account discovery were
+removed. Historical cloud-agent notes are troubleshooting background, not the
+current verification procedure. Individual recipes under `features/` are manual
+tools; do not loop them over production accounts or start a second dev bot.
