@@ -95,8 +95,14 @@ patterns, adapted to real API tests:
   runtime `src/`, dependencies, dependency patches, Dockerfile, trust policy or
   CI/live workflows changed. Docs and test-only changes need no API call.
   Single-game changes select that game; shared changes use the configured game.
+- The gate covers only open PRs into the default branch. The status is one per
+  commit, so a PR into any other branch never sets it, spends a label or runs
+  live tests, even at the same SHA. PR-number dispatch has the same restriction.
 - Write collaborators, including the repository owner, and contributors in the
-  default branch's `.github/VOUCHED.td` get relevant live tests automatically.
+  default branch's `.github/VOUCHED.td` get relevant live tests automatically,
+  but only when the PR's head is an upstream branch or a fork owned by the PR
+  author. A trusted author's PR from anyone else's fork, including an
+  organization's, needs **live:verify**. A deleted head repository never runs.
   Vouch is checked with the same pinned `mitchellh/vouch` action T3 Code uses.
   Arbitrary bot accounts are not automatically trusted for test credentials.
 - To give another contributor the bypass, add `github:username` to VOUCHED.td

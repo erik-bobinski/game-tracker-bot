@@ -56,7 +56,9 @@ jobs:
           if [[ -n "$PR_NUMBER" ]]; then
             [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo 'PR number must be a positive integer'; exit 1; }
             gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/live-pr.json"
-            jq -e --arg repo "$GITHUB_REPOSITORY" '.state == "open" and .base.repo.full_name == $repo' "$RUNNER_TEMP/live-pr.json" > /dev/null
+            # The gate status is per commit, so only PRs into the default branch may set it.
+            jq -e --arg repo "$GITHUB_REPOSITORY" '.state == "open" and .base.repo.full_name == $repo and .base.ref == .base.repo.default_branch and .head.repo != null' "$RUNNER_TEMP/live-pr.json" > /dev/null ||
+              { echo 'PR must be open, target the default branch and still have its head repository'; exit 1; }
             repository=$(jq -er '.head.repo.full_name' "$RUNNER_TEMP/live-pr.json")
             sha=$(jq -er '.head.sha' "$RUNNER_TEMP/live-pr.json")
           fi

@@ -35,9 +35,17 @@ jobs:
           script: |
             const repo = context.repo;
             const pull_number = context.issue.number;
-            const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number });
+            // The gate is one status per commit, so only an open PR into the
+            // default branch may select it; another base diffs the same SHA
+            // differently. Read fresh: the event payload may be stale.
+            const selectable = async () => {
+              const { data } = await github.rest.pulls.get({ ...repo, pull_number });
+              return data.state === 'open' && data.head.sha === context.payload.pull_request.head.sha &&
+                data.base.ref === data.base.repo.default_branch ? data : undefined;
+            };
+            const pr = await selectable();
+            if (!pr) return;
             const sha = pr.head.sha;
-            if (pr.state !== 'open' || sha !== context.payload.pull_request.head.sha) return;
             const manual = context.payload.action === 'labeled' && context.payload.label.name === 'live:verify';
             if (manual) {
               const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ ...repo, username: context.actor });
@@ -67,8 +75,7 @@ jobs:
               }));
               if (games.size === 1) game = [...games][0];
             }
-            const { data: current } = await github.rest.pulls.get({ ...repo, pull_number });
-            if (current.head.sha !== sha) return;
+            if (!await selectable()) return;
             if (!manual) await github.rest.repos.createCommitStatus({
               ...repo, sha, context: name,
               state: required || manual ? 'pending' : 'success',
@@ -99,6 +106,11 @@ jobs:
           TESTED_SHA: ${{ steps.scope.outputs.sha }}
         with:
           script: |
+            // Re-read before spending the label or selecting a run: a close,
+            // push, retarget or deleted fork since selection voids it.
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: context.issue.number });
+            if (pr.state !== 'open' || pr.head.sha !== process.env.TESTED_SHA ||
+                pr.base.ref !== pr.base.repo.default_branch || !pr.head.repo) return;
             let approved = false;
             if (process.env.MANUAL_REQUEST === 'true') {
               try {
@@ -114,8 +126,13 @@ jobs:
                 target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/pull/${context.issue.number}`,
               });
             }
+            // An author's trust covers only code they control: an upstream
+            // branch or their own fork, matched by numeric id. Anyone can open
+            // a PR from someone else's fork, so that still needs the label.
+            const owned = pr.head.repo.id === pr.base.repo.id ||
+              (Number.isInteger(pr.user.id) && pr.head.repo.owner.id === pr.user.id);
             // Do not automatically trust arbitrary bot accounts.
-            const trusted = ['collaborator', 'vouched'].includes(process.env.TRUST_STATUS);
+            const trusted = owned && ['collaborator', 'vouched'].includes(process.env.TRUST_STATUS);
             core.setOutput('run', approved || trusted ? 'true' : 'false');
             await core.summary.addRaw(approved || trusted
               ? 'Bounded live verification selected for this pinned commit.'
