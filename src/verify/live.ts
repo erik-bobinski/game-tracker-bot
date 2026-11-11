@@ -38,7 +38,7 @@ import {
 } from "../services/match-engine/index.ts";
 
 // This is deliberately finite: no gateway, command sync, production database,
-// automatic account discovery, or polling daemon. See docs/live-testing.md.
+// automatic account discovery, or polling daemon. See .agents/skills/verify-game-tracker-bot/SKILL.md.
 const main = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const artifactDir = yield* Config.String("LIVE_ARTIFACT_DIR").pipe(

@@ -1,4 +1,9 @@
-# Live verification
+---
+name: verify-game-tracker-bot
+description: Verify account, adapter, enrichment, card, delivery and polling changes with bounded real-data API tests and dev Discord UI checks.
+---
+
+# Verify game-tracker-bot
 
 Use a small, approved sample of real production account identities in an isolated
 dev environment, and call the real game APIs. Mock-only tests do not establish
