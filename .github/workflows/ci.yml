@@ -5,11 +5,30 @@ on:
     branches: [master, dev]
   pull_request:
   workflow_dispatch:
+    inputs:
+      run_live:
+        description: Opt in to bounded live API verification for this branch
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  live:
+    name: Manual live verification
+    needs: check
+    # Manual fallback only. Automatic contributor trust and one-use PR labels
+    # are handled by the default branch's live-gate.yml controller.
+    if: github.repository == 'erik-bobinski/game-tracker-bot' && github.event_name == 'workflow_dispatch' && inputs.run_live
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+      statuses: write
+    uses: ./.github/workflows/live.yml
+    with:
+      game: configured
   check:
     runs-on: ubuntu-latest
     steps:

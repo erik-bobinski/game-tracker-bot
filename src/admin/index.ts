@@ -24,7 +24,7 @@ import {
   registerAccount,
   trackGames,
   untrackGames,
-} from "../services/discord/commands.ts";
+} from "../services/account/index.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
 import type { MatchReport } from "../services/discord/embed.ts";
 import {
@@ -39,6 +39,7 @@ import {
   type Account,
 } from "../services/database/index.ts";
 import {
+  CATCH_UP_MATCH_COUNT,
   enrichOrSkip,
   GameAdapters,
   GameAdaptersLive,
@@ -955,7 +956,7 @@ const reportMatch = Command.make(
           .resolveAccount(riotName, riotTag)
           .pipe(orFail(`Could not find ${riotName}#${riotTag}`));
         const matchIds = yield* adapter
-          .getRecentMatchIds(puuid, region)
+          .getRecentMatchIds(puuid, region, CATCH_UP_MATCH_COUNT)
           .pipe(orFail("Could not read recent matches"));
         const matchId = matchIds[index];
         if (!matchId) {

@@ -4,6 +4,7 @@ import {
   Context,
   Effect,
   Layer,
+  Redacted,
   Ref,
   Schema,
   Stream,
@@ -21,6 +22,8 @@ import {
   InteractionsRegistry,
   SendEvent,
 } from "dfx/gateway";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { Database } from "../database/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import { PollingState } from "../polling/state.ts";
@@ -68,7 +71,44 @@ const reportPermissions =
 // shut out of it or its server, and no retry will reach it
 const unreachableChannelCodes = new Set([10003, 50001]);
 
+// Command sync, presence and rank emojis act on the whole Discord application,
+// so a DEV_MODE bot must be in DEV_GUILD_ID alone. A production token, or a dev
+// bot added to another server, stops here before the gateway connects.
+const DevGuildGuard = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const devMode = yield* Config.Boolean("DEV_MODE").pipe(
+      Config.withDefault(false),
+    );
+
+    if (!devMode) return;
+    const devGuildId = yield* Config.String("DEV_GUILD_ID");
+    const token = yield* Config.Redacted("DISCORD_BOT_TOKEN");
+    const client = (yield* HttpClient.HttpClient).pipe(
+      HttpClient.filterStatusOk,
+    );
+
+    const guilds = yield* client
+      .get("https://discord.com/api/v10/users/@me/guilds", {
+        headers: { authorization: `Bot ${Redacted.value(token)}` },
+      })
+      .pipe(
+        Effect.flatMap(
+          HttpClientResponse.schemaBodyJson(
+            Schema.Array(Schema.Struct({ id: Schema.String })),
+          ),
+        ),
+      );
+
+    if (guilds.length !== 1 || guilds[0]?.id !== devGuildId) {
+      return yield* Effect.die(
+        `DEV_MODE needs a bot that is only in DEV_GUILD_ID; this one is in: ${guilds.map((g) => g.id).join(", ") || "no servers"}`,
+      );
+    }
+  }),
+).pipe(Layer.provide(BunHttpClient.layer));
+
 const DiscordApiLive = DiscordIxLive.pipe(
+  Layer.provide(DevGuildGuard),
   Layer.provide(BunHttpClient.layer),
   Layer.provide(BunSocket.layerWebSocketConstructor),
   Layer.provide(
@@ -149,6 +189,20 @@ const makeDiscord = Effect.gen(function* () {
                   ...player,
                   discordName: member.nick ?? member.user.username,
                 })),
+                // Discord's answer (usually 10007 Unknown Member, someone who
+                // left) says enough; the whole response is noise
+                Effect.catchTag("ErrorResponse", (error) =>
+                  Effect.logWarning(
+                    "server member unavailable; reporting the signup name",
+                  ).pipe(
+                    Effect.annotateLogs({
+                      discordUserId: player.discordUserId,
+                      code: error.data.code,
+                      reason: error.data.message,
+                    }),
+                    Effect.as(player),
+                  ),
+                ),
                 Effect.catch((error) =>
                   Effect.logWarning(
                     "server member unavailable; reporting the signup name",

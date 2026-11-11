@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Cache, Context, Effect, Exit, Layer } from "effect";
 import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
 import {
   riotRankDisplay,
@@ -7,7 +7,6 @@ import {
 } from "../game-api/riot/ranks.ts";
 import {
   GameApiError,
-  RECENT_MATCH_COUNT,
   emptyEnrichment,
   logApiWarning,
   type GameAdapter,
@@ -116,6 +115,25 @@ export const LolAdapterLive = Layer.effect(
   Effect.gen(function* () {
     const riotClient = yield* RiotApiClient;
 
+    // League entries for the players a board only draws a crest for. A few
+    // minutes stale is fine for that, and someone in several of a poll's
+    // matches is looked up once. Tracked players never come from here: their
+    // LP change is read off the entry as it stands now.
+    const crestEntries = yield* Cache.makeWith(
+      ({
+        puuid,
+        platformId,
+      }: {
+        readonly puuid: Puuid;
+        readonly platformId: string;
+      }) => riotClient.getLeagueEntries(puuid, platformId),
+      {
+        capacity: 512,
+        // a failed lookup is retried next time rather than held
+        timeToLive: (exit) => (Exit.isSuccess(exit) ? "5 minutes" : 0),
+      },
+    );
+
     const adapter: GameAdapter = {
       game: "lol",
       requiresOptIn: false,
@@ -139,13 +157,8 @@ export const LolAdapterLive = Layer.effect(
         return { puuid, region };
       }),
       getRecentMatchIds: Effect.fn("GameAdapter.lol.getRecentMatchIds")(
-        function* (puuid: Puuid, region: Region | undefined) {
-          return yield* riotClient.getMatchIds(
-            "lol",
-            puuid,
-            region,
-            RECENT_MATCH_COUNT,
-          );
+        function* (puuid: Puuid, region: Region | undefined, count: number) {
+          return yield* riotClient.getMatchIds("lol", puuid, region, count);
         },
         Effect.mapError(
           (cause) =>
@@ -180,11 +193,23 @@ export const LolAdapterLive = Layer.effect(
         const platformId = match.routingRegion;
         if (!queueType || !platformId) return emptyEnrichment(match);
 
+        // tracked players lead the queue: their entries feed the LP change
+        // and the stored snapshot, the rest only decorate the board. The riot
+        // client paces every request, so the concurrency just overlaps the
+        // waiting.
+        const trackedPuuids = new Set(trackedPlayers.map(({ puuid }) => puuid));
         const ranks = new Map<Puuid, LolLeagueEntry>();
         yield* Effect.forEach(
-          match.players,
+          [...match.players].sort(
+            (a, b) =>
+              Number(trackedPuuids.has(b.puuid)) -
+              Number(trackedPuuids.has(a.puuid)),
+          ),
           (player) =>
-            riotClient.getLeagueEntries(player.puuid, platformId).pipe(
+            (trackedPuuids.has(player.puuid)
+              ? riotClient.getLeagueEntries(player.puuid, platformId)
+              : Cache.get(crestEntries, { puuid: player.puuid, platformId })
+            ).pipe(
               Effect.map((entries) => {
                 const entry = entries.find(
                   (candidate) => candidate.queueType === queueType,
@@ -197,7 +222,7 @@ export const LolAdapterLive = Layer.effect(
                 ),
               ),
             ),
-          { concurrency: 1 },
+          { concurrency: 3, discard: true },
         );
 
         const rankUpdates = new Map<Puuid, RankUpdate>();

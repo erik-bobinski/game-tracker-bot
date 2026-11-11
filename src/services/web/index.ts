@@ -2,7 +2,7 @@ import { BunHttpServer } from "@effect/platform-bun";
 import { Array as Arr, Config, Effect, Layer, Option, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { Database } from "../database/index.ts";
-import { linkAccount } from "../discord/commands.ts";
+import { linkAccount } from "../account/index.ts";
 import { buildMockMatchReport } from "../discord/dev-commands.ts";
 import { matchSummary } from "../discord/embed.ts";
 import { Discord } from "../discord/index.ts";

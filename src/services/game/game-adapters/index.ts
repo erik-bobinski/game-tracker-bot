@@ -2,7 +2,12 @@ import { Config, Context, Effect, Layer } from "effect";
 import { HenrikApiClientLive } from "../game-api/val/henrik-api-client.ts";
 import { RiotValApiLive } from "../game-api/val/riot-val-client.ts";
 import { EpochMillis } from "../index.ts";
-import { type GameAdapter, logApiWarning, emptyEnrichment } from "./adapter.ts";
+import {
+  type GameAdapter,
+  logApiWarning,
+  emptyEnrichment,
+  RECENT_MATCH_COUNT,
+} from "./adapter.ts";
 import { LolAdapter, LolAdapterLive } from "./lol.ts";
 import { TftAdapter, TftAdapterLive } from "./tft.ts";
 import { RiotValorantAdapterLive, ValorantAdapter } from "./valorant.ts";
@@ -38,7 +43,11 @@ export const resolveGameState = (
       Effect.gen(function* () {
         // an empty baseline would report every recent match as new, so a
         // failed fetch fails the lookup
-        const matchIds = yield* adapter.getRecentMatchIds(puuid, region);
+        const matchIds = yield* adapter.getRecentMatchIds(
+          puuid,
+          region,
+          RECENT_MATCH_COUNT,
+        );
 
         // only the newest match is fetched: its date is when they last
         // played, so an older match that shows up later isn't reported

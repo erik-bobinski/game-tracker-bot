@@ -35,5 +35,5 @@ Observable: `matchesReported` above 0, the cards in the dev channel, a
   `/riot/account/v1/accounts/by-puuid/{puuid}`.
 - Fake discord ids aren't server members, so the nickname lookup warns and the
   report uses the signup name. That's expected.
-- An account with `reported_matches='[]'` reports up to three matches at once,
-  oldest first.
+- An account with `reported_matches='[]'` reports up to five matches on the
+  first poll after boot (catch-up) and three after that, oldest first.

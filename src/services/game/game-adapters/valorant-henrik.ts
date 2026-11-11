@@ -2,7 +2,6 @@ import { Effect, Layer } from "effect";
 import { HenrikApiClient } from "../game-api/val/henrik-api-client.ts";
 import {
   GameApiError,
-  RECENT_MATCH_COUNT,
   emptyEnrichment,
   logApiWarning,
   type GameAdapter,
@@ -168,11 +167,11 @@ export const HenrikValorantAdapterLive = Layer.effect(
       // henrik's history sends whole matches, so ids cost the same one request
       // and getMatch reads the match back from it
       getRecentMatchIds: Effect.fn("GameAdapter.valorant.getRecentMatchIds")(
-        function* (puuid: Puuid, region: Region | undefined) {
+        function* (puuid: Puuid, region: Region | undefined, count: number) {
           const matches = yield* henrikClient.getRecentMatches(
             puuid,
             region,
-            RECENT_MATCH_COUNT,
+            count,
           );
           polledHistories.set(puuid, matches);
           return matches
