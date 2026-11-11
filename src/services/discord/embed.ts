@@ -71,18 +71,14 @@ const rankEmoji = (
 };
 
 // "▲ 18 LP" on its own, and with the new standing appended for rows that have
-// no crest to name it: "▲ 18 LP · Challenger", or "▲ 18 LP · Gold I → Platinum
-// IV" across a tier.
+// no crest to name it: "▲ 18 LP · Challenger"
 const rankMovement = (update: RankUpdate | undefined) => {
   if (!update) return undefined;
   const delta =
     update.delta === undefined
       ? undefined
       : `${update.delta > 0 ? "▲" : update.delta < 0 ? "▼" : "▬"} ${Math.abs(update.delta)} ${update.unit}`;
-  const change =
-    update.tierChange &&
-    `${update.tierChange.from.tier} → ${update.tierChange.to.tier}`;
-  return { delta, full: joinParts([delta, change ?? update.current]) };
+  return { delta, full: joinParts([delta, update.current]) };
 };
 
 interface RowContext {
@@ -134,7 +130,7 @@ const teamField = (
   value: players.map((player) => playerRows(player, context)).join("\n"),
 });
 
-export const ordinal = (n: number) => {
+const ordinal = (n: number) => {
   const mod100 = n % 100;
   const suffix =
     mod100 >= 11 && mod100 <= 13
@@ -285,15 +281,17 @@ const placementBoard = (
         : playerName(player);
       const name = trackedPuuids.has(player.puuid) ? `**${rawName}**` : rawName;
       const icon = rankEmoji(player, game, emojis);
-      const movement = rankMovement(rankUpdates.get(player.puuid));
+      const update = rankUpdates.get(player.puuid);
       const prefix = icon
         ? `${icon}${player.rankDivision ? ` \`${player.rankDivision}\`` : ""} `
         : "";
       return joinParts([
         `${prefix}${name} — ${ordinal(player.placement)} Place`,
         player.stat,
-        movement?.full,
-        icon || movement?.full ? undefined : player.rank,
+        update?.delta !== undefined
+          ? `${update.delta >= 0 ? "+" : ""}${update.delta} ${update.unit}${update.current ? ` (${update.current})` : ""}`
+          : update?.current,
+        icon || update?.current ? undefined : player.rank,
         ...(player.flairs ?? []),
       ]);
     })
@@ -330,50 +328,6 @@ export const matchSummary = (report: MatchReport) => {
   return match.kind === "versus"
     ? versusSummary({ ...report, match })
     : placementSummary({ ...report, match });
-};
-
-// One line per tracked player under the summary, so a report reads without
-// opening the card: "**Alex** · Victory · 24/12/4 · ▲ 18 RR · Ascendant 1", or
-// "**Alex** · 2nd Place · ▼ 21 LP · Grandmaster"
-export const matchHighlights = ({
-  tracked,
-  match,
-  rankUpdates,
-}: MatchReport) => {
-  const results = new Map(
-    match.kind === "versus"
-      ? match.players.map(
-          (player) =>
-            [
-              player.puuid,
-              joinParts([
-                verdicts[
-                  teamOutcome(
-                    match.teams.find((team) => team.id === player.team),
-                  )
-                ].label,
-                `${player.kills}/${player.deaths}/${player.assists}`,
-              ]),
-            ] as const,
-        )
-      : match.players.map(
-          (player) =>
-            [player.puuid, `${ordinal(player.placement)} Place`] as const,
-        ),
-  );
-  return tracked.flatMap(({ discordName, puuid }) => {
-    const result = results.get(puuid);
-    return result === undefined
-      ? []
-      : [
-          joinParts([
-            boldName(discordName),
-            result,
-            rankMovement(rankUpdates.get(puuid))?.full ||
-              match.players.find((player) => player.puuid === puuid)?.rank,
-          ]),
-        ];
-  });
 };
 
 const placementEmbed = (
