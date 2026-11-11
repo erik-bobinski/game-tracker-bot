@@ -141,7 +141,13 @@ workflow, then check out the pinned PR commit). Set its variables to the names s
 `INFISICAL_PROJECT_ID` and `INFISICAL_IDENTITY_ID`. Configure an Infisical machine
 identity with OIDC and Viewer access only to the dedicated live-testing project, issuer
 `https://token.actions.githubusercontent.com`, audience `infisical`, and subject
-`repo:erik-bobinski/game-tracker-bot:environment:live-testing`. Follow the
+`repo:erik-bobinski@123090127/game-tracker-bot@1274834145:environment:live-testing`.
+This repository uses GitHub's immutable subject format. When configuring or
+moving the workflow, read `gh api repos/<owner>/<repo>/actions/oidc/customization/sub`
+and use its exact `sub_claim_prefix` followed by `:environment:live-testing`.
+Do not replace it with the older name-only format or loosen it to a wildcard.
+Keep the exact repository, owner-ID and `event_name: workflow_dispatch` bound claims.
+Follow the
 [Infisical GitHub OIDC guide](https://infisical.com/docs/documentation/platform/identities/oidc-auth/github).
 No persistent GitHub secret or production/Railway access is needed. Review the
 selected code before approving a run: it will receive dev credentials.
