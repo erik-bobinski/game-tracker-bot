@@ -1,5 +1,5 @@
 import { BunHttpClient, BunRuntime } from "@effect/platform-bun";
-import { Config, Effect, Layer, Logger, References } from "effect";
+import { Cause, Config, Effect, Exit, Layer, Logger, References } from "effect";
 import { Polling, PollingLive } from "./services/polling/index.ts";
 import { PollingStateLive } from "./services/polling/state.ts";
 import { DatabaseLive } from "./services/database/index.ts";
@@ -65,4 +65,10 @@ const runner = main.pipe(
   Effect.scoped,
 );
 
-BunRuntime.runMain(runner);
+// A redeploy's SIGTERM interrupts the app; exit 0 so Railway doesn't report a crash.
+BunRuntime.runMain(runner, {
+  teardown: (exit, onExit) =>
+    onExit(
+      Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause) ? 1 : 0,
+    ),
+});
