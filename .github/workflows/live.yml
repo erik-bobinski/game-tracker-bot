@@ -83,14 +83,15 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    # The repository is public: identifiers are secrets so GitHub masks them in logs.
     env:
-      INFISICAL_PROJECT_ID: ${{ vars.INFISICAL_PROJECT_ID }}
-      INFISICAL_IDENTITY_ID: ${{ vars.INFISICAL_IDENTITY_ID }}
-      LIVE_RIOT_ID: ${{ vars.LIVE_RIOT_ID }}
+      INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
+      INFISICAL_IDENTITY_ID: ${{ secrets.INFISICAL_IDENTITY_ID }}
+      LIVE_RIOT_ID: ${{ secrets.LIVE_RIOT_ID }}
       LIVE_GAME: ${{ inputs.game == 'configured' && vars.LIVE_GAME || inputs.game }}
-      LIVE_DISCORD_APPLICATION_ID: ${{ vars.LIVE_DISCORD_APPLICATION_ID }}
-      DEV_GUILD_ID: ${{ vars.DEV_GUILD_ID }}
-      NOTIFICATION_CHANNEL_ID: ${{ vars.NOTIFICATION_CHANNEL_ID }}
+      LIVE_DISCORD_APPLICATION_ID: ${{ secrets.LIVE_DISCORD_APPLICATION_ID }}
+      DEV_GUILD_ID: ${{ secrets.DEV_GUILD_ID }}
+      NOTIFICATION_CHANNEL_ID: ${{ secrets.NOTIFICATION_CHANNEL_ID }}
     steps:
       - uses: actions/checkout@v7
         with:
