@@ -20,7 +20,6 @@ import {
 import type { Rso, RsoLink } from "../rso/index.ts";
 import type { DiscordError, ReportTarget } from "./index.ts";
 import { rankEmbed, type MatchReport } from "./embed.ts";
-import { devCommands } from "./dev-commands.ts";
 
 export interface CommandDeps {
   readonly database: Database["Service"];
@@ -723,6 +722,15 @@ const rankCheck = (deps: CommandDeps) =>
             { payload },
           );
 
+        const reportFailure = followUp({
+          content: "Rank lookup failed, try again :(",
+        }).pipe(
+          Effect.ignore({
+            log: "Error",
+            message: "rank_check follow-up failed",
+          }),
+        );
+
         const lookUp = adapter.getRank(gameState.puuid, gameState.region).pipe(
           Effect.flatMap((rank) => {
             const icon = adapter.rankIcons.find(
@@ -743,18 +751,14 @@ const rankCheck = (deps: CommandDeps) =>
                   content: `**${account.riotName}#${account.riotTag}** has no ranked data for ${gameNames[game]}.`,
                 });
           }),
+          Effect.catchTag("GameApiError", (error) =>
+            logApiError("rank_check failed", error).pipe(
+              Effect.andThen(reportFailure),
+            ),
+          ),
           Effect.catch((error) =>
-            (error._tag === "GameApiError"
-              ? logApiError("rank_check failed", error)
-              : Effect.logError("rank_check failed", error)
-            ).pipe(
-              Effect.andThen(
-                followUp({ content: "Rank lookup failed, try again :(" }),
-              ),
-              Effect.ignore({
-                log: "Error",
-                message: "rank_check follow-up failed",
-              }),
+            Effect.logError("rank_check failed", error).pipe(
+              Effect.andThen(reportFailure),
             ),
           ),
         );
@@ -770,7 +774,7 @@ const rankCheck = (deps: CommandDeps) =>
       ),
   );
 
-export const commands = (deps: CommandDeps, devMode: boolean) => {
+export const commands = (deps: CommandDeps) => {
   const optInGames = listGameNames(
     deps.gameAdapters.all
       .filter((adapter) => adapter.requiresOptIn)
@@ -799,9 +803,5 @@ export const commands = (deps: CommandDeps, devMode: boolean) => {
     .add(untrack(deps))
     .add(untrackPicked(deps))
     .add(rankCheck(deps));
-  const withLink = signInUrl ? base.add(link(signInUrl, optInGames)) : base;
-
-  return (
-    devMode ? withLink.concat(devCommands(deps)) : withLink
-  ).catchAllCause(Effect.logError);
+  return signInUrl ? base.add(link(signInUrl, optInGames)) : base;
 };

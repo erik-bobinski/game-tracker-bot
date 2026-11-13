@@ -1,4 +1,4 @@
-import { Cache, Context, Effect, Exit, Layer } from "effect";
+import { Cache, Context, Effect, Exit, Layer, Match } from "effect";
 import { RiotApiClient } from "../game-api/lol/riot-api-client.ts";
 import {
   riotRankDisplay,
@@ -184,12 +184,11 @@ export const LolAdapterLive = Layer.effect(
         trackedPlayers,
       }) {
         if (match.kind !== "versus") return emptyEnrichment(match);
-        const queueType =
-          match.mode === "Ranked Solo/Duo"
-            ? "RANKED_SOLO_5x5"
-            : match.mode === "Ranked Flex"
-              ? "RANKED_FLEX_SR"
-              : undefined;
+        const queueType = Match.value(match.mode).pipe(
+          Match.when("Ranked Solo/Duo", () => "RANKED_SOLO_5x5" as const),
+          Match.when("Ranked Flex", () => "RANKED_FLEX_SR" as const),
+          Match.orElse(() => undefined),
+        );
         const platformId = match.routingRegion;
         if (!queueType || !platformId) return emptyEnrichment(match);
 

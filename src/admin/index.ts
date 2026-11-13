@@ -1029,9 +1029,7 @@ const LoggerLive = Layer.unwrap(
 const runner = cli.pipe(
   // a prompt the operator escaped out of, which is not a crash
   Effect.catchTag("QuitError", () => fail("Cancelled.")),
-  Effect.tapError((error) =>
-    error._tag === "AdminError" ? Console.error(error.message) : Effect.void,
-  ),
+  Effect.tapErrorTag("AdminError", (error) => Console.error(error.message)),
   Effect.provide(DatabaseLive),
   Effect.provide(LoggerLive),
   Effect.provide(BunServices.layer),

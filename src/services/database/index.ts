@@ -1093,7 +1093,7 @@ const makeDatabase = Effect.gen(function* () {
   });
 });
 
-export const SqliteLive = Layer.unwrap(
+const SqliteLive = Layer.unwrap(
   databasePath.pipe(Effect.map((filename) => SqliteClient.layer({ filename }))),
 );
 

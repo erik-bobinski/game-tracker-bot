@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # cooldown: only propose releases at least two weeks old.
+  # Dependency PRs touch bun.lock, so the live gate waits for a maintainer's
+  # live:verify label before they can merge.
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      effect:
+        patterns: ["effect", "@effect/*"]
+      tooling:
+        patterns:
+          ["oxlint", "@oxlint/*", "knip", "prettier", "typescript", "@types/*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 14

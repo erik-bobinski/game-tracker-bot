@@ -16,18 +16,16 @@ const withDefault = <S extends Schema.Top>(schema: S, fallback: S["Type"]) =>
     }),
   );
 
-export const TftParticipant = Schema.Struct({
+const TftParticipant = Schema.Struct({
   puuid: Puuid,
   riotIdGameName: withDefault(Schema.String, "Unknown"),
   riotIdTagline: withDefault(Schema.String, "????"),
   placement: Schema.Number,
   level: Schema.optionalKey(Schema.NullOr(Schema.Number)),
 });
-export interface TftParticipant extends Schema.Schema.Type<
-  typeof TftParticipant
-> {}
+interface TftParticipant extends Schema.Schema.Type<typeof TftParticipant> {}
 
-export const TftMatchInfo = Schema.Struct({
+const TftMatchInfo = Schema.Struct({
   game_datetime: EpochMillis,
   // seconds, sometimes fractional
   game_length: Schema.Number,
@@ -36,12 +34,12 @@ export const TftMatchInfo = Schema.Struct({
   tft_game_type: Schema.optionalKey(Schema.NullOr(Schema.String)),
   participants: Schema.Array(TftParticipant),
 });
-export interface TftMatchInfo extends Schema.Schema.Type<typeof TftMatchInfo> {}
+interface TftMatchInfo extends Schema.Schema.Type<typeof TftMatchInfo> {}
 
-export const TftMatchMetadata = Schema.Struct({
+const TftMatchMetadata = Schema.Struct({
   match_id: MatchId,
 });
-export interface TftMatchMetadata extends Schema.Schema.Type<
+interface TftMatchMetadata extends Schema.Schema.Type<
   typeof TftMatchMetadata
 > {}
 
@@ -50,8 +48,6 @@ export const TftMatch = Schema.Struct({
   info: TftMatchInfo,
 });
 export interface TftMatch extends Schema.Schema.Type<typeof TftMatch> {}
-
-export const TftMatchIds = Schema.Array(MatchId);
 
 export const TftLeagueEntry = Schema.Struct({
   queueType: Schema.String,
