@@ -8,18 +8,6 @@ This a repo for a discord bot that reports newly completed matches of video game
 - If a simpler approach exists, say so and push back when warranted
 - If something is unclear stop and ask, don't make many assumptions
 - Goal of project is to create a match reporting discord bot that is game agnostic (extendable other games with minimal code changes)
-- Use the words in [GLOSSARY.md](GLOSSARY.md). Code you show in a reply is quoted verbatim with `path:line`; label anything else as paraphrased
-- Lead explanations with the plain-language answer, then the detail
-
-## Ways to hurt this repo
-
-Each of these has happened here. Avoid them by default:
-
-1. **Sharing a checkout.** One session per worktree and branch. Commit only the files your task changed; if another session's work shows up in `git status`, stop and ask.
-2. **Testing a workflow on its own PR.** `live-gate.yml` runs from `master` (`pull_request_target`), so a PR cannot test its own workflow change. Say in the PR how it gets checked after merge, then check it.
-3. **Printing identifiers in CI.** The repo is public. Riot IDs and guild, channel and app IDs go in `secrets.*`, never `vars.*`, `echo` or artifacts.
-4. **Touching real servers.** Agents post only to the test server, with the dev bot. Never start a gateway on a token that is already running, and never deploy prod by hand: merging to `master` deploys.
-5. **Using the wrong base.** PRs target `master`. The `main` branch is stale.
 
 ## Taste
 
@@ -33,8 +21,6 @@ Each of these has happened here. Avoid them by default:
 - Never open PRs as drafts
 - Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`
 - Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work
-- Fill in [the PR template](.github/pull_request_template.md). Proof lists what you ran and what you saw; never report a check you didn't see finish
-- One request, one PR. Tooling, refactors and UI changes nobody asked for go in their own PR, or get asked about first
 
 ## Project Structure
 
@@ -46,11 +32,9 @@ Each of these has happened here. Avoid them by default:
 
 ## Checks
 
-- `bun run check` runs everything CI's `check` job runs: `format:check` (prettier), `lint` (oxlint with the anti-slop rules in `tools/oxlint/anti-slop`), `typecheck` (tsc), `knip` (unused exports, files and dependencies), `test` (`bun test`) and `audit`
+- `bun run check` runs everything CI runs: `format:check` (prettier), `lint` (oxlint with the anti-slop rules in `tools/oxlint/anti-slop`), `typecheck` (tsc), `knip` (unused code), `test` (`bun test`) and `audit`
 - Fix lint findings properly: no disabling rules, no casts or renames just to quiet them. A finding that seems wrong for this codebase gets raised with a human
 - Tests are `*.test.ts` next to the code, run with `bun test`, with effects run through `Effect.runPromise` and dependencies swapped by providing test layers (not `@effect/vitest`, and no module mocking). Reserve them for domain logic such as match detection, rank deltas and sign-in links. Don't spam them
-- A logic bug fix starts with a test that fails without the fix, added to that module's existing test file where one fits
-- When a correction or review comment repeats, run the [garden skill](.agents/skills/garden/SKILL.md) to turn it into a check instead of another rule here
 - When changes touch accounts, adapters, enrichment, cards, delivery or polling, run the [verify-game-tracker-bot skill](.agents/skills/verify-game-tracker-bot/SKILL.md) workflow.
 
 ## Cursor Cloud specific instructions

@@ -20,9 +20,8 @@ moves each lesson into the repo, at the strongest layer that will hold it.
       bad state impossible to write.
    2. **Check**: an oxlint rule (local rules live beside `tools/oxlint/anti-slop`),
       a test in the module's existing test file, knip config, or a CI step.
-   3. **Words**: a `GLOSSARY.md` term, a "Ways to hurt this repo" line in
-      `AGENTS.md`, or a skill. Words are for judgement calls; a mechanical
-      pattern always gets a check.
+   3. **Words**: a `GLOSSARY.md` term, an `AGENTS.md` line, or a skill. Words
+      are for judgement calls; a mechanical pattern always gets a check.
    4. **Review**: only when nothing above can hold it.
 
    Done when every problem has a rung and a one-line reason.
