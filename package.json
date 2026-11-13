@@ -28,7 +28,7 @@
     "@resvg/resvg-js": "2.6.2",
     "dfx": "1.1.1",
     "effect": "4.0.6",
-    "satori": "0.33.5"
+    "satori": "0.63.2"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.89.0",
