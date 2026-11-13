@@ -4,6 +4,7 @@ import {
   Context,
   Effect,
   Layer,
+  Option,
   Redacted,
   Ref,
   Schema,
@@ -30,8 +31,13 @@ import { PollingState } from "../polling/state.ts";
 import { Rso } from "../rso/index.ts";
 import { commands } from "./commands.ts";
 import { devCommands } from "./dev-commands.ts";
-import type { MatchReport } from "./embed.ts";
-import { postMatchReport, MatchCard } from "./match-card.tsx";
+import {
+  matchEmbed,
+  matchSummary,
+  type MatchReport,
+  type RankEmojis,
+} from "./embed.ts";
+import { MatchCard } from "./match-card.tsx";
 import { provisionRankEmojis } from "./rank-emojis.ts";
 
 export class DiscordError extends Schema.TaggedError<DiscordError>()(
@@ -71,6 +77,46 @@ const reportPermissions =
 // Unknown Channel and Missing Access: the channel is gone, or the bot was
 // shut out of it or its server, and no retry will reach it
 const unreachableChannelCodes = new Set([10003, 50001]);
+
+// the one way a report reaches a channel: the bot, the admin cli and the live
+// test all post through it
+export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
+  {
+    rest,
+    channelId,
+    card,
+    rankEmojis,
+  }: {
+    readonly rest: DiscordREST["Service"];
+    readonly channelId: string;
+    readonly card: MatchCard["Service"];
+    readonly rankEmojis: RankEmojis;
+  },
+  report: MatchReport,
+) {
+  const png = yield* card.render(report).pipe(
+    Effect.tapError((error) =>
+      Effect.logError("match card render failed; posting the embed", error),
+    ),
+    Effect.option,
+  );
+  if (Option.isNone(png)) {
+    return yield* rest.createMessage(channelId, {
+      embeds: [matchEmbed(report, rankEmojis)],
+      allowed_mentions: { parse: [] },
+    });
+  }
+  const filename = "match-report.png";
+  return yield* rest
+    .createMessage(channelId, {
+      content: matchSummary(report),
+      allowed_mentions: { parse: [] },
+      attachments: [{ id: "0", filename }],
+    })
+    .pipe(
+      rest.withFiles([new File([png.value], filename, { type: "image/png" })]),
+    );
+});
 
 // Command sync, presence and rank emojis act on the whole Discord application,
 // so a DEV_MODE bot must be in DEV_GUILD_ID alone. A production token, or a dev
