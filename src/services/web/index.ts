@@ -115,6 +115,15 @@ const Routes = HttpRouter.use((router) =>
     if (Option.isNone(rso)) return;
 
     // where riot sends someone back to after they sign in through /link
+    const linkFailedPage = (reason: string) =>
+      HttpServerResponse.html(
+        resultPage(
+          site,
+          "Couldn't link your account",
+          `${reason}. Run <code>/link</code> in Discord to try again.`,
+        ),
+      );
+
     yield* router.add(
       "GET",
       "/rso/callback",
@@ -161,17 +170,14 @@ const Routes = HttpRouter.use((router) =>
               ),
         );
       }).pipe(
+        Effect.catchTag("RsoError", (error) =>
+          Effect.logWarning("riot sign-in callback failed", error).pipe(
+            Effect.as(linkFailedPage(escapeHtml(error.reason))),
+          ),
+        ),
         Effect.catch((error) =>
           Effect.logWarning("riot sign-in callback failed", error).pipe(
-            Effect.as(
-              HttpServerResponse.html(
-                resultPage(
-                  site,
-                  "Couldn't link your account",
-                  `${error._tag === "RsoError" ? escapeHtml(error.reason) : "Something went wrong"}. Run <code>/link</code> in Discord to try again.`,
-                ),
-              ),
-            ),
+            Effect.as(linkFailedPage("Something went wrong")),
           ),
         ),
       ),

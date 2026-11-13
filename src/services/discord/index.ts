@@ -29,6 +29,7 @@ import { GameAdapters } from "../game/game-adapters/index.ts";
 import { PollingState } from "../polling/state.ts";
 import { Rso } from "../rso/index.ts";
 import { commands } from "./commands.ts";
+import { devCommands } from "./dev-commands.ts";
 import type { MatchReport } from "./embed.ts";
 import { postMatchReport, MatchCard } from "./match-card.tsx";
 import { provisionRankEmojis } from "./rank-emojis.ts";
@@ -222,8 +223,7 @@ const makeDiscord = Effect.gen(function* () {
         { rest, channelId, card, rankEmojis },
         { ...report, tracked },
       ).pipe(
-        Effect.tapError((error) =>
-          error._tag === "ErrorResponse" &&
+        Effect.tapErrorTag("ErrorResponse", (error) =>
           unreachableChannelCodes.has(error.data.code)
             ? database
                 .clearChannel(channelId)
@@ -275,8 +275,12 @@ const makeDiscord = Effect.gen(function* () {
     .pipe(Effect.forkScoped);
 
   // registering forks the interaction loop and syncs the commands with discord.
+  const commandDeps = { database, gameAdapters, rest, notifyMatch, rso };
   yield* registry.register(
-    commands({ database, gameAdapters, rest, notifyMatch, rso }, devMode),
+    (devMode
+      ? commands(commandDeps).concat(devCommands(commandDeps))
+      : commands(commandDeps)
+    ).catchAllCause(Effect.logError),
   );
   yield* Effect.logInfo("slash commands registered").pipe(
     Effect.annotateLogs({ devMode }),

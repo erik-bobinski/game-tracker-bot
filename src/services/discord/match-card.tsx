@@ -7,6 +7,7 @@ import {
   Effect,
   Exit,
   Layer,
+  Match,
   Option,
   Schema,
 } from "effect";
@@ -39,7 +40,7 @@ import {
   type VersusReport,
 } from "./embed.ts";
 
-export class MatchCardError extends Schema.TaggedError<MatchCardError>()(
+class MatchCardError extends Schema.TaggedError<MatchCardError>()(
   "MatchCardError",
   { cause: Schema.Defect() },
 ) {}
@@ -72,12 +73,12 @@ const verdictColors = {
   unknown: colors.muted,
 } as const;
 
-const teamColor = (team: MatchTeam) =>
-  team.won === true
-    ? verdictColors.win
-    : team.won === false
-      ? verdictColors.loss
-      : verdictColors.draw;
+const teamVerdict = (team: MatchTeam) =>
+  Match.value(team.won).pipe(
+    Match.when(true, () => "win" as const),
+    Match.when(false, () => "loss" as const),
+    Match.orElse(() => "draw" as const),
+  );
 
 const fontFiles = [
   "latin",
@@ -545,10 +546,9 @@ const versusCard = (report: VersusReport, images: CardImages) => {
         if (players.length === 0) return [];
         return [
           {
-            color: teamColor(team),
+            color: verdictColors[teamVerdict(team)],
             label: teamLabel(index),
-            status:
-              team.won === true ? "WIN" : team.won === false ? "LOSS" : "DRAW",
+            status: teamVerdict(team).toUpperCase(),
             detail: `${players.reduce((kills, player) => kills + player.kills, 0)} KILLS`,
             rows: players.map((player) => (
               <Row

@@ -45,7 +45,7 @@ const lolParticipant = (
   gameEndedInSurrender: false,
 });
 
-export const lolMockResponse = () => {
+const lolMockResponse = () => {
   const now = Date.now();
   const durationSeconds = 1_961;
   const blue = (
@@ -146,7 +146,7 @@ const decorateMockRank = <P extends MatchPlayerIdentity>(
   };
 };
 
-export const withMockRiotRanks = (match: MatchDetails): MatchDetails => {
+const withMockRiotRanks = (match: MatchDetails): MatchDetails => {
   switch (match.kind) {
     case "versus":
       return { ...match, players: match.players.map(decorateMockRank) };
@@ -192,7 +192,7 @@ const valPlayer = (
   },
 });
 
-export const valMockResponse = () => {
+const valMockResponse = () => {
   const now = Date.now();
   const gameLengthMs = 2_215_000;
   const blue = (
@@ -264,7 +264,7 @@ const tftParticipant = (
   level,
 });
 
-export const tftMockResponse = () => {
+const tftMockResponse = () => {
   const now = Date.now();
   const durationSeconds = 1_842.6;
   const participants = (

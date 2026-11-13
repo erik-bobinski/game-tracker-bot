@@ -32,7 +32,7 @@ This a repo for a discord bot that reports newly completed matches of video game
 
 ## Checks
 
-- `bun run check` runs everything CI runs: `format:check` (prettier), `lint` (oxlint with the anti-slop rules in `tools/oxlint/anti-slop`), `typecheck` (tsc), `test` (`bun test`) and `audit`
+- `bun run check` runs everything CI runs: `format:check` (prettier), `lint` (oxlint with the anti-slop rules in `tools/oxlint/anti-slop`), `typecheck` (tsc), `knip` (unused code), `test` (`bun test`) and `audit`
 - Fix lint findings properly: no disabling rules, no casts or renames just to quiet them. A finding that seems wrong for this codebase gets raised with a human
 - Tests are `*.test.ts` next to the code, run with `bun test`, with effects run through `Effect.runPromise` and dependencies swapped by providing test layers (not `@effect/vitest`, and no module mocking). Reserve them for domain logic such as match detection, rank deltas and sign-in links. Don't spam them
 - When changes touch accounts, adapters, enrichment, cards, delivery or polling, run the [verify-game-tracker-bot skill](.agents/skills/verify-game-tracker-bot/SKILL.md) workflow.
