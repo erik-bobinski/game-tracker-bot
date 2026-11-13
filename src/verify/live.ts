@@ -19,10 +19,6 @@ import {
   MemoryRateLimitStoreLive,
 } from "dfx";
 import { Database, DatabaseLive } from "../services/database/index.ts";
-import {
-  DeliveryQueue,
-  DeliveryQueueLive,
-} from "../services/delivery-queue/index.ts";
 import { Discord, DiscordError } from "../services/discord/index.ts";
 import {
   MatchCard,
@@ -40,6 +36,10 @@ import {
   MatchEngine,
   MatchEngineLive,
 } from "../services/match-engine/index.ts";
+import {
+  DeliveryQueue,
+  DeliveryQueueLive,
+} from "../services/delivery-queue/index.ts";
 
 // This is deliberately finite: no gateway, command sync, production database,
 // automatic account discovery, or polling daemon. See .agents/skills/verify-game-tracker-bot/SKILL.md.
