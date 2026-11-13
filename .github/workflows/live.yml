@@ -1,5 +1,8 @@
 name: Live pipeline verification
 
+# Tested by tools/ci/live-gate.test.ts (bun test). Actions are pinned by SHA:
+# this workflow runs PR code with dev secrets and an OIDC token.
+
 on:
   workflow_dispatch:
     inputs:
@@ -93,12 +96,12 @@ jobs:
       DEV_GUILD_ID: ${{ secrets.DEV_GUILD_ID }}
       NOTIFICATION_CHANNEL_ID: ${{ secrets.NOTIFICATION_CHANNEL_ID }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ needs.resolve.outputs.repository }}
           ref: ${{ needs.resolve.outputs.sha }}
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
@@ -123,7 +126,7 @@ jobs:
             env DEV_MODE=true DEV_GUILD_ID="$DEV_GUILD_ID" NOTIFICATION_CHANNEL_ID="$NOTIFICATION_CHANNEL_ID" \
             LIVE_RIOT_ID="$LIVE_RIOT_ID" LIVE_GAME="$LIVE_GAME" LIVE_DISCORD_APPLICATION_ID="$LIVE_DISCORD_APPLICATION_ID" \
             bun run test:live
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
         with:
           name: live-verification

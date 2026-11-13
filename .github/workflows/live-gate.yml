@@ -1,5 +1,9 @@
 name: Live verification gate
 
+# Tested by tools/ci/live-gate.test.ts (bun test). pull_request_target runs
+# master's copy of this file, so a change here cannot prove itself on its own
+# PR: make the tests pass before merging, then watch the next PR's gate run.
+
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, edited, ready_for_review, labeled]
