@@ -33,7 +33,7 @@ jobs:
       game: ${{ steps.scope.outputs.game }}
     steps:
       # Metadata only: no PR checkout, game credentials or OIDC in this job.
-      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         id: scope
         with:
           script: |
@@ -101,7 +101,7 @@ jobs:
           allow-fail: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         id: authorize
         if: steps.scope.outputs.needed == 'true'
         env:
