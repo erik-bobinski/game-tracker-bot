@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ConfigProvider, Effect, Layer } from "effect";
 import { Database, DatabaseLive } from "../database/index.ts";
+import { DeliveryQueueLive } from "../delivery-queue/index.ts";
 import type { MatchReport } from "../discord/embed.ts";
 import { Discord } from "../discord/index.ts";
 import {
@@ -56,6 +57,7 @@ const world = (
 ) => {
   const posts: Array<MatchReport> = [];
   const layer = MatchEngineLive.pipe(
+    Layer.provide(DeliveryQueueLive),
     Layer.provideMerge(
       Layer.mergeAll(
         Layer.succeed(

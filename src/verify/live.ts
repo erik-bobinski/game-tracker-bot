@@ -19,6 +19,10 @@ import {
   MemoryRateLimitStoreLive,
 } from "dfx";
 import { Database, DatabaseLive } from "../services/database/index.ts";
+import {
+  DeliveryQueue,
+  DeliveryQueueLive,
+} from "../services/delivery-queue/index.ts";
 import { Discord, DiscordError } from "../services/discord/index.ts";
 import {
   MatchCard,
@@ -161,6 +165,7 @@ const main = Effect.gen(function* () {
       const rest = yield* DiscordREST;
       const card = yield* MatchCard;
       const engine = MatchEngineLive.pipe(
+        Layer.provideMerge(DeliveryQueueLive),
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(Database, db),
@@ -217,7 +222,7 @@ const main = Effect.gen(function* () {
         const second = yield* matchEngine.pollOnce();
         if (
           second.deliveryAttempts !== 0 ||
-          (yield* db.getPendingDeliveries()).length !== 0
+          (yield* (yield* DeliveryQueue).pending()).length !== 0
         )
           return yield* Effect.die("Repeat poll was not clean");
         stage = "subscription cleanup";
