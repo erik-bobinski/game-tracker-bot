@@ -5,31 +5,16 @@ on:
     branches: [master, dev]
   pull_request:
   workflow_dispatch:
-    inputs:
-      run_live:
-        description: Opt in to bounded live API verification for this branch
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
 jobs:
-  live:
-    name: Manual live verification
-    needs: check
-    # Manual fallback only. Automatic contributor trust and one-use PR labels
-    # are handled by the default branch's live-gate.yml controller.
-    if: github.repository == 'erik-bobinski/game-tracker-bot' && github.event_name == 'workflow_dispatch' && inputs.run_live
-    permissions:
-      contents: read
-      pull-requests: read
-      id-token: write
-      statuses: write
-    uses: ./.github/workflows/live.yml
-    with:
-      game: configured
+  # Keep the job id: branch protection requires a check named `check`.
+  # Live API tests are not here: live-gate.yml selects them per PR, and
+  # live.yml runs them (Actions → Live pipeline verification for manual runs).
   check:
+    name: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -37,8 +22,15 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
-      - run: bun run format:check
-      - run: bun run lint
-      - run: bun run typecheck
-      - run: bun run test
-      - run: bun run audit
+      - name: Format (prettier)
+        run: bun run format:check
+      - name: Lint (oxlint + anti-slop)
+        run: bun run lint
+      - name: Typecheck (tsc)
+        run: bun run typecheck
+      - name: Unused code (knip)
+        run: bun run knip
+      - name: Offline tests (bun test, no API keys)
+        run: bun run test
+      - name: Dependency audit
+        run: bun run audit

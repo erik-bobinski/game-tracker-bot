@@ -4,7 +4,7 @@ export const gameIds = ["lol", "valorant", "tft"] as const;
 export const GameId = Schema.Literals(gameIds);
 export type GameId = typeof GameId.Type;
 
-export const games = {
+const games = {
   lol: { displayName: "League of Legends", choiceName: "lol" },
   valorant: { displayName: "Valorant", choiceName: "val" },
   tft: { displayName: "Teamfight Tactics", choiceName: "tft" },

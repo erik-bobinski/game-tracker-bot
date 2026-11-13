@@ -122,7 +122,7 @@ export interface GameAdapter {
   ) => Effect.Effect<RankInfo | undefined, GameApiError>;
 }
 
-export interface RankIcon {
+interface RankIcon {
   readonly key: string;
   readonly url: string;
   // emoji-sized art is too small to fill an embed, which is what centers it

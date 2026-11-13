@@ -1,6 +1,6 @@
 import type { RankSnapshots } from "../../index.ts";
 
-export const riotApexTiers = new Set(["master", "grandmaster", "challenger"]);
+const riotApexTiers = new Set(["master", "grandmaster", "challenger"]);
 
 const STATIC_ASSETS =
   "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default";
