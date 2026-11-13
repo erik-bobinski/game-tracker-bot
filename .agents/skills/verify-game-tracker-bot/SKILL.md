@@ -123,10 +123,8 @@ pipeline. No further environment approval is required: the trust/label decision
 is the approval. Do not run unreviewed foreign code with dev credentials.
 
 For an explicit rerun, Actions → **Live pipeline verification** → **Run workflow**
-on the default branch also accepts a PR number and game. The regular CI workflow
-retains a manual `run_live` fallback for an allowed trusted branch. Its **Manual
-live verification** job is normally skipped; automatic selection happens in
-**Live verification gate**, not that manual job.
+on the default branch also accepts a PR number and game. That is the only manual
+path; `ci.yml` never runs live tests.
 
 The separate required **Live verification gate** commit status remains pending
 when live testing is needed but not authorized. It passes only after the exact
@@ -137,6 +135,9 @@ based on local evidence or an older SHA. Gate updates and result publication
 serialize per SHA; all API runs share one concurrency group. No automatic reruns
 or game matrix. GitHub may coalesce queued runs to limit bursts.
 
+`live-gate.yml` calls `live.yml` with `secrets: inherit`. Without it the called
+job gets empty environment secrets and fails before any API call (PR #53).
+
 The controller uses `pull_request_target` solely for metadata/trust selection;
 its definition and trust list must come from the protected default branch.
 Never add PR checkout or dependency scripts to the privileged selection job.
@@ -146,9 +147,10 @@ runner. The controller activates after its workflow reaches the base branch.
 A missing required status is blocking during initial setup too.
 
 The single `live-testing` environment has no extra required reviewer. Restrict
-its deployment policy to the trusted default branch. Store its non-secret test
-configuration plus `INFISICAL_PROJECT_ID` and `INFISICAL_IDENTITY_ID` as environment
-variables. The Infisical identity has no organization access and Viewer access
+its deployment policy to the trusted default branch. The repo is public and GitHub
+prints `vars.*` in logs, so every identifier (`LIVE_RIOT_ID`, `DEV_GUILD_ID`,
+`NOTIFICATION_CHANNEL_ID`, `LIVE_DISCORD_APPLICATION_ID`, `INFISICAL_PROJECT_ID`,
+`INFISICAL_IDENTITY_ID`) is an environment secret; only `LIVE_GAME` is a variable. The Infisical identity has no organization access and Viewer access
 only in **Game Tracker Live Testing**, not the regular app project. Its token
 lives for three minutes. It trusts issuer `https://token.actions.githubusercontent.com`,
 audience `infisical`, and the exact immutable environment subject. Obtain the
@@ -161,8 +163,8 @@ gh api repos/<owner>/<repo>/actions/oidc/customization/sub
 Append `:environment:live-testing` to `sub_claim_prefix`; don't use the older
 name-only format or a wildcard subject. Bound claims restrict the exact upstream
 repository, repository/owner IDs, the `workflow_dispatch` and `pull_request_target`
-events, and only `ci.yml`, `live.yml`, `live-gate.yml` workflow refs on the default
-branch. Infisical accepts comma-separated allowed claim values. This trusts the
+events, and only the `live.yml` and `live-gate.yml` workflow refs on the default
+branch (`ci.yml` no longer runs live tests, so it need not be listed). Infisical accepts comma-separated allowed claim values. This trusts the
 upstream workflow definitions, not arbitrary fork workflow edits. Keep fork
 GITHUB_TOKEN permissions read-only. No persistent GitHub secret, Railway access,
 per-contributor identity or production bot token is needed. See the
