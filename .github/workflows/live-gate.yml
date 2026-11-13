@@ -147,6 +147,8 @@ jobs:
       id-token: write
       statuses: write
     uses: ./.github/workflows/live.yml
+    # A called workflow gets no secrets unless the caller passes them.
+    secrets: inherit
     with:
       pull_request: ${{ format('{0}', github.event.pull_request.number) }}
       expected_sha: ${{ needs.select.outputs.sha }}
