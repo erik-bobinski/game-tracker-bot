@@ -170,6 +170,41 @@ GITHUB_TOKEN permissions read-only. No persistent GitHub secret, Railway access,
 per-contributor identity or production bot token is needed. See the
 [Infisical GitHub OIDC guide](https://infisical.com/docs/documentation/platform/identities/oidc-auth/github).
 
+## One-match replay (`report-match`)
+
+`bun run admin report-match 'name#tag' --game <game> [--index n] [--out card.png]`
+runs one live match through the same adapter, enrichment and posting path the
+match engine uses, with no bot process or polling. Run it for any change to
+adapters, enrichment, the card or the embed: render with `--out` first, then post
+to the dev channel and check it. The recipe, including how to find a player who
+played a given mode, is in
+[`features/report-match.md`](../../../.cursor/skills/verify-game-tracker-bot/features/report-match.md).
+
+## Cursor Cloud browser login
+
+Use only a dedicated throwaway test account, never a personal account. Discord's
+terms forbid automating user accounts; cloud datacenter IPs usually hit hCaptcha,
+email codes, or 2FA, so login often fails. Do not write captcha-bypass,
+cookie-stealing, or TOTP-extraction code. Never print `AGENT_EMAIL_PASSWORD` (or
+`AGENT_EMAIL`) to logs, artifacts, commits, or chat.
+
+- Required secrets (Cursor Cloud environment secrets, not
+  `.cursor/environment.json`): `AGENT_EMAIL` (Discord login email/phone, not
+  display name), `AGENT_EMAIL_PASSWORD`, `DISCORD_TEST_CHANNEL_URL`
+  (`https://discord.com/channels/<guildId>/<channelId>` for the test server
+  channel the bot can see).
+- If any of those three are unset, skip the browser and verify with
+  `bun run check`, bot boot logs, and Discord REST (list slash commands / post via
+  the bot token). Running agents do not pick up newly added secrets; only a newly
+  started agent sees them.
+- If they are set: start the bot with `bun start`, open
+  `https://discord.com/login` in computer-use, fill email from `AGENT_EMAIL` then
+  password from `AGENT_EMAIL_PASSWORD` (do not echo them), click Log In. If a
+  captcha, email code, or 2FA prompt appears, stop and report that browser
+  verification is blocked. On success, open `DISCORD_TEST_CHANNEL_URL` and invoke
+  the slash command under test the way a user would (`/` in the message box, pick
+  the command, submit).
+
 ## Desktop Discord checklist for agents
 
 Use the dedicated `agent` test account in **riot-tracker-testing →
