@@ -10,14 +10,16 @@
     "start": "bun src/index.ts",
     "dev": "bun --watch src/index.ts",
     "admin": "bun src/admin/index.ts",
-    "verify": "bun src/verify/index.ts",
+    "verify": "bun run test:live",
+    "test:live": "bun src/verify/live.ts",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
+    "knip": "knip",
     "test": "bun test",
     "audit": "bun audit --audit-level=high",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run audit"
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run knip && bun run test && bun run audit"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.6",
@@ -31,6 +33,7 @@
   "devDependencies": {
     "@oxlint/plugins": "1.89.0",
     "@types/bun": "1.4.4",
+    "knip": "6.43.0",
     "oxlint": "1.89.0",
     "prettier": "3.9.10",
     "typescript": "7.0.2"

@@ -231,6 +231,30 @@ test("deliveries survive restart, newer matches and partial server failure", asy
         expect((yield* db.getPendingDeliveries())[0]?.players).toEqual([]);
       }),
     );
+    // Re-subscribe before the empty cancelled row is drained. Discovery must
+    // replace it rather than advance history without delivering the match.
+    recent = [MatchId.make("signout")];
+    await run(
+      Effect.gen(function* () {
+        const db = yield* Database;
+        yield* db.subscribe({ guildId: "b", discordUserId: "two" });
+        yield* db.addGame({
+          discordUserId: "two",
+          game: "tft",
+          state: {
+            puuid: secondPuuid,
+            region: undefined,
+            rankSnapshots: {},
+            reportedMatches: [],
+          },
+        });
+        const result = yield* (yield* MatchEngine).pollOnce();
+        expect(result.deliveriesSucceeded).toBe(2);
+        expect((yield* db.getPendingDeliveries()).length).toBe(0);
+      }),
+    );
+    delivered.push("signout:b:two", "signout:a:two");
+    expect(posted).toEqual(delivered);
     // A day-old row is dropped instead of posted, and with no history kept
     // for finished deliveries, a player with an emptied history (/dev_clear)
     // gets a shared match reported again.

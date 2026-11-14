@@ -1037,7 +1037,9 @@ const makeDatabase = Effect.gen(function* () {
     ) => sql`INSERT INTO match_deliveries (game, match_id, guild_id, players)
       SELECT ${row.game}, ${row.matchId}, ${row.guildId}, ${row.players}
       WHERE EXISTS (SELECT 1 FROM guilds WHERE guild_id = ${row.guildId})
-      ON CONFLICT (game, match_id, guild_id) DO NOTHING`,
+      ON CONFLICT (game, match_id, guild_id) DO UPDATE
+      SET players = excluded.players, queued_at = CURRENT_TIMESTAMP
+      WHERE json_array_length(match_deliveries.players) = 0`,
   });
 
   // A day-old row is dropped rather than retried: henrik can only refetch a
@@ -1091,7 +1093,7 @@ const makeDatabase = Effect.gen(function* () {
   });
 });
 
-export const SqliteLive = Layer.unwrap(
+const SqliteLive = Layer.unwrap(
   databasePath.pipe(Effect.map((filename) => SqliteClient.layer({ filename }))),
 );
 

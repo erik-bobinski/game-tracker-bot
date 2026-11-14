@@ -10,7 +10,11 @@ permissions:
   contents: read
 
 jobs:
+  # Keep the job id: branch protection requires a check named `check`.
+  # Live API tests are not here: live-gate.yml selects them per PR, and
+  # live.yml runs them (Actions → Live pipeline verification for manual runs).
   check:
+    name: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -18,8 +22,15 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
-      - run: bun run format:check
-      - run: bun run lint
-      - run: bun run typecheck
-      - run: bun run test
-      - run: bun run audit
+      - name: Format (prettier)
+        run: bun run format:check
+      - name: Lint (oxlint + anti-slop)
+        run: bun run lint
+      - name: Typecheck (tsc)
+        run: bun run typecheck
+      - name: Unused code (knip)
+        run: bun run knip
+      - name: Offline tests (bun test, no API keys)
+        run: bun run test
+      - name: Dependency audit
+        run: bun run audit

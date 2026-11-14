@@ -19,7 +19,7 @@ const withDefault = <S extends Schema.Top>(schema: S, fallback: S["Type"]) =>
 
 // /lol/match/v5/matches/{matchId}
 
-export const LolParticipant = Schema.Struct({
+const LolParticipant = Schema.Struct({
   puuid: Puuid,
   riotIdGameName: Schema.String,
   riotIdTagline: Schema.String,
@@ -39,11 +39,9 @@ export const LolParticipant = Schema.Struct({
   // TOP | JUNGLE | MIDDLE | BOTTOM | UTILITY, "" in modes without lanes
   teamPosition: withDefault(Schema.String, ""),
 });
-export interface LolParticipant extends Schema.Schema.Type<
-  typeof LolParticipant
-> {}
+interface LolParticipant extends Schema.Schema.Type<typeof LolParticipant> {}
 
-export const LolMatchInfo = Schema.Struct({
+const LolMatchInfo = Schema.Struct({
   gameMode: Schema.String,
   // seconds
   gameDuration: Schema.Number,
@@ -54,13 +52,13 @@ export const LolMatchInfo = Schema.Struct({
   platformId: Schema.String,
   participants: Schema.Array(LolParticipant),
 });
-export interface LolMatchInfo extends Schema.Schema.Type<typeof LolMatchInfo> {}
+interface LolMatchInfo extends Schema.Schema.Type<typeof LolMatchInfo> {}
 
-export const LolMatchMetadata = Schema.Struct({
+const LolMatchMetadata = Schema.Struct({
   matchId: MatchId,
   participants: Schema.Array(Puuid),
 });
-export interface LolMatchMetadata extends Schema.Schema.Type<
+interface LolMatchMetadata extends Schema.Schema.Type<
   typeof LolMatchMetadata
 > {}
 
@@ -69,8 +67,6 @@ export const LolMatch = Schema.Struct({
   info: LolMatchInfo,
 });
 export interface LolMatch extends Schema.Schema.Type<typeof LolMatch> {}
-
-export const LolMatchIds = Schema.Array(MatchId);
 
 // /lol/league/v4/entries/by-puuid/{puuid} — one entry per ranked queue placed in
 

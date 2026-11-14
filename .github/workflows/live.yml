@@ -1,0 +1,161 @@
+name: Live pipeline verification
+
+# Tested by tools/ci/live-gate.test.ts (bun test). Actions are pinned by SHA:
+# this workflow runs PR code with dev secrets and an OIDC token.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Reviewed PR number (including forks); blank tests the selected branch
+        type: string
+        default: ""
+      game:
+        description: Affected game; configured uses the environment's smoke-test game
+        type: choice
+        default: configured
+        options: [configured, lol, valorant, tft]
+  workflow_call:
+    inputs:
+      pull_request:
+        type: string
+        default: ""
+      game:
+        type: string
+        default: configured
+      expected_sha:
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# One shared group, regardless of branch. Never interrupt an in-flight post.
+concurrency:
+  group: game-tracker-live-apis
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Pin the commit for maintainer review
+    if: github.repository == 'erik-bobinski/game-tracker-bot' && (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request_target')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      repository: ${{ steps.commit.outputs.repository }}
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - name: Resolve PR head before environment approval
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pull_request }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          repository="$GITHUB_REPOSITORY"
+          sha="$GITHUB_SHA"
+          if [[ -n "$PR_NUMBER" ]]; then
+            [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo 'PR number must be a positive integer'; exit 1; }
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/live-pr.json"
+            # The gate status is per commit, so only PRs into the default branch may set it.
+            jq -e --arg repo "$GITHUB_REPOSITORY" '.state == "open" and .base.repo.full_name == $repo and .base.ref == .base.repo.default_branch and .head.repo != null' "$RUNNER_TEMP/live-pr.json" > /dev/null ||
+              { echo 'PR must be open, target the default branch and still have its head repository'; exit 1; }
+            repository=$(jq -er '.head.repo.full_name' "$RUNNER_TEMP/live-pr.json")
+            sha=$(jq -er '.head.sha' "$RUNNER_TEMP/live-pr.json")
+          fi
+          [[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          if [[ -n "$EXPECTED_SHA" && "$sha" != "$EXPECTED_SHA" ]]; then
+            echo 'PR advanced after selection; the new commit needs a fresh trust/label decision.'
+            exit 1
+          fi
+          printf 'repository=%s\nsha=%s\n' "$repository" "$sha" >> "$GITHUB_OUTPUT"
+          {
+            echo '### Pinned commit for bounded live verification'
+            printf '[%s@%s](https://github.com/%s/commit/%s)\n' "$repository" "$sha" "$repository" "$sha"
+            echo 'The live job executes this code with scoped dev credentials. Later PR pushes do not change this run.'
+          } >> "$GITHUB_STEP_SUMMARY"
+  live:
+    name: Live verification at ${{ needs.resolve.outputs.sha }}
+    needs: resolve
+    runs-on: ubuntu-latest
+    environment: live-testing
+    timeout-minutes: 6
+    permissions:
+      contents: read
+      id-token: write
+    # The repository is public: identifiers are secrets so GitHub masks them in logs.
+    env:
+      INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
+      INFISICAL_IDENTITY_ID: ${{ secrets.INFISICAL_IDENTITY_ID }}
+      LIVE_RIOT_ID: ${{ secrets.LIVE_RIOT_ID }}
+      LIVE_GAME: ${{ inputs.game == 'configured' && vars.LIVE_GAME || inputs.game }}
+      LIVE_DISCORD_APPLICATION_ID: ${{ secrets.LIVE_DISCORD_APPLICATION_ID }}
+      DEV_GUILD_ID: ${{ secrets.DEV_GUILD_ID }}
+      NOTIFICATION_CHANNEL_ID: ${{ secrets.NOTIFICATION_CHANNEL_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.resolve.outputs.repository }}
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - name: Install pinned Infisical CLI
+        run: |
+          curl -fsSLO https://github.com/Infisical/cli/releases/download/v0.44.9/cli_0.44.9_linux_amd64.tar.gz
+          echo '4005a430258df60401ae5288ab0412371f2e56f224ed461758dd2ec83887d556  cli_0.44.9_linux_amd64.tar.gz' | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/infisical"
+          tar -xzf cli_0.44.9_linux_amd64.tar.gz -C "$RUNNER_TEMP/infisical" infisical
+          echo "$RUNNER_TEMP/infisical" >> "$GITHUB_PATH"
+      - name: Run the same bounded command used locally
+        run: |
+          test -n "$INFISICAL_IDENTITY_ID"
+          test -n "$INFISICAL_PROJECT_ID"
+          oidc=$(curl -fsS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=infisical" | jq -er '.value')
+          echo "::add-mask::$oidc"
+          INFISICAL_TOKEN=$(infisical login --method=oidc-auth --machine-identity-id="$INFISICAL_IDENTITY_ID" --jwt="$oidc" --plain --silent)
+          echo "::add-mask::$INFISICAL_TOKEN"
+          export INFISICAL_TOKEN
+          infisical run --silent --projectId "$INFISICAL_PROJECT_ID" --env dev --path /live-testing -- \
+            env DEV_MODE=true DEV_GUILD_ID="$DEV_GUILD_ID" NOTIFICATION_CHANNEL_ID="$NOTIFICATION_CHANNEL_ID" \
+            LIVE_RIOT_ID="$LIVE_RIOT_ID" LIVE_GAME="$LIVE_GAME" LIVE_DISCORD_APPLICATION_ID="$LIVE_DISCORD_APPLICATION_ID" \
+            bun run test:live
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: always()
+        with:
+          name: live-verification
+          # This repository is public; do not publish real-player PNGs.
+          path: artifacts/live/results.json
+          retention-days: 7
+  report:
+    name: Record the required gate for the tested commit
+    needs: [resolve, live]
+    if: always() && github.repository == 'erik-bobinski/game-tracker-bot' && needs.resolve.result == 'success'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: live-status-${{ needs.resolve.outputs.sha }}
+      cancel-in-progress: false
+    permissions:
+      statuses: write
+    steps:
+      # Runs on a separate runner without checking out contributor code.
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          TESTED_SHA: ${{ needs.resolve.outputs.sha }}
+          LIVE_RESULT: ${{ needs.live.result }}
+        with:
+          script: |
+            const passed = process.env.LIVE_RESULT === 'success';
+            await github.rest.repos.createCommitStatus({
+              ...context.repo, sha: process.env.TESTED_SHA,
+              context: 'Live verification gate',
+              state: passed ? 'success' : 'failure',
+              description: passed ? 'Bounded live verification passed for this commit.' : 'Live verification did not pass; review the manual run.',
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });

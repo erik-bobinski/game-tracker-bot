@@ -56,7 +56,7 @@ const resolveGames = (
   });
 
 // every lookup failed, and not because the riot id doesn't exist
-export class AccountLookupError extends Schema.TaggedError<AccountLookupError>()(
+class AccountLookupError extends Schema.TaggedError<AccountLookupError>()(
   "AccountLookupError",
   {},
 ) {}

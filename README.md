@@ -103,6 +103,13 @@ reported from then on.
 
 ## Development
 
+Run `bun run check` for the normal CI checks. For changes to reporting, also use
+the bounded real-data check, `bun run test:live`, and the desktop Discord
+checklist in the [verification skill](.agents/skills/verify-game-tracker-bot/SKILL.md). The same live command
+is available through a manual GitHub workflow after its dev environment is
+configured. It uses one approved account, one game and one match, with hard
+request/post/time limits; it never scans production users or launches a bot.
+
 Run a second bot application in a test server, with its own token and keys,
 and set `DEV_MODE=true` for three extra commands:
 

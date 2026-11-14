@@ -1,0 +1,159 @@
+name: Live verification gate
+
+# Tested by tools/ci/live-gate.test.ts (bun test). pull_request_target runs
+# master's copy of this file, so a change here cannot prove itself on its own
+# PR: make the tests pass before merging, then watch the next PR's gate run.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review, labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-selection-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  select:
+    name: Select relevant changes and contributor trust
+    if: github.repository == 'erik-bobinski/game-tracker-bot' && (github.event.action != 'labeled' || github.event.label.name == 'live:verify')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: live-status-${{ github.event.pull_request.head.sha }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    outputs:
+      run: ${{ steps.authorize.outputs.run }}
+      sha: ${{ steps.scope.outputs.sha }}
+      game: ${{ steps.scope.outputs.game }}
+    steps:
+      # Metadata only: no PR checkout, game credentials or OIDC in this job.
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        id: scope
+        with:
+          script: |
+            const repo = context.repo;
+            const pull_number = context.issue.number;
+            // The gate is one status per commit, so only an open PR into the
+            // default branch may select it; another base diffs the same SHA
+            // differently. Read fresh: the event payload may be stale.
+            const selectable = async () => {
+              const { data } = await github.rest.pulls.get({ ...repo, pull_number });
+              return data.state === 'open' && data.head.sha === context.payload.pull_request.head.sha &&
+                data.base.ref === data.base.repo.default_branch ? data : undefined;
+            };
+            const pr = await selectable();
+            if (!pr) return;
+            const sha = pr.head.sha;
+            const manual = context.payload.action === 'labeled' && context.payload.label.name === 'live:verify';
+            if (manual) {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ ...repo, username: context.actor });
+              if (!['admin', 'maintain', 'write'].includes(data.permission)) return;
+            }
+            const name = 'Live verification gate';
+            const statuses = await github.paginate(github.rest.repos.listCommitStatuses, { ...repo, ref: sha, per_page: 100 });
+            const previous = statuses.find(status => status.context === name);
+            if (!manual && previous?.creator?.login === 'github-actions[bot]' &&
+                ((previous.state === 'success' && previous.description === 'Bounded live verification passed for this commit.') ||
+                 (previous.state === 'failure' && previous.description === 'Live verification did not pass; review the manual run.'))) return;
+            let required = true;
+            let game = 'configured';
+            if (pr.changed_files <= 3000) {
+              const files = await github.paginate(github.rest.pulls.listFiles, { ...repo, pull_number, per_page: 100 });
+              const relevant = files.filter(({ filename }) => {
+                if (filename.endsWith('.md') || filename.endsWith('.test.ts')) return false;
+                return filename.startsWith('src/') || filename.startsWith('patches/') ||
+                  ['package.json', 'bun.lock', 'Dockerfile', '.github/VOUCHED.td', '.github/workflows/ci.yml', '.github/workflows/live.yml', '.github/workflows/live-gate.yml'].includes(filename);
+              });
+              required = relevant.length > 0;
+              const games = new Set(relevant.map(({ filename }) => {
+                if (/^src\/services\/game\/(game-adapters\/lol\.ts|game-api\/lol\/)/.test(filename)) return 'lol';
+                if (/^src\/services\/game\/(game-adapters\/tft\.ts|game-api\/tft\/)/.test(filename)) return 'tft';
+                if (/^src\/services\/game\/(game-adapters\/valorant.*\.ts|game-api\/val\/)/.test(filename)) return 'valorant';
+                return 'configured';
+              }));
+              if (games.size === 1) game = [...games][0];
+            }
+            if (!await selectable()) return;
+            if (!manual) await github.rest.repos.createCommitStatus({
+              ...repo, sha, context: name,
+              state: required || manual ? 'pending' : 'success',
+              description: required || manual ? 'Bounded live verification must pass for this commit.' : 'Live verification not required for these changes.',
+              target_url: pr.html_url,
+            });
+            core.setOutput('needed', required || manual ? 'true' : 'false');
+            core.setOutput('manual', manual ? 'true' : 'false');
+            core.setOutput('author', pr.user.login);
+            core.setOutput('sha', sha);
+            core.setOutput('game', game);
+      # Like T3 Code's PR Vouch workflow: this reads the default branch's trust
+      # list through GitHub, never a contributor's proposed VOUCHED changes.
+      - uses: mitchellh/vouch/action/check-user@f23dbb5e745334f97414ec70463ce7301071a661 # v1
+        id: trust
+        if: steps.scope.outputs.needed == 'true'
+        with:
+          user: ${{ steps.scope.outputs.author }}
+          allow-fail: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        id: authorize
+        if: steps.scope.outputs.needed == 'true'
+        env:
+          TRUST_STATUS: ${{ steps.trust.outputs.status }}
+          MANUAL_REQUEST: ${{ steps.scope.outputs.manual }}
+          TESTED_SHA: ${{ steps.scope.outputs.sha }}
+        with:
+          script: |
+            // Re-read before spending the label or selecting a run: a close,
+            // push, retarget or deleted fork since selection voids it.
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: context.issue.number });
+            if (pr.state !== 'open' || pr.head.sha !== process.env.TESTED_SHA ||
+                pr.base.ref !== pr.base.repo.default_branch || !pr.head.repo) return;
+            let approved = false;
+            if (process.env.MANUAL_REQUEST === 'true') {
+              try {
+                await github.rest.issues.removeLabel({ ...context.repo, issue_number: context.issue.number, name: 'live:verify' });
+                approved = true;
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                return; // Label removal by another maintainer wins.
+              }
+              await github.rest.repos.createCommitStatus({
+                ...context.repo, sha: process.env.TESTED_SHA, context: 'Live verification gate',
+                state: 'pending', description: 'Bounded live verification must pass for this commit.',
+                target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/pull/${context.issue.number}`,
+              });
+            }
+            // An author's trust covers only code they control: an upstream
+            // branch or their own fork, matched by numeric id. Anyone can open
+            // a PR from someone else's fork, so that still needs the label.
+            const owned = pr.head.repo.id === pr.base.repo.id ||
+              (Number.isInteger(pr.user.id) && pr.head.repo.owner.id === pr.user.id);
+            // Do not automatically trust arbitrary bot accounts.
+            const trusted = owned && ['collaborator', 'vouched'].includes(process.env.TRUST_STATUS);
+            core.setOutput('run', approved || trusted ? 'true' : 'false');
+            await core.summary.addRaw(approved || trusted
+              ? 'Bounded live verification selected for this pinned commit.'
+              : 'Live verification is required. A write maintainer can apply live:verify in this PR’s Labels menu to approve this commit.').write();
+  live:
+    name: Live API verification
+    needs: select
+    if: needs.select.outputs.run == 'true'
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+      statuses: write
+    uses: ./.github/workflows/live.yml
+    # A called workflow gets no secrets unless the caller passes them.
+    secrets: inherit
+    with:
+      pull_request: ${{ format('{0}', github.event.pull_request.number) }}
+      expected_sha: ${{ needs.select.outputs.sha }}
+      game: ${{ needs.select.outputs.game }}

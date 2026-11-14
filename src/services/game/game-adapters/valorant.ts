@@ -114,7 +114,7 @@ export const multiKillFlairs = (
   return flairs;
 };
 
-export const riotValMatchToDetails = (
+const riotValMatchToDetails = (
   match: ValMatch,
   content: ValContent,
 ): MatchDetails => {

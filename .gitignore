@@ -7,3 +7,4 @@ accounts.test.json
 *.pnpm-store
 *.sqlite
 *.sqlite-*
+/artifacts/

@@ -14,13 +14,13 @@ Run `bun start` with `DEV_MODE=true` and an isolated `DB_PATH`.
 
 ## Driving it with bun run verify
 
-Preconditions: Bun, ambient `DISCORD_BOT_TOKEN`.
+Preconditions: Bun, `DISCORD_BOT_TOKEN` (via `infisical run`).
 
 - Action: run `bun run verify` or start `bun start` manually.
 - Observable: log contains `slash commands registered` with `devMode: true`, plus `application started` and/or `discord gateway ready`.
 
 ## Gotchas
 
-- Cloud agents use `bun start` with ambient env; `bun dev` restarts on every file change.
+- Use `bun start`, not `bun dev`: `bun dev` restarts on every file change.
 - dfx can emit READY before `makeDiscord` subscribes. Waiting only on `discord gateway ready` flakes. Treat `slash commands registered` plus `application started` as a successful boot; READY often shows up a moment later.
 - Rank-emoji REST used to run before the READY subscription and ate the first READY. Subscribe first, then do REST.
