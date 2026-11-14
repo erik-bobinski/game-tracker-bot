@@ -1,5 +1,4 @@
 .agents/
 .claude/
-.cursor/
 tools/oxlint/anti-slop/
 bun.lock
