@@ -1,7 +1,9 @@
 import { Clock, Context, Duration, Effect, Layer, Ref } from "effect";
 import { Database } from "../database/index.ts";
-import type { MatchReport } from "../discord/embed.ts";
-import { Discord } from "../discord/index.ts";
+import {
+  DeliveryQueue,
+  type DiscoveredMatch,
+} from "../delivery-queue/index.ts";
 import {
   CATCH_UP_MATCH_COUNT,
   enrichOrSkip,
@@ -49,15 +51,13 @@ interface PendingMatch {
 const makeMatchEngine = Effect.gen(function* () {
   const database = yield* Database;
   const gameAdapters = yield* GameAdapters;
-  const discord = yield* Discord;
+  const deliveryQueue = yield* DeliveryQueue;
   const lastPollAt = yield* Ref.make<number | undefined>(undefined);
 
   const pollOnce = Effect.fn("MatchEngine.pollOnce")(function* () {
-    // reports by game:matchId for this poll only: a match discovered now posts
-    // with its rank changes and is fetched once for all its servers. Retries
-    // in later polls fetch it again and omit rank movement, so nothing about
-    // a pending delivery, or the players in it, is held between polls.
-    const reports = new Map<string, MatchReport>();
+    // this poll's reports, which carry the rank changes only it knows; the
+    // delivery queue posts them, and refetches any match it retries later
+    const discovered: Array<DiscoveredMatch> = [];
     const startedAt = yield* Clock.currentTimeMillis;
     const previousPollAt = yield* Ref.get(lastPollAt);
     const catchingUp =
@@ -260,22 +260,21 @@ const makeMatchEngine = Effect.gen(function* () {
           rankSnapshotsByDiscordUserId[player.discordUserId] = snapshots;
           currentRankSnapshots.set(player.puuid, snapshots);
         }
-        reports.set(`${adapter.game}:${matchId}`, {
-          tracked: fresh,
-          match: enrichment.match,
-          rankUpdates: enrichment.rankUpdates,
+        discovered.push({
+          game: adapter.game,
+          matchId,
+          report: {
+            tracked: fresh,
+            match: enrichment.match,
+            rankUpdates: enrichment.rankUpdates,
+          },
         });
         // Persist all destinations before advancing player discovery history.
-        for (const guildId of new Set(fresh.flatMap((p) => p.guildIds))) {
-          yield* database.queueDelivery({
-            game: adapter.game,
-            matchId,
-            guildId,
-            players: fresh
-              .filter((p) => p.guildIds.includes(guildId))
-              .map(({ discordUserId, puuid }) => ({ discordUserId, puuid })),
-          });
-        }
+        yield* deliveryQueue.queue({
+          game: adapter.game,
+          matchId,
+          players: fresh,
+        });
       }
 
       yield* database.markMatchAsReported({
@@ -295,113 +294,7 @@ const makeMatchEngine = Effect.gen(function* () {
       });
     }
 
-    let deliveryAttempts = 0;
-    let deliveriesSucceeded = 0;
-    const matchesReported = new Set<string>();
-    const expired = yield* database.expireDeliveries();
-
-    if (expired.length > 0) {
-      yield* Effect.logWarning("dropped day-old match deliveries").pipe(
-        Effect.annotateLogs({
-          deliveries: expired.map((d) => `${d.game}:${d.matchId}:${d.guildId}`),
-        }),
-      );
-    }
-
-    const deliveries = yield* database.getPendingDeliveries();
-    for (const delivery of deliveries) {
-      const adapter = gameAdapters.all.find((a) => a.game === delivery.game);
-      if (!adapter) continue;
-      // Read each player just before posting: signout, untrack and account
-      // replacement must keep queued reports from exposing a former
-      // subscriber, even one who left earlier in this poll.
-      const current = yield* database.getAccounts();
-
-      const tracked = delivery.players.flatMap((player) => {
-        const account = current.find(
-          (candidate) => candidate.discordUserId === player.discordUserId,
-        );
-
-        const state = account?.games[delivery.game];
-        return account &&
-          account.guildIds.includes(delivery.guildId) &&
-          state?.puuid === player.puuid &&
-          (!adapter.requiresOptIn || state.optedInAt)
-          ? [
-              {
-                ...player,
-                discordName: account.discordName,
-                region: state.region,
-              },
-            ]
-          : [];
-      });
-      if (tracked.length === 0) {
-        yield* database.finishDelivery(delivery);
-        continue;
-      }
-      const guild = yield* database.getGuild(delivery.guildId);
-      if (!guild?.channelId || guild.paused) continue;
-      const channelId = guild.channelId;
-      const key = `${delivery.game}:${delivery.matchId}`;
-      yield* Effect.gen(function* () {
-        // A retry has lost the discovering poll's rank changes, so it enriches
-        // the match again without the saved snapshots: names and current
-        // ranks come back, and only movement that needs no snapshot (exact
-        // per-match RR) is shown. Nothing it reads is saved.
-        const report =
-          reports.get(key) ??
-          (yield* Effect.gen(function* () {
-            const match = yield* adapter.getMatch(
-              delivery.matchId,
-              tracked[0]?.region,
-            );
-            if (!match) return undefined;
-            const enrichment = yield* enrichOrSkip(adapter, {
-              match,
-              trackedPlayers: tracked.map(({ puuid, region }) => ({
-                puuid,
-                region,
-                previousRankSnapshots: {},
-              })),
-            });
-            return { tracked, ...enrichment };
-          }));
-        if (!report) return; // Leave queued if the API cannot currently decode it.
-        // only this server's players: the others' rank changes aren't its
-        const trackedPuuids = new Set(tracked.map((p) => p.puuid));
-
-        deliveryAttempts += 1;
-        // Discord and SQLite cannot commit atomically. Not letting a shutdown
-        // land between them leaves only a crash to duplicate a delivery.
-        yield* Effect.uninterruptible(
-          Effect.andThen(
-            discord.notifyMatch(
-              { guildId: delivery.guildId, channelId },
-              {
-                tracked,
-                match: report.match,
-                rankUpdates: new Map(
-                  [...report.rankUpdates].filter(([puuid]) =>
-                    trackedPuuids.has(puuid),
-                  ),
-                ),
-              },
-            ),
-            database.finishDelivery(delivery),
-          ),
-        );
-        deliveriesSucceeded += 1;
-        matchesReported.add(key);
-      }).pipe(
-        Effect.catchTag("DiscordError", (error) =>
-          Effect.logWarning("match delivery queued for retry", error),
-        ),
-        Effect.catchTag("GameApiError", (error) =>
-          logApiWarning("queued match unavailable; retrying next poll", error),
-        ),
-      );
-    }
+    const delivered = yield* deliveryQueue.deliver(discovered);
 
     // the gap that matters is from this poll's end to the next one's start
     yield* Ref.set(lastPollAt, yield* Clock.currentTimeMillis);
@@ -410,9 +303,7 @@ const makeMatchEngine = Effect.gen(function* () {
       catchingUp,
       accountsScanned: accounts.length,
       accountsPolled,
-      matchesReported: matchesReported.size,
-      deliveryAttempts,
-      deliveriesSucceeded,
+      ...delivered,
     };
   });
 

@@ -36,6 +36,10 @@ import {
   MatchEngine,
   MatchEngineLive,
 } from "../services/match-engine/index.ts";
+import {
+  DeliveryQueue,
+  DeliveryQueueLive,
+} from "../services/delivery-queue/index.ts";
 
 // This is deliberately finite: no gateway, command sync, production database,
 // automatic account discovery, or polling daemon. See .agents/skills/verify-game-tracker-bot/SKILL.md.
@@ -161,6 +165,7 @@ const main = Effect.gen(function* () {
       const rest = yield* DiscordREST;
       const card = yield* MatchCard;
       const engine = MatchEngineLive.pipe(
+        Layer.provideMerge(DeliveryQueueLive),
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(Database, db),
@@ -217,7 +222,7 @@ const main = Effect.gen(function* () {
         const second = yield* matchEngine.pollOnce();
         if (
           second.deliveryAttempts !== 0 ||
-          (yield* db.getPendingDeliveries()).length !== 0
+          (yield* (yield* DeliveryQueue).pending()).length !== 0
         )
           return yield* Effect.die("Repeat poll was not clean");
         stage = "subscription cleanup";
