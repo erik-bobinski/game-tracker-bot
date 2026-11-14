@@ -21,4 +21,4 @@ Preconditions: `DISCORD_BOT_TOKEN`, `NOTIFICATION_CHANNEL_ID`.
 
 - Outbound only — no Discord user session required.
 - Reuses the same mock payloads as `/dev_report`.
-- Cloud agents should not log into Discord web to confirm the post. REST success plus JSON `channelId` is the proof.
+- REST success plus JSON `channelId` is the proof; no Discord web login needed.

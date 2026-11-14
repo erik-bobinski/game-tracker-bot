@@ -170,6 +170,23 @@ GITHUB_TOKEN permissions read-only. No persistent GitHub secret, Railway access,
 per-contributor identity or production bot token is needed. See the
 [Infisical GitHub OIDC guide](https://infisical.com/docs/documentation/platform/identities/oidc-auth/github).
 
+## One-match replay (`report-match`)
+
+`bun run admin report-match 'name#tag' --game <game> [--index n] [--out card.png]`
+runs one live match through the same adapter, enrichment and posting path the
+match engine uses, with no bot process or polling. Run it for any change to
+adapters, enrichment, the card or the embed: render with `--out` first, then post
+to the dev channel and check it. The recipe, including how to find a player who
+played a given mode, is in [`features/report-match.md`](features/report-match.md).
+
+## Feature recipes
+
+Optional manual recipes for one behavior at a time, driven through
+`bun run admin … --json`: [bot boot](features/bot-boot.md),
+[signup](features/signup.md), [track and untrack](features/track.md),
+[report mock](features/report-mock.md), [report match](features/report-match.md)
+and [servers](features/servers.md).
+
 ## Desktop Discord checklist for agents
 
 Use the dedicated `agent` test account in **riot-tracker-testing →
