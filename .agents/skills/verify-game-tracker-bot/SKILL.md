@@ -90,7 +90,7 @@ This follows T3 Code's [PR Vouch](https://github.com/pingdotgg/t3code/blob/main/
 and [one-use fork preview label](https://github.com/pingdotgg/t3code/blob/main/.github/workflows/mobile-eas-preview-fork.yml)
 patterns, adapted to real API tests:
 
-- Normal CI runs format, lint, typecheck, offline tests and audit for public PRs.
+- Normal CI runs the `bun run check` steps, with no API keys, for public PRs.
 - The trusted `live-gate.yml` workflow reads GitHub metadata to determine whether
   runtime `src/`, dependencies, dependency patches, Dockerfile, trust policy or
   CI/live workflows changed. Docs and test-only changes need no API call.

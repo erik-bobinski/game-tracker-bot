@@ -124,7 +124,7 @@ multi-player reports while you're alone in the test server.
 
 ```sh
 bun dev           # restarts on change, loads .env
-bun run check     # format, lint, typecheck, tests and audit, as CI runs them
+bun run check     # every check CI runs, as listed in package.json
 ```
 
 ## Architecture
