@@ -12,11 +12,11 @@ Starts the live Discord bot process and confirms it is serving commands. Uses on
 
 Run `bun start` with `DEV_MODE=true` and an isolated `DB_PATH`.
 
-## Driving it with bun run verify
+## Driving it
 
 Preconditions: Bun, `DISCORD_BOT_TOKEN` (via `infisical run`).
 
-- Action: run `bun run verify` or start `bun start` manually.
+- Action: `bun start`. Not `bun run verify`: that's the live test, which never starts the gateway or registers commands.
 - Observable: log contains `slash commands registered` with `devMode: true`, plus `application started` and/or `discord gateway ready`.
 
 ## Gotchas
