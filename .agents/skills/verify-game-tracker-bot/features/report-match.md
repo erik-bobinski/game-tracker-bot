@@ -14,9 +14,9 @@ Reports one real, recent match through the path the match engine takes when it p
 
 ## Driving it with admin CLI
 
-Preconditions: `RIOT_API_KEY`, `RIOT_TFT_API_KEY`, `HENRIK_API_KEY`, isolated `DB_PATH`. Posting also needs `DISCORD_BOT_TOKEN` and `NOTIFICATION_CHANNEL_ID`. Locally, load them with `set -a && . .env.dev && set +a`. The dev Riot key for League expires every 24 hours, so a 401 on `--game lol` means the key needs renewing, not that the command is broken.
+Preconditions: `RIOT_API_KEY`, `RIOT_TFT_API_KEY`, `HENRIK_API_KEY`, isolated `DB_PATH`. Posting also needs `DISCORD_BOT_TOKEN` and `NOTIFICATION_CHANNEL_ID`. Run the commands inside the parent skill's `infisical run` command, which supplies the keys and the dev bot token, with `NOTIFICATION_CHANNEL_ID` exported as shown there. The dev Riot key for League expires every 24 hours, so a 401 on `--game lol` means the key needs renewing, not that the command is broken.
 
-1. Pick a riot id whose recent matches cover what you changed. Tracked accounts come from `bun run admin status --json`, locally or over `railway ssh` (see the parent skill). To test a specific mode, any public player works. Valorant leaderboard players come from Henrik, and League or TFT ladder players from Riot:
+1. Pick a riot id whose recent matches cover what you changed: `LIVE_RIOT_ID`, an account in your dev database (`bun run admin status --json`), or, to test a specific mode, any public player. Valorant leaderboard players come from Henrik, and League or TFT ladder players from Riot:
    ```bash
    curl -s -H "Authorization: $HENRIK_API_KEY" "https://api.henrikdev.xyz/valorant/v3/leaderboard/na/pc?size=20" | jq -r '.data.players[] | "\(.name)#\(.tag)"'
    curl -s -H "X-Riot-Token: $RIOT_TFT_API_KEY" https://na1.api.riotgames.com/tft/league/v1/challenger | jq -r '.entries[0].puuid'

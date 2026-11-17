@@ -21,6 +21,5 @@ Preconditions: `RIOT_API_KEY`, `RIOT_TFT_API_KEY`, `HENRIK_API_KEY`, isolated `D
 ## Gotchas
 
 - Signup calls live Riot/Henrik APIs; a bad riot id fails the step.
-- Prefer a production Riot ID from `railway ssh -- bun run admin status --json`. Do not hardcode `VERIFY_RIOT_ID` when Railway works.
+- Use `LIVE_RIOT_ID` or a public ladder player (see step 1 of [Report match](./report-match.md)), not an ID listed from production.
 - A Henrik 404 on Valorant (`play a game` / account payload missing) is expected for some Riot IDs when `--game valorant` is passed. Valorant stays untracked; the other games still save.
-- `railway whoami` Unauthorized does not mean signup cannot get a production id. See the parent skill's Railway section.
