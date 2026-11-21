@@ -8,11 +8,9 @@ import {
   Exit,
   Layer,
   Match,
-  Option,
   Schema,
 } from "effect";
 import { Base64 } from "effect/encoding";
-import type { DiscordREST } from "dfx";
 import * as HttpClient from "effect/http/HttpClient";
 import satori, { type Font } from "satori";
 import type { JSXNode } from "satori/jsx";
@@ -28,15 +26,12 @@ import type {
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import {
   formatDuration,
-  matchEmbed,
-  matchSummary,
   matchVerdict,
   placementVerdict,
   playerName,
   teamLabel,
   type MatchReport,
   type PlacementReport,
-  type RankEmojis,
   type VersusReport,
 } from "./embed.ts";
 
@@ -849,41 +844,3 @@ export class MatchCard extends Context.Service<
 >()("app/MatchCard") {}
 
 export const MatchCardLive = Layer.effect(MatchCard, make);
-
-export const postMatchReport = Effect.fn("Discord.postMatchReport")(function* (
-  {
-    rest,
-    channelId,
-    card,
-    rankEmojis,
-  }: {
-    readonly rest: DiscordREST["Service"];
-    readonly channelId: string;
-    readonly card: MatchCard["Service"];
-    readonly rankEmojis: RankEmojis;
-  },
-  report: MatchReport,
-) {
-  const png = yield* card.render(report).pipe(
-    Effect.tapError((error) =>
-      Effect.logError("match card render failed; posting the embed", error),
-    ),
-    Effect.option,
-  );
-  if (Option.isNone(png)) {
-    return yield* rest.createMessage(channelId, {
-      embeds: [matchEmbed(report, rankEmojis)],
-      allowed_mentions: { parse: [] },
-    });
-  }
-  const filename = "match-report.png";
-  return yield* rest
-    .createMessage(channelId, {
-      content: matchSummary(report),
-      allowed_mentions: { parse: [] },
-      attachments: [{ id: "0", filename }],
-    })
-    .pipe(
-      rest.withFiles([new File([png.value], filename, { type: "image/png" })]),
-    );
-});

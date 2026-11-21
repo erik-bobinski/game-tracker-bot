@@ -19,12 +19,12 @@ import {
   MemoryRateLimitStoreLive,
 } from "dfx";
 import { Database, DatabaseLive } from "../services/database/index.ts";
-import { Discord, DiscordError } from "../services/discord/index.ts";
 import {
-  MatchCard,
-  MatchCardLive,
+  Discord,
+  DiscordError,
   postMatchReport,
-} from "../services/discord/match-card.tsx";
+} from "../services/discord/index.ts";
+import { MatchCard, MatchCardLive } from "../services/discord/match-card.tsx";
 import {
   GameAdapters,
   GameAdaptersLive,

@@ -27,11 +27,8 @@ import {
 } from "../services/account/index.ts";
 import { buildMockMatchReport } from "../services/discord/dev-commands.ts";
 import type { MatchReport } from "../services/discord/embed.ts";
-import {
-  MatchCard,
-  MatchCardLive,
-  postMatchReport,
-} from "../services/discord/match-card.tsx";
+import { postMatchReport } from "../services/discord/index.ts";
+import { MatchCard, MatchCardLive } from "../services/discord/match-card.tsx";
 import {
   Database,
   DatabaseLive,
