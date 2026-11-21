@@ -6,6 +6,7 @@ import { Database as Sqlite } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { ConfigProvider, Effect, Layer, Result } from "effect";
 import { Database, DatabaseLive } from "../database/index.ts";
+import { DeliveryQueue, DeliveryQueueLive } from "../delivery-queue/index.ts";
 import { Discord, DiscordError } from "../discord/index.ts";
 import { MatchEngine, MatchEngineLive } from "./index.ts";
 import {
@@ -75,8 +76,13 @@ test("deliveries survive restart, newer matches and partial server failure", asy
         }),
     }),
   );
-  const live = MatchEngineLive.pipe(Layer.provideMerge(dependencies));
-  const run = <A, E>(effect: Effect.Effect<A, E, MatchEngine | Database>) =>
+  const live = MatchEngineLive.pipe(
+    Layer.provideMerge(DeliveryQueueLive),
+    Layer.provideMerge(dependencies),
+  );
+  const run = <A, E>(
+    effect: Effect.Effect<A, E, MatchEngine | DeliveryQueue | Database>,
+  ) =>
     Effect.runPromise(
       effect.pipe(
         Effect.provide(live),
@@ -93,6 +99,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
     await run(
       Effect.gen(function* () {
         const db = yield* Database;
+        const queue = yield* DeliveryQueue;
         for (const status of [404, 429, 503]) {
           const request = HttpClientRequest.get(
             "https://example.invalid/account",
@@ -169,7 +176,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
         const result = yield* (yield* MatchEngine).pollOnce();
         expect(result.deliveryAttempts).toBe(4);
         expect(result.deliveriesSucceeded).toBe(2);
-        expect((yield* db.getPendingDeliveries()).length).toBe(2);
+        expect((yield* queue.pending()).length).toBe(2);
       }),
     );
     expect(posted).toEqual(["old:a:one,two", "new:a:one,two"]);
@@ -179,17 +186,16 @@ test("deliveries survive restart, newer matches and partial server failure", asy
     await run(
       Effect.gen(function* () {
         const db = yield* Database;
+        const queue = yield* DeliveryQueue;
         yield* db.updateGuild("b", { paused: true });
         expect((yield* (yield* MatchEngine).pollOnce()).deliveryAttempts).toBe(
           0,
         );
-        expect((yield* db.getPendingDeliveries()).length).toBe(2);
+        expect((yield* queue.pending()).length).toBe(2);
         yield* db.updateGuild("b", { paused: false });
         const result = yield* (yield* MatchEngine).pollOnce();
         expect(result.deliveriesSucceeded).toBe(2);
-        expect((yield* (yield* Database).getPendingDeliveries()).length).toBe(
-          0,
-        );
+        expect((yield* queue.pending()).length).toBe(0);
       }),
     );
     const delivered = [
@@ -202,33 +208,33 @@ test("deliveries survive restart, newer matches and partial server failure", asy
     await run(
       Effect.gen(function* () {
         const db = yield* Database;
+        const queue = yield* DeliveryQueue;
         // a server removed mid-poll is skipped rather than failing the poll
-        yield* db.queueDelivery({
+        yield* queue.queue({
           game: "tft",
           matchId: MatchId.make("old"),
-          guildId: "gone",
-          players: [{ discordUserId: "one", puuid }],
+          players: [{ discordUserId: "one", puuid, guildIds: ["gone"] }],
         });
-        expect((yield* db.getPendingDeliveries()).length).toBe(0);
-        yield* db.queueDelivery({
+        expect((yield* queue.pending()).length).toBe(0);
+        yield* queue.queue({
           game: "tft",
           matchId: MatchId.make("cancelled"),
-          guildId: "b",
-          players: [{ discordUserId: "one", puuid }],
+          players: [{ discordUserId: "one", puuid, guildIds: ["b"] }],
         });
         yield* db.removeGames({ discordUserId: "one", games: ["tft"] });
-        expect((yield* db.getPendingDeliveries())[0]?.players).toEqual([]);
+        expect((yield* queue.pending())[0]?.players).toEqual([]);
         const result = yield* (yield* MatchEngine).pollOnce();
         expect(result.deliveryAttempts).toBe(0);
-        expect((yield* db.getPendingDeliveries()).length).toBe(0);
-        yield* db.queueDelivery({
+        expect((yield* queue.pending()).length).toBe(0);
+        yield* queue.queue({
           game: "tft",
           matchId: MatchId.make("signout"),
-          guildId: "b",
-          players: [{ discordUserId: "two", puuid: secondPuuid }],
+          players: [
+            { discordUserId: "two", puuid: secondPuuid, guildIds: ["b"] },
+          ],
         });
         yield* db.leaveGuild({ guildId: "b", discordUserId: "two" });
-        expect((yield* db.getPendingDeliveries())[0]?.players).toEqual([]);
+        expect((yield* queue.pending())[0]?.players).toEqual([]);
       }),
     );
     // Re-subscribe before the empty cancelled row is drained. Discovery must
@@ -237,6 +243,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
     await run(
       Effect.gen(function* () {
         const db = yield* Database;
+        const queue = yield* DeliveryQueue;
         yield* db.subscribe({ guildId: "b", discordUserId: "two" });
         yield* db.addGame({
           discordUserId: "two",
@@ -250,7 +257,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
         });
         const result = yield* (yield* MatchEngine).pollOnce();
         expect(result.deliveriesSucceeded).toBe(2);
-        expect((yield* db.getPendingDeliveries()).length).toBe(0);
+        expect((yield* queue.pending()).length).toBe(0);
       }),
     );
     delivered.push("signout:b:two", "signout:a:two");
@@ -267,6 +274,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
     await run(
       Effect.gen(function* () {
         const db = yield* Database;
+        const queue = yield* DeliveryQueue;
         yield* db.addAccount({
           discordUserId: "three",
           discordName: "three",
@@ -284,7 +292,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
         });
         const result = yield* (yield* MatchEngine).pollOnce();
         expect(result.deliveryAttempts).toBe(1);
-        expect((yield* db.getPendingDeliveries()).length).toBe(0);
+        expect((yield* queue.pending()).length).toBe(0);
         expect(
           (yield* db.getAccount("three"))?.games.tft?.reportedMatches.map(
             (m) => m.matchId,
@@ -340,6 +348,7 @@ test("catch-up posts a bounded backlog after downtime", async () => {
     getRank: () => Effect.succeed(undefined),
   };
   const live = MatchEngineLive.pipe(
+    Layer.provide(DeliveryQueueLive),
     Layer.provideMerge(
       Layer.mergeAll(
         DatabaseLive,

@@ -65,41 +65,9 @@ export interface Guild {
   readonly paused: boolean;
 }
 
-const DeliveryKey = Schema.Struct({
-  game: GameId,
-  matchId: MatchId,
-  guildId: Schema.String,
-});
-const DeliveryPlayers = Schema.fromJsonString(
-  Schema.Array(
-    Schema.Struct({
-      discordUserId: Schema.String,
-      puuid: Puuid,
-    }),
-  ),
-);
-const PendingDelivery = Schema.Struct({
-  ...DeliveryKey.fields,
-  players: DeliveryPlayers,
-});
-
 export class Database extends Context.Service<
   Database,
   {
-    readonly queueDelivery: (
-      input: typeof PendingDelivery.Type,
-    ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
-    readonly expireDeliveries: () => Effect.Effect<
-      ReadonlyArray<typeof DeliveryKey.Type>,
-      SqlError | Schema.SchemaError
-    >;
-    readonly getPendingDeliveries: () => Effect.Effect<
-      ReadonlyArray<typeof PendingDelivery.Type>,
-      SqlError | Schema.SchemaError
-    >;
-    readonly finishDelivery: (
-      input: typeof DeliveryKey.Type,
-    ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
     // inserts the account or replaces its riot account, adding its servers to
     // the ones it already reports in
     readonly addAccount: (
@@ -340,7 +308,8 @@ const migrations = SqliteMigrator.fromRecord({
     const sql = yield* SqlClient;
     yield* sql`ALTER TABLE account_games ADD COLUMN opted_in_at TEXT`;
   }),
-  // one row per server a discovered match posts to, deleted once it posts
+  // one row per server a discovered match posts to, deleted once it posts;
+  // read and written by ../delivery-queue/index.ts
   "7_create_match_deliveries": Effect.gen(function* () {
     const sql = yield* SqlClient;
     yield* sql`CREATE TABLE match_deliveries (
@@ -1030,47 +999,7 @@ const makeDatabase = Effect.gen(function* () {
     Effect.annotateLogs({ dbPath }),
   );
 
-  const queueDelivery = SqlSchema.void({
-    Request: PendingDelivery,
-    execute: (
-      row,
-    ) => sql`INSERT INTO match_deliveries (game, match_id, guild_id, players)
-      SELECT ${row.game}, ${row.matchId}, ${row.guildId}, ${row.players}
-      WHERE EXISTS (SELECT 1 FROM guilds WHERE guild_id = ${row.guildId})
-      ON CONFLICT (game, match_id, guild_id) DO UPDATE
-      SET players = excluded.players, queued_at = CURRENT_TIMESTAMP
-      WHERE json_array_length(match_deliveries.players) = 0`,
-  });
-
-  // A day-old row is dropped rather than retried: henrik can only refetch a
-  // match still in a player's recent history, and a channel failing that long
-  // shouldn't flood with its backlog once it works again.
-  const expireDeliveries = SqlSchema.findAll({
-    Request: Schema.Void,
-    Result: DeliveryKey,
-    execute: () => sql`DELETE FROM match_deliveries
-      WHERE queued_at < datetime('now', '-1 day')
-      RETURNING game, match_id AS "matchId", guild_id AS "guildId"`,
-  });
-
-  const getPendingDeliveries = SqlSchema.findAll({
-    Request: Schema.Void,
-    Result: PendingDelivery,
-    execute:
-      () => sql`SELECT game, match_id AS "matchId", guild_id AS "guildId", players
-      FROM match_deliveries ORDER BY rowid`,
-  });
-  const finishDelivery = SqlSchema.void({
-    Request: DeliveryKey,
-    execute: (row) => sql`DELETE FROM match_deliveries
-      WHERE game = ${row.game} AND match_id = ${row.matchId} AND guild_id = ${row.guildId}`,
-  });
-
   return Database.of({
-    queueDelivery,
-    expireDeliveries,
-    getPendingDeliveries,
-    finishDelivery,
     addAccount,
     addGame,
     updateRiotId,
@@ -1101,6 +1030,9 @@ const DatabaseSchemaLive = SqliteMigrator.layer({
   loader: migrations,
 }).pipe(Layer.provideMerge(SqliteLive));
 
+// Also provides the migrated SqlClient, for a module that keeps its own
+// queries (the delivery queue).
 export const DatabaseLive = Layer.effect(Database, makeDatabase).pipe(
-  Layer.provide([DatabaseSchemaLive, BunFileSystem.layer]),
+  Layer.provideMerge(DatabaseSchemaLive),
+  Layer.provide(BunFileSystem.layer),
 );

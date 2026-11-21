@@ -3,6 +3,7 @@ import { Cause, Config, Effect, Exit, Layer, Logger, References } from "effect";
 import { Polling, PollingLive } from "./services/polling/index.ts";
 import { PollingStateLive } from "./services/polling/state.ts";
 import { DatabaseLive } from "./services/database/index.ts";
+import { DeliveryQueueLive } from "./services/delivery-queue/index.ts";
 import { DiscordLive } from "./services/discord/index.ts";
 import { MatchCardLive } from "./services/discord/match-card.tsx";
 import { GameAdaptersLive } from "./services/game/game-adapters/index.ts";
@@ -41,6 +42,7 @@ const StateLive = PollingStateLive.pipe(Layer.provideMerge(DatabaseLive));
 // the web server carries the public pages and riot's sign-in callback
 const AppLive = Layer.mergeAll(PollingLive, WebLive).pipe(
   Layer.provide(MatchEngineLive),
+  Layer.provide(DeliveryQueueLive),
   Layer.provide(DiscordLive),
   Layer.provide(MatchCardLive),
   Layer.provide(Layer.mergeAll(StateLive, GameLive)),

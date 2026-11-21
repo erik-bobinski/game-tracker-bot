@@ -139,7 +139,8 @@ src/
   admin/             the admin CLI, a second entry point
   services/
     polling/         ticks every 3 minutes, unless paused
-    match-engine/    finds new matches and reports them
+    match-engine/    finds new matches and queues them for delivery
+    delivery-queue/  posts queued matches once per server, retrying failures
     game/            game-agnostic types, one adapter and API client per game
     discord/         gateway, slash commands, embeds and cards
     database/        SQLite storage and migrations
@@ -197,8 +198,9 @@ enriches the match again without the saved rank snapshots, so it shows current
 ranks and only movement that needs no snapshot (Valorant's per-match RR). A posted delivery's row is deleted; each player's own reported
 match history is what stops a rediscovery from posting again.
 
-`src/services/match-engine/delivery.test.ts` covers this with temporary SQLite
-files and stubbed game and Discord services, run by `bun run check`.
+These rules live in `src/services/delivery-queue`. Its `index.test.ts` and
+`src/services/match-engine/delivery.test.ts` cover them with temporary SQLite
+databases and stubbed game and Discord services, run by `bun run check`.
 It needs no credentials and does not connect a bot. Live Discord command registration
 and UI behavior still need verification in a dedicated development server.
 
