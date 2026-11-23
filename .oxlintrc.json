@@ -30,6 +30,7 @@
   ],
   "rules": {
     "import/no-cycle": "error",
+    "import/no-nodejs-modules": "error",
     "oxc/no-accumulating-spread": "error",
     "anti-slop/no-array-filter-map": "error",
     "anti-slop/no-chained-type-assertions": "error",
