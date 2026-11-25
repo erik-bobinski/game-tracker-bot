@@ -251,7 +251,7 @@ const Summary = ({
   onOpen,
 }: Headline & { onOpen: () => void }) => (
   <article
-    className={`relative flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded border-l-4 bg-embed px-3 py-2.5 hover:bg-raised sm:flex-nowrap ${bar[outcome]}`}
+    className={`relative flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded border-l-4 bg-embed px-3 py-2.5 hover:bg-raised md:flex-nowrap ${bar[outcome]}`}
   >
     {game && (
       <img
@@ -262,7 +262,7 @@ const Summary = ({
       />
     )}
     {/* the headline keeps its line; a crowded lobby's friends wrap instead */}
-    <div className="min-w-0 flex-1 sm:min-w-56">
+    <div className="min-w-0 flex-1 md:min-w-56">
       <h2 className="text-sm font-extrabold">
         <button
           type="button"
@@ -282,8 +282,8 @@ const Summary = ({
         {details.filter(Boolean).join(" · ")}
       </p>
     </div>
-    <div className="flex basis-full items-center justify-between gap-x-4 pl-11 sm:basis-auto sm:pl-0">
-      <ul className="flex flex-wrap gap-x-4 gap-y-1 sm:justify-end">
+    <div className="flex basis-full items-center justify-between gap-x-4 pl-11 md:basis-auto md:pl-0">
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 md:justify-end">
         {friends.map(({ friend, portrait, result, resultTone }) => (
           <li
             key={friend.discordUserId}
@@ -306,7 +306,7 @@ const Summary = ({
           </li>
         ))}
       </ul>
-      <span className="shrink-0 text-right text-xs whitespace-nowrap text-faint sm:w-44">
+      <span className="shrink-0 text-right text-xs whitespace-nowrap text-faint md:w-44">
         <Time at={entry.playedAt} short />
       </span>
     </div>

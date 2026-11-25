@@ -203,7 +203,9 @@ const ApiLive = HttpApiBuilder.layer(SiteApi).pipe(
 
 // The site, built into web/dist by `bun run build:web`: one page for /feed
 // and its fingerprinted assets, which never change under the same name. The
-// game icons kept in the repo are served alongside.
+// page itself is checked on every visit, so a deploy reaches browsers at once
+// rather than whenever their cached copy goes stale. The game icons kept in
+// the repo are served alongside.
 const site = new URL("../../../web/dist/", import.meta.url).pathname;
 const SiteLive = Layer.mergeAll(
   HttpStaticServer.layer({
@@ -211,7 +213,13 @@ const SiteLive = Layer.mergeAll(
     prefix: "/game-assets",
     cacheControl: "public, max-age=86400",
   }),
-  HttpRouter.add("GET", "/feed", HttpServerResponse.file(`${site}index.html`)),
+  HttpRouter.add(
+    "GET",
+    "/feed",
+    HttpServerResponse.file(`${site}index.html`, {
+      headers: { "cache-control": "no-cache" },
+    }),
+  ),
   HttpStaticServer.layer({
     root: `${site}assets`,
     prefix: "/assets",
