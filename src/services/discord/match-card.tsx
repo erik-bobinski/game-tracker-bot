@@ -24,6 +24,7 @@ import type {
   PlacementPlayer,
   Puuid,
   RankUpdate,
+  VersusPlayer,
 } from "../game/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import {
@@ -31,6 +32,8 @@ import {
   matchEmbed,
   matchSummary,
   matchVerdict,
+  ordinal,
+  placementHalves,
   placementVerdict,
   playerName,
   teamLabel,
@@ -223,7 +226,7 @@ const Row = ({
   mvp?: boolean;
   portrait: JSXNode;
   headline: string;
-  detail?: string;
+  detail?: string | undefined;
 }) => {
   const update = report.rankUpdates.get(player.puuid);
   const delta = rankDelta(update);
@@ -579,19 +582,20 @@ const versusCard = (report: VersusReport, images: CardImages) => {
 const placementCard = (report: PlacementReport, images: CardImages) => {
   const { match } = report;
   const { key, label, trackedPuuids } = placementVerdict(report);
-  const players = [...match.players].sort((a, b) => a.placement - b.placement);
-  const half = Math.ceil(players.length / 2);
+  const { halves, teams } = placementHalves(match.players);
   const column = (title: string, group: ReadonlyArray<PlacementPlayer>) => ({
     label: title,
     color: group.every((player) => player.won) ? colors.up : colors.down,
-    rows: group.map((player) => {
+    rows: group.flatMap((player, index) => {
       const tint =
         player.placement === 1
           ? colors.gold
           : player.won
             ? colors.up
             : colors.down;
-      return (
+      // a champion takes the portrait, so the place moves to the right
+      const champion = images.characters.get(player.puuid);
+      const row = (
         <Row
           player={player}
           name={playerName(player)}
@@ -599,27 +603,36 @@ const placementCard = (report: PlacementReport, images: CardImages) => {
           images={images}
           tracked={trackedPuuids.has(player.puuid)}
           portrait={
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-                width: 34,
-                height: 34,
-                borderRadius: 6,
-                backgroundColor: `${tint}2e`,
-                color: tint,
-                fontSize: 18,
-                fontWeight: 800,
-              }}
-            >
-              {String(player.placement)}
-            </div>
+            champion ? (
+              <Icon src={champion} size={34} alt={player.character ?? ""} />
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  width: 34,
+                  height: 34,
+                  borderRadius: 6,
+                  backgroundColor: `${tint}2e`,
+                  color: tint,
+                  fontSize: 18,
+                  fontWeight: 800,
+                }}
+              >
+                {String(player.placement)}
+              </div>
+            )
           }
-          headline={player.stat}
+          headline={champion ? ordinal(player.placement) : player.stat}
+          detail={champion ? player.stat : undefined}
         />
       );
+      // a gap between teams, so each one reads as a group
+      const nextTeam =
+        teams && index > 0 && group[index - 1]?.placement !== player.placement;
+      return nextTeam ? [<div style={{ height: 6 }} />, row] : [row];
     }),
   });
 
@@ -630,10 +643,12 @@ const placementCard = (report: PlacementReport, images: CardImages) => {
       game={match.game}
       label={label}
       details={[match.mode, match.map, formatDuration(match.durationSeconds)]}
-      columns={[
-        column(`Top ${half}`, players.slice(0, half)),
-        column(`Bottom ${players.length - half}`, players.slice(half)),
-      ]}
+      columns={halves.map((half, index) =>
+        column(
+          `${index === 0 ? "Top" : "Bottom"} ${half.places}${teams ? " teams" : ""}`,
+          half.players,
+        ),
+      )}
     />
   );
 };
@@ -775,8 +790,8 @@ const make = Effect.gen(function* () {
         {
           game: image(icons?.game),
           characters: perPlayer(
-            match.kind === "versus" ? match.players : [],
-            (player) => player.characterIconUrl,
+            match.players,
+            (player: VersusPlayer | PlacementPlayer) => player.characterIconUrl,
           ),
           ranks: perPlayer(match.players, (player: MatchPlayerIdentity) =>
             rankIcon(tierChange(player)?.to.iconKey ?? player.rankIconKey),

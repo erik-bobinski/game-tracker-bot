@@ -62,10 +62,14 @@ const VersusPlayer = Schema.Struct({
 });
 export interface VersusPlayer extends Schema.Schema.Type<typeof VersusPlayer> {}
 
+// teammates share a placement, as a trio in arena does
 const PlacementPlayer = Schema.Struct({
   ...MatchPlayerIdentity.fields,
   placement: Schema.Number,
   won: Schema.Boolean,
+  // the champion or agent they played, in games that have one
+  character: Schema.optional(Schema.String),
+  characterIconUrl: Schema.optional(Schema.String),
 });
 export interface PlacementPlayer extends Schema.Schema.Type<
   typeof PlacementPlayer

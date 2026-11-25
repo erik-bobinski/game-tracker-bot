@@ -35,12 +35,14 @@ test("history import saves pre-website matches since each signup", async () => {
     bob: ["soon", "solo"],
   };
   let failing = true;
+  let mode = "test";
+  let down: string | undefined;
   const match = (id: MatchId): MatchDetails => ({
     kind: "placement",
     game: "tft",
     matchId: id,
     date: EpochMillis.make(dates.get(id) ?? 0),
-    mode: "test",
+    mode,
     durationSeconds: 60,
     players: Object.entries(players)
       .filter(([, ids]) => ids.includes(id))
@@ -73,7 +75,12 @@ test("history import saves pre-website matches since each signup", async () => {
               MatchId.make(id),
             ),
           ),
-    getMatch: (id) => Effect.succeed(match(id)),
+    getMatch: (id) =>
+      id === down
+        ? Effect.fail(
+            new GameApiError({ game: "tft", operation: "test", cause: "down" }),
+          )
+        : Effect.succeed(match(id)),
     enrichMatch: ({ match }) => Effect.succeed(emptyEnrichment(match)),
     getRank: () => Effect.succeed(undefined),
   };
@@ -198,6 +205,37 @@ test("history import saves pre-website matches since each signup", async () => {
       }),
     );
     expect(posts()).toEqual(imported);
+
+    // a queued match is fetched again and its scoreboard replaced; one the api
+    // can't answer stays queued for the next start
+    const sqlite = raw();
+    sqlite.run(
+      `INSERT INTO match_refetches VALUES ('tft', 'solo'), ('tft', 'soon')`,
+    );
+    sqlite.close();
+    mode = "refetched";
+    down = "soon";
+    await run(
+      Effect.gen(function* () {
+        yield* (yield* MatchEngine).refetchMatches();
+      }),
+    );
+    const saved = raw();
+    expect(
+      saved
+        .query<{ row: string }, []>(
+          `SELECT match_id || ':' || json_extract(details, '$.mode') AS row
+          FROM matches WHERE match_id IN ('solo', 'soon') ORDER BY row`,
+        )
+        .all()
+        .map(({ row }) => row),
+    ).toEqual(["solo:refetched", "soon:test"]);
+    expect(
+      saved
+        .query<{ match_id: string }, []>(`SELECT match_id FROM match_refetches`)
+        .all(),
+    ).toEqual([{ match_id: "soon" }]);
+    saved.close();
   } finally {
     await Bun.file(dbPath).delete();
   }

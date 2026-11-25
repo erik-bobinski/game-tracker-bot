@@ -33,8 +33,17 @@ const makePolling = Effect.gen(function* () {
     Effect.tapError((error) => Effect.logError("history import failed", error)),
     Effect.ignore,
   );
+  const refetchMatches = matchEngine.refetchMatches().pipe(
+    Effect.tapError((error) => Effect.logError("refetch failed", error)),
+    Effect.ignore,
+  );
 
-  return { run: Effect.andThen(importHistory, pollLoop) };
+  return {
+    run: refetchMatches.pipe(
+      Effect.andThen(importHistory),
+      Effect.andThen(pollLoop),
+    ),
+  };
 });
 
 export class Polling extends Context.Service<
