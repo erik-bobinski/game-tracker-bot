@@ -1,33 +1,30 @@
 import { RegistryProvider } from "@effect/atom-react";
+import { Option, Schema } from "effect";
 import {
   createRootRoute,
   createRoute,
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { Schema } from "effect";
+import { FeedFilters } from "../../src/services/web/api.ts";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { GameId } from "../../src/services/game/index.ts";
 import { Feed } from "./feed.tsx";
 import "./styles.css";
 
-// the feed's filters live in the url, so a filtered view can be shared
-const FeedSearch = Schema.Struct({
-  server: Schema.optional(Schema.String),
-  game: Schema.optional(GameId),
-  player: Schema.optional(Schema.String),
-  order: Schema.optional(Schema.Literals(["newest", "oldest"])),
-});
-
 const rootRoute = createRootRoute();
 const router = createRouter({
-  // every filter is a plain string, so the url carries them as plain params
-  // (?server=123), not the json the router writes by default (?server="123")
-  parseSearch: (search) => Object.fromEntries(new URLSearchParams(search)),
+  // the feed's filters live in the url, so a filtered view can be shared. The
+  // url carries them as plain params (?game=lol,tft), not the json the router
+  // writes by default (?game=["lol","tft"]). A link with a broken filter shows
+  // the whole feed.
+  parseSearch: (search) =>
+    Schema.decodeUnknownOption(FeedFilters)(
+      Object.fromEntries(new URLSearchParams(search)),
+    ).pipe(Option.getOrElse(() => ({}))),
   stringifySearch: (search) => {
     const params = new URLSearchParams(
-      Object.entries(Schema.encodeUnknownSync(FeedSearch)(search)).flatMap(
+      Object.entries(Schema.encodeUnknownSync(FeedFilters)(search)).flatMap(
         ([key, value]) => (value === undefined ? [] : [[key, value]]),
       ),
     ).toString();
@@ -37,7 +34,8 @@ const router = createRouter({
     createRoute({
       getParentRoute: () => rootRoute,
       path: "/feed",
-      validateSearch: Schema.toStandardSchemaV1(FeedSearch),
+      // parseSearch has already decoded the url, so this checks the values
+      validateSearch: Schema.toStandardSchemaV1(Schema.toType(FeedFilters)),
       component: Feed,
     }),
   ]),
