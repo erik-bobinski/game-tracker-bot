@@ -295,7 +295,7 @@ const signout = ({ database }: CommandDeps) =>
     {
       name: "signout",
       description:
-        "Stop reporting your matches here (your data goes with the last server)",
+        "Stop reporting your matches here (your data is deleted if you're not signed up in any other server)",
       ...inServers,
     },
     (i) =>
