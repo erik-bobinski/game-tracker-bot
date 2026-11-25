@@ -38,6 +38,8 @@ const LolParticipant = Schema.Struct({
   gameEndedInSurrender: withDefault(Schema.Boolean, false),
   // TOP | JUNGLE | MIDDLE | BOTTOM | UTILITY, "" in modes without lanes
   teamPosition: withDefault(Schema.String, ""),
+  // arena only: where their team finished, shared by its members
+  placement: withDefault(Schema.Number, 0),
 });
 interface LolParticipant extends Schema.Schema.Type<typeof LolParticipant> {}
 

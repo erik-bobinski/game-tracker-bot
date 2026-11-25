@@ -11,6 +11,7 @@ import {
   formatDuration,
   matchVerdict,
   ordinal,
+  placementHalves,
   placementVerdict,
   playerName,
   teamLabel,
@@ -97,10 +98,13 @@ const Rank = ({
   player,
   update,
   game,
+  ranked,
 }: {
   player: MatchPlayerIdentity;
   update: RankUpdate | null;
   game: Game | undefined;
+  // whether anyone in the match has a rank, as only then is "Unranked" news
+  ranked: boolean;
 }) => {
   const change = update?.tierChange;
   const iconFor = (key: string | undefined) =>
@@ -108,7 +112,8 @@ const Rank = ({
   const icon = iconFor(change?.to.iconKey ?? player.rankIconKey);
   const label = change ? change.to.tier : player.rank;
   const delta = update?.delta;
-  if (!label && delta === undefined) return <span>Unranked</span>;
+  if (!label && delta === undefined)
+    return ranked ? <span>Unranked</span> : null;
   const changeTone = change?.promoted ? "text-win" : "text-loss";
   const previousIcon = iconFor(change?.from.iconKey);
   return (
@@ -197,6 +202,7 @@ const PlayerRow = ({
   result,
   resultTone,
   game,
+  ranked,
   onPlayer,
 }: {
   player: MatchPlayerIdentity;
@@ -206,6 +212,7 @@ const PlayerRow = ({
   result: string;
   resultTone: string;
   game: Game | undefined;
+  ranked: boolean;
   onPlayer: (discordUserId: string) => void;
 }) => (
   <li
@@ -236,7 +243,12 @@ const PlayerRow = ({
             @{friend.discordName}
           </button>
         )}
-        <Rank player={player} update={friend?.rankUpdate ?? null} game={game} />
+        <Rank
+          player={player}
+          update={friend?.rankUpdate ?? null}
+          game={game}
+          ranked={ranked}
+        />
       </div>
     </div>
     <div className="text-right">
@@ -469,6 +481,7 @@ const VersusMatchEntry = ({
                     result={`${player.kills}/${player.deaths}/${player.assists}`}
                     resultTone=""
                     game={game}
+                    ranked={match.players.some((p) => p.rank)}
                     onPlayer={onPlayer}
                   />
                 ))}
@@ -521,7 +534,7 @@ const PlacementMatchEntry = ({
         ? [
             {
               friend,
-              portrait: undefined,
+              portrait: player.characterIconUrl,
               result: ordinal(player.placement),
               resultTone: player.won ? "text-win" : "text-muted",
             },
@@ -531,27 +544,50 @@ const PlacementMatchEntry = ({
   };
   if (onOpen) return <Summary {...headline} onOpen={onOpen} />;
 
+  // the lobby as the card halves it, each team its own block
+  const { halves, teams } = placementHalves(match.players);
   return (
     <Entry {...headline}>
-      <ul className="grid gap-x-6 md:grid-flow-col md:grid-cols-2 md:grid-rows-4">
-        {byPlacement.map((player) => (
-          <PlayerRow
-            key={player.puuid}
-            player={player}
-            friend={friends.get(player.puuid)}
-            portrait={{
-              src: undefined,
-              name:
-                friends.get(player.puuid)?.discordName ?? playerName(player),
-            }}
-            mvp={false}
-            result={ordinal(player.placement)}
-            resultTone={player.won ? "text-win" : "text-muted"}
-            game={game}
-            onPlayer={onPlayer}
-          />
-        ))}
-      </ul>
+      <div className="grid gap-6 md:grid-cols-2">
+        {halves.map((half, index) => {
+          const title = `${index === 0 ? "Top" : "Bottom"} ${half.places}${teams ? " teams" : ""}`;
+          return (
+            <section key={title} aria-label={title}>
+              <h3 className="mb-1 border-b border-line pb-1 text-xs font-bold">
+                {title}
+              </h3>
+              {[...new Set(half.players.map((p) => p.placement))].map(
+                (place) => (
+                  <ul key={place} className={teams ? "mb-2" : ""}>
+                    {half.players
+                      .filter((player) => player.placement === place)
+                      .map((player) => (
+                        <PlayerRow
+                          key={player.puuid}
+                          player={player}
+                          friend={friends.get(player.puuid)}
+                          portrait={{
+                            src: player.characterIconUrl,
+                            name:
+                              player.character ??
+                              friends.get(player.puuid)?.discordName ??
+                              playerName(player),
+                          }}
+                          mvp={false}
+                          result={ordinal(player.placement)}
+                          resultTone={player.won ? "text-win" : "text-muted"}
+                          game={game}
+                          ranked={match.players.some((p) => p.rank)}
+                          onPlayer={onPlayer}
+                        />
+                      ))}
+                  </ul>
+                ),
+              )}
+            </section>
+          );
+        })}
+      </div>
     </Entry>
   );
 };
