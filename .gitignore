@@ -8,3 +8,4 @@ accounts.test.json
 *.sqlite
 *.sqlite-*
 /artifacts/
+/web/dist/
