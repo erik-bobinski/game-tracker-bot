@@ -76,6 +76,25 @@ test("deliveries survive restart, newer matches and partial server failure", asy
     }),
   );
   const live = MatchEngineLive.pipe(Layer.provideMerge(dependencies));
+  // match history as match:server:player posts, and the matches kept
+  const history = () => {
+    const raw = new Sqlite(dbPath, { readonly: true });
+    const posts = raw
+      .query<{ post: string }, []>(
+        `SELECT match_id || ':' || guild_id || ':' || discord_user_id AS post
+        FROM match_posts ORDER BY post`,
+      )
+      .all()
+      .map((row) => row.post);
+    const matches = raw
+      .query<{ matchId: string }, []>(
+        `SELECT match_id AS matchId FROM matches ORDER BY match_id`,
+      )
+      .all()
+      .map((row) => row.matchId);
+    raw.close();
+    return { posts, matches };
+  };
   const run = <A, E>(effect: Effect.Effect<A, E, MatchEngine | Database>) =>
     Effect.runPromise(
       effect.pipe(
@@ -199,6 +218,19 @@ test("deliveries survive restart, newer matches and partial server failure", asy
       "new:b:one,two",
     ];
     expect(posted).toEqual(delivered);
+    expect(history()).toEqual({
+      posts: [
+        "new:a:one",
+        "new:a:two",
+        "new:b:one",
+        "new:b:two",
+        "old:a:one",
+        "old:a:two",
+        "old:b:one",
+        "old:b:two",
+      ],
+      matches: ["new", "old"],
+    });
     await run(
       Effect.gen(function* () {
         const db = yield* Database;
@@ -255,6 +287,12 @@ test("deliveries survive restart, newer matches and partial server failure", asy
     );
     delivered.push("signout:b:two", "signout:a:two");
     expect(posted).toEqual(delivered);
+    // /untrack dropped one's posts and /signout two's in b; re-adding two's
+    // game kept the rest
+    expect(history()).toEqual({
+      posts: ["new:a:two", "old:a:two", "signout:a:two", "signout:b:two"],
+      matches: ["new", "old", "signout"],
+    });
     // A day-old row is dropped instead of posted, and with no history kept
     // for finished deliveries, a player with an emptied history (/dev_clear)
     // gets a shared match reported again.
@@ -293,6 +331,13 @@ test("deliveries survive restart, newer matches and partial server failure", asy
       }),
     );
     expect(posted).toEqual([...delivered, "old:a:three"]);
+    // a deleted account's matches go, except one a tracked player shares
+    await run(
+      Effect.gen(function* () {
+        yield* (yield* Database).deleteAccount("two");
+      }),
+    );
+    expect(history()).toEqual({ posts: ["old:a:three"], matches: ["old"] });
   } finally {
     await Bun.file(dbPath).delete();
   }

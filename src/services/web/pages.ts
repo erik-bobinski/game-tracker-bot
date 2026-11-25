@@ -10,7 +10,7 @@ import {
 import { gameNames, type GameId } from "../game/index.ts";
 
 const SOURCE_URL = "https://github.com/erik-bobinski/game-tracker-bot";
-const UPDATED = "October 10, 2026";
+const UPDATED = "November 24, 2026";
 
 export interface Site {
   readonly name: string;
@@ -172,8 +172,9 @@ export const privacyPage = (site: Site) => {
 <li><strong>Your Discord account:</strong> your user ID, the username you had when you signed up, and the servers you signed up in.</li>
 <li><strong>Your Riot account:</strong> your Riot ID, and for each game you play, Riot's player ID for you and your region, the IDs and start times of your last ten reported matches, your last rank in each ranked queue, and, for games that need it, when you signed in with Riot to opt in.</li>
 <li><strong>Each server:</strong> its ID, the channel reports go to, and whether they're paused.</li>
+<li><strong>The reports it posted:</strong> each match's scoreboard as it was posted, which includes the other players in the game, the servers it was posted in, and your rank change from it, so a server's reports can be shown again later.</li>
 </ul>
-<p>It doesn't store match details, your Riot password, Riot sign-in tokens or your email. Signing in with Riot only tells the bot which Riot account is yours; the sign-in is discarded right after.</p>
+<p>It doesn't store your Riot password, Riot sign-in tokens or your email. Signing in with Riot only tells the bot which Riot account is yours; the sign-in is discarded right after.</p>
 <h2>What it shows</h2>
 <p>When you finish a game, the bot posts the game's scoreboard, as Riot publishes it, in the channel of each server you signed up in: your name, champion or agent, stats and rank, and those of the other players in the game. Anyone who can read that channel can see it. Signing up, or linking your Riot account, makes your match data visible to the members of those servers.</p>
 <h2>Who else handles it</h2>
@@ -184,7 +185,7 @@ export const privacyPage = (site: Site) => {
 </ul>
 <p>Report images include game art from public asset sites; no personal data is sent to them.</p>
 <h2>How long it keeps it</h2>
-<p>Your data is deleted once no server reports your matches anymore: when you run <code>/signout</code> in the last server you signed up in, or the bot leaves it. A server's settings are deleted when the bot leaves it. The host keeps operational logs, which can include Discord and Riot IDs, for a short time.</p>
+<p>Your data is deleted once no server reports your matches anymore: when you run <code>/signout</code> in the last server you signed up in, or the bot leaves it. Your reports in a server are deleted when you run <code>/signout</code> there, and a game's when you <code>/untrack</code> it. A match is deleted once nobody signed up who played it is left in its reports. A server's settings are deleted when the bot leaves it. The host keeps operational logs, which can include Discord and Riot IDs, for a short time.</p>
 <h2>Your choices</h2>
 <p>Run <code>/signout</code> to stop reporting in a server. To ask about your data or have it deleted, open an issue on <a href="${SOURCE_URL}/issues">the project's issue tracker</a>.</p>
 <h2>Age</h2>

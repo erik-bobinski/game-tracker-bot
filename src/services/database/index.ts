@@ -16,9 +16,11 @@ import {
   EpochMillis,
   GameId,
   gameIds,
+  MatchDetails,
   MatchId,
   Puuid,
   RankSnapshots,
+  RankUpdate,
 } from "../game/index.ts";
 
 const ReportedMatch = Schema.Struct({
@@ -83,6 +85,16 @@ const PendingDelivery = Schema.Struct({
   players: DeliveryPlayers,
 });
 
+// what a delivery posted, for match history: the match as reported, and each
+// of that server's tracked players with their rank change
+interface PostedReport {
+  readonly match: MatchDetails;
+  readonly players: ReadonlyArray<{
+    readonly discordUserId: string;
+    readonly rankUpdate: RankUpdate | undefined;
+  }>;
+}
+
 export class Database extends Context.Service<
   Database,
   {
@@ -97,8 +109,10 @@ export class Database extends Context.Service<
       ReadonlyArray<typeof PendingDelivery.Type>,
       SqlError | Schema.SchemaError
     >;
+    // a delivery that posted also saves what it posted to match history
     readonly finishDelivery: (
       input: typeof DeliveryKey.Type,
+      posted?: PostedReport,
     ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
     // inserts the account or replaces its riot account, adding its servers to
     // the ones it already reports in
@@ -363,6 +377,42 @@ const migrations = SqliteMigrator.fromRecord({
         SELECT json_group_array(json(value)) FROM json_each(players)
         WHERE json_extract(value, '$.discordUserId') != OLD.discord_user_id
       ) WHERE guild_id = OLD.guild_id;
+    END`;
+  }),
+  // every report that posted, kept for the website: one matches row per match
+  // as reported, one match_posts row per tracked player per server it posted
+  // in. Foreign keys aren't enforced in this database, so these are triggers
+  // like match_deliveries': a post goes with its player's subscription or game
+  // account, and a match with its last post. The INSERT OR REPLACE that
+  // re-links a game account fires no delete trigger, so its history stays.
+  "8_create_match_history": Effect.gen(function* () {
+    const sql = yield* SqlClient;
+    yield* sql`CREATE TABLE matches (
+      game TEXT NOT NULL, match_id TEXT NOT NULL,
+      played_at INTEGER NOT NULL,
+      details TEXT NOT NULL,
+      PRIMARY KEY (game, match_id)
+    )`;
+    yield* sql`CREATE TABLE match_posts (
+      game TEXT NOT NULL, match_id TEXT NOT NULL,
+      guild_id TEXT NOT NULL, discord_user_id TEXT NOT NULL,
+      rank_update TEXT,
+      posted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (game, match_id, guild_id, discord_user_id)
+    )`;
+    yield* sql`CREATE TRIGGER history_subscription_removed AFTER DELETE ON guild_accounts BEGIN
+      DELETE FROM match_posts
+      WHERE guild_id = OLD.guild_id AND discord_user_id = OLD.discord_user_id;
+    END`;
+    yield* sql`CREATE TRIGGER history_game_removed AFTER DELETE ON account_games BEGIN
+      DELETE FROM match_posts
+      WHERE discord_user_id = OLD.discord_user_id AND game = OLD.game;
+    END`;
+    yield* sql`CREATE TRIGGER history_post_removed AFTER DELETE ON match_posts BEGIN
+      DELETE FROM matches
+      WHERE game = OLD.game AND match_id = OLD.match_id
+        AND NOT EXISTS (SELECT 1 FROM match_posts
+          WHERE game = OLD.game AND match_id = OLD.match_id);
     END`;
   }),
 });
@@ -1060,11 +1110,69 @@ const makeDatabase = Effect.gen(function* () {
       () => sql`SELECT game, match_id AS "matchId", guild_id AS "guildId", players
       FROM match_deliveries ORDER BY rowid`,
   });
-  const finishDelivery = SqlSchema.void({
+  const deleteDeliveryRow = SqlSchema.void({
     Request: DeliveryKey,
     execute: (row) => sql`DELETE FROM match_deliveries
       WHERE game = ${row.game} AND match_id = ${row.matchId} AND guild_id = ${row.guildId}`,
   });
+
+  // only for a player still subscribed there with that game, in case they
+  // left while it posted
+  const insertPostRow = SqlSchema.void({
+    Request: Schema.Struct({
+      ...DeliveryKey.fields,
+      discordUserId: Schema.String,
+      rankUpdate: Schema.NullOr(Schema.fromJsonString(RankUpdate)),
+    }),
+    execute: (row) => sql`INSERT INTO match_posts
+        (game, match_id, guild_id, discord_user_id, rank_update)
+      SELECT ${row.game}, ${row.matchId}, ${row.guildId}, ${row.discordUserId}, ${row.rankUpdate}
+      WHERE EXISTS (SELECT 1 FROM guild_accounts
+          WHERE guild_id = ${row.guildId} AND discord_user_id = ${row.discordUserId})
+        AND EXISTS (SELECT 1 FROM account_games
+          WHERE discord_user_id = ${row.discordUserId} AND game = ${row.game})
+      ON CONFLICT DO NOTHING`,
+  });
+
+  // the first server's post keeps the match: a retry that refetched it has
+  // the same scoreboard, with less enrichment
+  const insertMatchRow = SqlSchema.void({
+    Request: Schema.Struct({
+      game: GameId,
+      matchId: MatchId,
+      playedAt: EpochMillis,
+      details: Schema.fromJsonString(MatchDetails),
+    }),
+    execute: (
+      row,
+    ) => sql`INSERT INTO matches (game, match_id, played_at, details)
+      SELECT ${row.game}, ${row.matchId}, ${row.playedAt}, ${row.details}
+      WHERE EXISTS (SELECT 1 FROM match_posts
+        WHERE game = ${row.game} AND match_id = ${row.matchId})
+      ON CONFLICT DO NOTHING`,
+  });
+
+  const finishDelivery = Effect.fn("Database.finishDelivery")(function* (
+    delivery: typeof DeliveryKey.Type,
+    posted?: PostedReport,
+  ) {
+    for (const player of posted?.players ?? []) {
+      yield* insertPostRow({
+        ...delivery,
+        discordUserId: player.discordUserId,
+        rankUpdate: player.rankUpdate ?? null,
+      });
+    }
+    if (posted) {
+      yield* insertMatchRow({
+        game: delivery.game,
+        matchId: delivery.matchId,
+        playedAt: posted.match.date,
+        details: posted.match,
+      });
+    }
+    yield* deleteDeliveryRow(delivery);
+  }, sql.withTransaction);
 
   return Database.of({
     queueDelivery,

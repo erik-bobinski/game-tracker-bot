@@ -370,6 +370,9 @@ const makeMatchEngine = Effect.gen(function* () {
         if (!report) return; // Leave queued if the API cannot currently decode it.
         // only this server's players: the others' rank changes aren't its
         const trackedPuuids = new Set(tracked.map((p) => p.puuid));
+        const rankUpdates = new Map(
+          [...report.rankUpdates].filter(([puuid]) => trackedPuuids.has(puuid)),
+        );
 
         deliveryAttempts += 1;
         // Discord and SQLite cannot commit atomically. Not letting a shutdown
@@ -378,17 +381,15 @@ const makeMatchEngine = Effect.gen(function* () {
           Effect.andThen(
             discord.notifyMatch(
               { guildId: delivery.guildId, channelId },
-              {
-                tracked,
-                match: report.match,
-                rankUpdates: new Map(
-                  [...report.rankUpdates].filter(([puuid]) =>
-                    trackedPuuids.has(puuid),
-                  ),
-                ),
-              },
+              { tracked, match: report.match, rankUpdates },
             ),
-            database.finishDelivery(delivery),
+            database.finishDelivery(delivery, {
+              match: report.match,
+              players: tracked.map((player) => ({
+                discordUserId: player.discordUserId,
+                rankUpdate: rankUpdates.get(player.puuid),
+              })),
+            }),
           ),
         );
         deliveriesSucceeded += 1;
