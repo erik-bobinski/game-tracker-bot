@@ -28,7 +28,13 @@ const makePolling = Effect.gen(function* () {
     Effect.asVoid,
   );
 
-  return { run: pollLoop };
+  // the import has to finish before polling replaces the histories it reads
+  const importHistory = matchEngine.importHistory().pipe(
+    Effect.tapError((error) => Effect.logError("history import failed", error)),
+    Effect.ignore,
+  );
+
+  return { run: Effect.andThen(importHistory, pollLoop) };
 });
 
 export class Polling extends Context.Service<

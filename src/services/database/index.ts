@@ -85,6 +85,11 @@ const PendingDelivery = Schema.Struct({
   ...DeliveryKey.fields,
   players: DeliveryPlayers,
 });
+const Subscription = Schema.Struct({
+  guildId: Schema.String,
+  discordUserId: Schema.String,
+  subscribedAt: EpochMillis,
+});
 
 // a page of a viewer's feed: matches posted in servers they're tracked in,
 // optionally narrowed to one server, game or tracked player
@@ -165,6 +170,25 @@ export class Database extends Context.Service<
       input: typeof DeliveryKey.Type,
       posted?: PostedReport,
     ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    // saves a match from before the website to history, as if it posted; it
+    // leaves any queued delivery of that match alone
+    readonly importMatch: (
+      input: typeof DeliveryKey.Type,
+      posted: PostedReport,
+    ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
+    // when each player signed up in each server
+    readonly getSubscriptions: () => Effect.Effect<
+      ReadonlyArray<typeof Subscription.Type>,
+      SqlError | Schema.SchemaError
+    >;
+    readonly getHistoryImported: () => Effect.Effect<
+      boolean,
+      SqlError | Schema.SchemaError
+    >;
+    readonly setHistoryImported: () => Effect.Effect<
+      void,
+      SqlError | Schema.SchemaError
+    >;
     // inserts the account or replaces its riot account, adding its servers to
     // the ones it already reports in
     readonly addAccount: (
@@ -504,6 +528,11 @@ const migrations = SqliteMigrator.fromRecord({
     yield* sql`CREATE TRIGGER sessions_account_removed AFTER DELETE ON accounts BEGIN
       DELETE FROM sessions WHERE discord_user_id = OLD.discord_user_id;
     END`;
+  }),
+  // set once the matches posted before the website existed are imported
+  "10_add_history_imported": Effect.gen(function* () {
+    const sql = yield* SqlClient;
+    yield* sql`ALTER TABLE settings ADD COLUMN history_imported INTEGER NOT NULL DEFAULT 0`;
   }),
 });
 
@@ -1142,9 +1171,14 @@ const makeDatabase = Effect.gen(function* () {
   const settingsQuery = SqlSchema.findAll({
     Request: Schema.Struct({}),
     // sqlite has no boolean type, map the flag from 0 or 1
-    Result: Schema.Struct({ pollingPaused: Schema.Number }),
+    Result: Schema.Struct({
+      pollingPaused: Schema.Number,
+      historyImported: Schema.Number,
+    }),
     execute: () => sql`
-      SELECT polling_paused AS "pollingPaused" FROM settings WHERE id = 1
+      SELECT polling_paused AS "pollingPaused",
+        history_imported AS "historyImported"
+      FROM settings WHERE id = 1
     `,
   });
 
@@ -1165,6 +1199,19 @@ const makeDatabase = Effect.gen(function* () {
   ) {
     yield* updatePollingPaused({ pollingPaused: paused ? 1 : 0 });
   });
+
+  const getHistoryImported = Effect.fn("Database.getHistoryImported")(
+    function* () {
+      const rows = yield* settingsQuery({});
+      return (rows[0]?.historyImported ?? 0) !== 0;
+    },
+  );
+
+  const setHistoryImported = Effect.fn("Database.setHistoryImported")(
+    function* () {
+      yield* sql`UPDATE settings SET history_imported = 1 WHERE id = 1`;
+    },
+  );
 
   yield* Effect.logInfo("database ready; migrations applied").pipe(
     Effect.annotateLogs({ dbPath }),
@@ -1243,28 +1290,42 @@ const makeDatabase = Effect.gen(function* () {
       ON CONFLICT DO NOTHING`,
   });
 
-  const finishDelivery = Effect.fn("Database.finishDelivery")(function* (
-    delivery: typeof DeliveryKey.Type,
-    posted?: PostedReport,
+  const importMatch = Effect.fn("Database.importMatch")(function* (
+    key: typeof DeliveryKey.Type,
+    posted: PostedReport,
   ) {
-    for (const player of posted?.players ?? []) {
+    for (const player of posted.players) {
       yield* insertPostRow({
-        ...delivery,
+        ...key,
         discordUserId: player.discordUserId,
         puuid: player.puuid,
         rankUpdate: player.rankUpdate ?? null,
       });
     }
-    if (posted) {
-      yield* insertMatchRow({
-        game: delivery.game,
-        matchId: delivery.matchId,
-        playedAt: posted.match.date,
-        details: posted.match,
-      });
-    }
+    yield* insertMatchRow({
+      game: key.game,
+      matchId: key.matchId,
+      playedAt: posted.match.date,
+      details: posted.match,
+    });
+  }, sql.withTransaction);
+
+  const finishDelivery = Effect.fn("Database.finishDelivery")(function* (
+    delivery: typeof DeliveryKey.Type,
+    posted?: PostedReport,
+  ) {
+    if (posted) yield* importMatch(delivery, posted);
     yield* deleteDeliveryRow(delivery);
   }, sql.withTransaction);
+
+  const getSubscriptions = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: Subscription,
+    execute: () => sql`SELECT guild_id AS "guildId",
+        discord_user_id AS "discordUserId",
+        unixepoch(created_at) * 1000 AS "subscribedAt"
+      FROM guild_accounts`,
+  });
 
   const decodeFeedRows = Schema.decodeUnknownEffect(Schema.Array(FeedRow));
 
@@ -1374,6 +1435,10 @@ const makeDatabase = Effect.gen(function* () {
     expireDeliveries,
     getPendingDeliveries,
     finishDelivery,
+    importMatch,
+    getSubscriptions,
+    getHistoryImported,
+    setHistoryImported,
     addAccount,
     addGame,
     updateRiotId,
