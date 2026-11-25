@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ConfigProvider, Effect, Layer } from "effect";
+import { ConfigProvider, Effect, Layer, Option } from "effect";
 import { Database, DatabaseLive } from "../database/index.ts";
 import type { MatchReport } from "../discord/embed.ts";
 import { Discord } from "../discord/index.ts";
@@ -98,7 +98,8 @@ const world = (
               Effect.sync(() => {
                 posts.push(report);
               }),
-            application: { name: "test", inviteUrl: "" },
+            getServer: () => Effect.succeed(Option.none()),
+            application: { id: "", name: "test", inviteUrl: "" },
           }),
         ),
         DatabaseLive,

@@ -1,6 +1,7 @@
 import { BunHttpServer } from "@effect/platform-bun";
 import { Array as Arr, Config, Effect, Layer, Option, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import { Database } from "../database/index.ts";
 import { linkAccount } from "../account/index.ts";
 import { buildMockMatchReport } from "../discord/dev-commands.ts";
@@ -11,6 +12,9 @@ import { GameAdapters } from "../game/game-adapters/index.ts";
 import { onlyOptedInNamed } from "../game/game-adapters/valorant.ts";
 import { gameIds, gameNames } from "../game/index.ts";
 import { Rso } from "../rso/index.ts";
+import { SiteApi } from "./api.ts";
+import { FeedLive } from "./feed.ts";
+import { addSignInRoutes, SignedInLive } from "./sign-in.ts";
 import {
   escapeHtml,
   landingPage,
@@ -112,6 +116,7 @@ const Routes = HttpRouter.use((router) =>
         HttpServerResponse.text(riotVerification),
       );
     }
+    yield* addSignInRoutes(router, site);
     if (Option.isNone(rso)) return;
 
     // where riot sends someone back to after they sign in through /link
@@ -185,8 +190,16 @@ const Routes = HttpRouter.use((router) =>
   }),
 );
 
+// the handlers need the session middleware as much as the api does
+const ApiLive = HttpApiBuilder.layer(SiteApi).pipe(
+  Layer.provide(FeedLive),
+  Layer.provide(SignedInLive),
+);
+
 // Railway routes its public domain to PORT
-export const WebLive = HttpRouter.serve(Routes, { disableLogger: true }).pipe(
+export const WebLive = HttpRouter.serve(Layer.mergeAll(Routes, ApiLive), {
+  disableLogger: true,
+}).pipe(
   Layer.provide(
     BunHttpServer.layerConfig({
       port: Config.Port("PORT").pipe(Config.withDefault(3000)),

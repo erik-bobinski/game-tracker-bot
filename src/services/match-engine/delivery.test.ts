@@ -4,7 +4,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import { registerAccount } from "../account/index.ts";
 import { Database as Sqlite } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { ConfigProvider, Effect, Layer, Result } from "effect";
+import { ConfigProvider, Effect, Layer, Option, Result } from "effect";
 import { Database, DatabaseLive } from "../database/index.ts";
 import { Discord, DiscordError } from "../discord/index.ts";
 import { MatchEngine, MatchEngineLive } from "./index.ts";
@@ -62,7 +62,8 @@ test("deliveries survive restart, newer matches and partial server failure", asy
     DatabaseLive,
     Layer.succeed(GameAdapters, { all: [adapter] }),
     Layer.succeed(Discord, {
-      application: { name: "test", inviteUrl: "" },
+      getServer: () => Effect.succeed(Option.none()),
+      application: { id: "", name: "test", inviteUrl: "" },
       notifyMatch: (target, report) =>
         Effect.gen(function* () {
           if (target.guildId === "b" && failing)
@@ -390,7 +391,8 @@ test("catch-up posts a bounded backlog after downtime", async () => {
         DatabaseLive,
         Layer.succeed(GameAdapters, { all: [adapter] }),
         Layer.succeed(Discord, {
-          application: { name: "test", inviteUrl: "" },
+          getServer: () => Effect.succeed(Option.none()),
+          application: { id: "", name: "test", inviteUrl: "" },
           notifyMatch: (_target, report) =>
             Effect.sync(() => {
               posted.push(report.match.matchId);
