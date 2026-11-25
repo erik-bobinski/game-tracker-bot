@@ -18,22 +18,31 @@ changes to account resolution, adapters, enrichment, cards, delivery or polling.
 `bun run verify` is an alias. Neither command launches a gateway/polling daemon,
 syncs commands, reads Railway, nor leaves a bot running.
 
-Set these non-secret values outside the repo:
+Everything the live test needs is in the Infisical **Game Tracker Live Testing**
+project, `dev /live-testing`, including the test identifiers (`LIVE_RIOT_ID`,
+`LIVE_GAME`, `LIVE_DISCORD_APPLICATION_ID`, `DEV_GUILD_ID`,
+`NOTIFICATION_CHANNEL_ID`). Don't ask the owner for them. This repo is public,
+so the project ID isn't written here: get it from `infisical sm projects list`.
 
 ```sh
-export LIVE_RIOT_ID='name#tag'  # one owner-approved real account with a completed recent match
-export LIVE_GAME=valorant     # lol, valorant or tft; run only the affected game
-export LIVE_DISCORD_APPLICATION_ID='<dedicated-dev-application-id>'
-export DEV_GUILD_ID='<riot-tracker-testing-server-id>'
-export NOTIFICATION_CHANNEL_ID='<riot-tracker-dev-channel-id>'
 infisical run --projectId '<project-id>' --env dev --path /live-testing -- \
   env DEV_MODE=true bun run test:live
 ```
 
-The dedicated Infisical **Game Tracker Live Testing** project, `dev /live-testing`,
-contains only the dev bot token and API
-credentials needed by the adapters (`DISCORD_BOT_TOKEN`, `RIOT_API_KEY`,
-`RIOT_TFT_API_KEY`, `HENRIK_API_KEY`, optional region/platform settings). The
+`LIVE_GAME` is set to valorant there. Values given to `env` override
+Infisical's, so `env DEV_MODE=true LIVE_GAME=lol` tests another game. CI keeps
+its own copies of the identifiers as GitHub environment secrets (see below), so
+change both together.
+
+If the CLI isn't logged in, `infisical login` signs in with Google through a
+browser. It needs a terminal, so in an agent shell run it under
+`script -qfc 'infisical login' <log>` to get the sign-in link. If the browser
+shows a token instead of returning to the CLI, take it from the user through a
+secret prompt, pipe it into a fresh `infisical login`, and delete the log.
+
+The project also holds the dev bot token and the API credentials the adapters
+need (`DISCORD_BOT_TOKEN`, `RIOT_API_KEY`, `RIOT_TFT_API_KEY`,
+`HENRIK_API_KEY`, optional region/platform settings). The
 current adapter layer reads all three provider keys even when only one game is
 exercised. CI has a read-only Viewer identity in this isolated project and no
 organization access. The regular app project's root contains other automation
