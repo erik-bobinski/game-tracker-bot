@@ -387,6 +387,7 @@ const makeMatchEngine = Effect.gen(function* () {
               match: report.match,
               players: tracked.map((player) => ({
                 discordUserId: player.discordUserId,
+                puuid: player.puuid,
                 rankUpdate: rankUpdates.get(player.puuid),
               })),
             }),

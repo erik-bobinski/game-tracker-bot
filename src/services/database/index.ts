@@ -91,6 +91,7 @@ interface PostedReport {
   readonly match: MatchDetails;
   readonly players: ReadonlyArray<{
     readonly discordUserId: string;
+    readonly puuid: Puuid;
     readonly rankUpdate: RankUpdate | undefined;
   }>;
 }
@@ -396,6 +397,7 @@ const migrations = SqliteMigrator.fromRecord({
     yield* sql`CREATE TABLE match_posts (
       game TEXT NOT NULL, match_id TEXT NOT NULL,
       guild_id TEXT NOT NULL, discord_user_id TEXT NOT NULL,
+      puuid TEXT NOT NULL,
       rank_update TEXT,
       posted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (game, match_id, guild_id, discord_user_id)
@@ -1122,11 +1124,12 @@ const makeDatabase = Effect.gen(function* () {
     Request: Schema.Struct({
       ...DeliveryKey.fields,
       discordUserId: Schema.String,
+      puuid: Puuid,
       rankUpdate: Schema.NullOr(Schema.fromJsonString(RankUpdate)),
     }),
     execute: (row) => sql`INSERT INTO match_posts
-        (game, match_id, guild_id, discord_user_id, rank_update)
-      SELECT ${row.game}, ${row.matchId}, ${row.guildId}, ${row.discordUserId}, ${row.rankUpdate}
+        (game, match_id, guild_id, discord_user_id, puuid, rank_update)
+      SELECT ${row.game}, ${row.matchId}, ${row.guildId}, ${row.discordUserId}, ${row.puuid}, ${row.rankUpdate}
       WHERE EXISTS (SELECT 1 FROM guild_accounts
           WHERE guild_id = ${row.guildId} AND discord_user_id = ${row.discordUserId})
         AND EXISTS (SELECT 1 FROM account_games
@@ -1160,6 +1163,7 @@ const makeDatabase = Effect.gen(function* () {
       yield* insertPostRow({
         ...delivery,
         discordUserId: player.discordUserId,
+        puuid: player.puuid,
         rankUpdate: player.rankUpdate ?? null,
       });
     }
