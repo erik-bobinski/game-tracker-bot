@@ -92,8 +92,8 @@ export const FeedLive = HttpApiBuilder.group(SiteApi, "feed", (handlers) =>
           const rows = yield* database.getFeed({
             viewer: discordUserId,
             server: query.server,
-            game: query.game,
-            player: query.player,
+            games: query.game,
+            players: query.player,
             order: query.order ?? "newest",
             after: query.cursor,
             limit: PAGE_SIZE + 1,

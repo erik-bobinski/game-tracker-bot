@@ -176,7 +176,17 @@ test("the feed shows a viewer only their servers' reports", async () => {
         "lol:bobs:bob",
       ]);
       expect(await feed("?game=lol")).toEqual(["lol:bobs:bob"]);
+      expect(await feed("?game=lol,tft")).toEqual([
+        "lol:bobs:bob",
+        "tft:shared:alice,bob",
+      ]);
       expect(await feed("?player=alice")).toEqual(["tft:shared:alice,bob"]);
+      expect(await feed("?player=alice,bob")).toEqual([
+        "lol:bobs:bob",
+        "tft:shared:alice,bob",
+      ]);
+      // the filters combine: any of the games, played by any of the players
+      expect(await feed("?game=lol&player=alice")).toEqual([]);
       // a server shows only the players tracked there
       expect(await feed("?server=b")).toEqual(["tft:shared:alice"]);
       expect(await feed("?server=c")).toEqual([]);

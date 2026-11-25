@@ -96,8 +96,9 @@ const Subscription = Schema.Struct({
 export interface FeedInput {
   readonly viewer: string;
   readonly server: string | undefined;
-  readonly game: GameId | undefined;
-  readonly player: string | undefined;
+  // any of these, when given
+  readonly games: ReadonlyArray<GameId> | undefined;
+  readonly players: ReadonlyArray<string> | undefined;
   readonly order: "newest" | "oldest";
   readonly after:
     | {
@@ -1336,7 +1337,7 @@ const makeDatabase = Effect.gen(function* () {
         WHERE discord_user_id = ${input.viewer})`,
     ];
     if (input.server) conditions.push(sql`p.guild_id = ${input.server}`);
-    if (input.game) conditions.push(sql`m.game = ${input.game}`);
+    if (input.games) conditions.push(sql`${sql.in("m.game", input.games)}`);
     if (input.after) {
       conditions.push(
         sql`(m.played_at, m.game, m.match_id) ${sql.literal(input.order === "newest" ? "<" : ">")}
@@ -1357,7 +1358,7 @@ const makeDatabase = Effect.gen(function* () {
       JOIN accounts a ON a.discord_user_id = p.discord_user_id
       WHERE ${sql.and(conditions)}
       GROUP BY m.game, m.match_id
-      ${input.player ? sql`HAVING SUM(p.discord_user_id = ${input.player}) > 0` : sql.literal("")}
+      ${input.players ? sql`HAVING SUM(${sql.in("p.discord_user_id", input.players)}) > 0` : sql.literal("")}
       ORDER BY m.played_at ${direction}, m.game ${direction}, m.match_id ${direction}
       LIMIT ${input.limit}
     `;

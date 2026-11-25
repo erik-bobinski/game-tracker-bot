@@ -2,12 +2,12 @@
 // games as channels, tracked players as members, and the matches reported
 // there in between, narrowed by the filters in the url.
 
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSuspense, useAtomValue } from "@effect/atom-react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { HttpApiError } from "effect/http-api";
 import { AsyncResult } from "effect/reactivity";
-import { LayoutGrid, LogOut } from "lucide-react";
-import { useState } from "react";
+import { Check, LayoutGrid, LogOut } from "lucide-react";
+import { Suspense, useDeferredValue, useState, useTransition } from "react";
 import type { FeedPage, Me } from "../../src/services/web/api.ts";
 import { Site } from "./client.ts";
 import { MatchRow } from "./match.tsx";
@@ -27,6 +27,15 @@ const initials = (name: string) =>
     .toUpperCase();
 
 type Game = Me["games"][number];
+
+// a filter with this value added, or taken out if it's already there; an
+// empty filter is no filter
+const toggle = <A,>(list: ReadonlyArray<A> | undefined, value: A) => {
+  const next = list?.includes(value)
+    ? list.filter((item) => item !== value)
+    : [...(list ?? []), value];
+  return next.length > 0 ? next : undefined;
+};
 
 // a game's logo, or the grid that stands for all of them
 const GameMark = ({ game, size }: { game: Game | undefined; size: string }) =>
@@ -123,10 +132,8 @@ const ServerRail = ({ me, search }: { me: Me; search: Search }) => (
   </nav>
 );
 
-const channelLink =
-  "flex shrink-0 items-center gap-2 rounded px-2 py-1.5 text-sm whitespace-nowrap text-muted hover:bg-raised hover:text-ink aria-[current=page]:bg-raised aria-[current=page]:text-ink";
-
-// the games, listed where Discord lists a server's channels
+// the games, listed where Discord lists a server's channels. Each one toggles
+// in and out of the filter, so several can be shown at once.
 const Channels = ({
   me,
   search,
@@ -147,18 +154,31 @@ const Channels = ({
       <p className="hidden px-2 pb-1 text-xs font-bold text-muted lg:block">
         Games
       </p>
-      {[undefined, ...me.games].map((game) => (
-        <Link
-          key={game?.game ?? "all"}
-          to="/feed"
-          search={{ ...search, game: game?.game }}
-          activeOptions={{ explicitUndefined: true }}
-          className={channelLink}
-        >
-          <GameMark game={game} size="size-5" />
-          {game?.name ?? "All games"}
-        </Link>
-      ))}
+      {[undefined, ...me.games].map((game) => {
+        const selected = game
+          ? (search.game?.includes(game.game) ?? false)
+          : !search.game;
+        return (
+          <Link
+            key={game?.game ?? "all"}
+            to="/feed"
+            search={{
+              ...search,
+              game: game && toggle(search.game, game.game),
+            }}
+            className={`flex shrink-0 items-center gap-2 rounded px-2 py-1.5 text-sm whitespace-nowrap hover:bg-raised hover:text-ink ${selected ? "bg-raised text-ink" : "text-muted"}`}
+          >
+            <GameMark game={game} size="size-5" />
+            {game?.name ?? "All games"}
+            {game && selected && (
+              <Check
+                aria-label="shown"
+                className="ml-auto size-4 text-accent"
+              />
+            )}
+          </Link>
+        );
+      })}
     </nav>
     <div className="mt-auto hidden items-center justify-between bg-rail/60 px-3 py-2 lg:flex">
       <span className="flex min-w-0 items-center gap-2">
@@ -170,38 +190,46 @@ const Channels = ({
   </aside>
 );
 
-// the tracked players, as the member list; picking one narrows the feed to
-// them, and picking them again shows everyone
+// the tracked players, as the member list beside the feed on wide screens and
+// a row above it otherwise. Each one toggles in and out of the filter.
 const Members = ({
   players,
   selected,
   onSelect,
+  className,
 }: {
   players: ReadonlyArray<Player>;
-  selected: string | undefined;
-  onSelect: (discordUserId: string | undefined) => void;
+  selected: ReadonlyArray<string> | undefined;
+  onSelect: (discordUserIds: ReadonlyArray<string> | undefined) => void;
+  className: string;
 }) => (
-  <aside
-    aria-label="Tracked players"
-    className="hidden w-60 shrink-0 overflow-y-auto bg-sidebar px-2 py-4 xl:block"
-  >
-    <p className="px-2 pb-2 text-xs font-bold text-muted">
+  <aside aria-label="Tracked players" className={className}>
+    <p className="hidden h-7 items-center justify-between px-2 pb-2 text-xs font-bold text-muted xl:flex">
       Tracked, {players.length}
+      {selected && (
+        <button
+          type="button"
+          onClick={() => onSelect(undefined)}
+          className="rounded px-1.5 py-0.5 font-normal hover:bg-raised hover:text-ink"
+        >
+          Show everyone
+        </button>
+      )}
     </p>
     {players.map((player) => {
-      const active = selected === player.discordUserId;
+      const active = selected?.includes(player.discordUserId) ?? false;
       return (
         <button
           key={player.discordUserId}
           type="button"
           aria-pressed={active}
-          onClick={() => onSelect(active ? undefined : player.discordUserId)}
+          onClick={() => onSelect(toggle(selected, player.discordUserId))}
           title={
             active
-              ? "Show everyone's matches"
-              : `Show only ${player.discordName}'s matches`
+              ? `Hide ${player.discordName}'s matches`
+              : `Show ${player.discordName}'s matches`
           }
-          className="flex w-full items-center gap-3 rounded px-2 py-1.5 text-left text-sm text-muted hover:bg-raised hover:text-ink aria-pressed:bg-raised aria-pressed:text-accent"
+          className="flex shrink-0 items-center gap-3 rounded px-2 py-1.5 text-left text-sm whitespace-nowrap text-muted hover:bg-raised hover:text-ink aria-pressed:bg-raised aria-pressed:text-accent xl:w-full"
         >
           <Avatar src={player.avatarUrl} />
           <span className="truncate">{player.discordName}</span>
@@ -235,12 +263,16 @@ const Toggle = ({
   </span>
 );
 
-// one page of matches; the last page offers the next
+const loading = <p className="py-6 text-sm text-muted">Loading matches</p>;
+
+// one page of matches; the last page offers the next. It suspends while
+// loading, so the matches already on screen stay until these replace them.
 const Page = ({
   me,
   search,
   cursor,
   isLast,
+  loadingMore,
   onMore,
   onPlayer,
 }: {
@@ -248,14 +280,16 @@ const Page = ({
   search: Search;
   cursor: Cursor | undefined;
   isLast: boolean;
+  loadingMore: boolean;
   onMore: (cursor: Cursor) => void;
   onPlayer: (discordUserId: string) => void;
 }) => {
-  const result = useAtomValue(
+  const result = useAtomSuspense(
     Site.query("feed", "feed", { query: { ...search, cursor } }),
+    { includeFailure: true },
   );
   return AsyncResult.match(result, {
-    onInitial: () => <p className="py-6 text-sm text-muted">Loading matches</p>,
+    onInitial: () => loading,
     onFailure: () => (
       <p className="py-6 text-sm text-loss">
         Couldn't load matches. Reload the page to try again.
@@ -284,10 +318,11 @@ const Page = ({
         {isLast && value.next && (
           <button
             type="button"
+            disabled={loadingMore}
             onClick={() => value.next && onMore(value.next)}
-            className="w-full rounded bg-embed py-3 text-sm text-muted hover:bg-accent hover:text-rail"
+            className="w-full rounded bg-embed py-3 text-sm text-muted hover:bg-accent hover:text-rail disabled:bg-embed disabled:text-muted"
           >
-            Load more matches
+            {loadingMore ? "Loading matches" : "Load more matches"}
           </button>
         )}
       </>
@@ -305,6 +340,8 @@ const Matches = ({
   onPlayer: (discordUserId: string) => void;
 }) => {
   const [cursors, setCursors] = useState<ReadonlyArray<Cursor>>([]);
+  // the next page loads behind the button rather than blanking the feed
+  const [loadingMore, startTransition] = useTransition();
   const pages = [undefined, ...cursors];
   return (
     <div className="space-y-1.5">
@@ -315,7 +352,10 @@ const Matches = ({
           search={search}
           cursor={cursor}
           isLast={index === pages.length - 1}
-          onMore={(next) => setCursors([...cursors, next])}
+          loadingMore={loadingMore}
+          onMore={(next) =>
+            startTransition(() => setCursors([...cursors, next]))
+          }
           onPlayer={onPlayer}
         />
       ))}
@@ -336,7 +376,13 @@ const SignedIn = ({ me }: { me: Me }) => {
   ].sort((a, b) => a.discordName.localeCompare(b.discordName));
   const update = (next: Partial<Search>) =>
     navigate({ to: "/feed", search: (previous) => ({ ...previous, ...next }) });
-  const game = me.games.find((g) => g.game === search.game);
+  const games = me.games.filter((g) => search.game?.includes(g.game));
+  const playerFilter = (player: ReadonlyArray<string> | undefined) =>
+    update({ player });
+  // the filters respond at once; the matches follow when they've loaded, and
+  // only dim if that takes a moment
+  const shown = useDeferredValue(search);
+  const stale = JSON.stringify(shown) !== JSON.stringify(search);
 
   return (
     <div className="flex min-h-dvh flex-col lg:h-dvh lg:flex-row">
@@ -348,27 +394,17 @@ const SignedIn = ({ me }: { me: Me }) => {
       />
       <main className="flex min-w-0 flex-1 flex-col lg:overflow-y-auto">
         <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-3 border-b border-rail bg-page px-4">
-          <span className="hidden text-muted sm:block">
-            <GameMark game={game} size="size-5" />
+          <span className="text-muted">
+            <GameMark
+              game={games.length === 1 ? games[0] : undefined}
+              size="size-5"
+            />
           </span>
-          <h2 className="mr-auto hidden truncate font-bold sm:block">
-            {game?.name ?? "All games"}
+          <h2 className="mr-auto truncate font-bold">
+            {games.length > 0
+              ? games.map((g) => g.name).join(", ")
+              : "All games"}
           </h2>
-          <select
-            aria-label="Player"
-            value={search.player ?? ""}
-            onChange={(event) =>
-              update({ player: event.target.value || undefined })
-            }
-            className="mr-auto max-w-36 rounded bg-rail px-2 py-1 text-xs text-ink hover:bg-raised sm:mr-0 xl:hidden"
-          >
-            <option value="">Everyone</option>
-            {players.map((p) => (
-              <option key={p.discordUserId} value={p.discordUserId}>
-                {p.discordName}
-              </option>
-            ))}
-          </select>
           <Toggle
             value={search.order ?? "newest"}
             options={[
@@ -383,19 +419,30 @@ const SignedIn = ({ me }: { me: Me }) => {
             <SignOut label={false} />
           </span>
         </header>
-        <div className="mx-auto w-full max-w-4xl px-4 py-4">
-          <Matches
-            key={JSON.stringify(search)}
-            me={me}
-            search={search}
-            onPlayer={(player) => update({ player })}
-          />
+        <Members
+          players={players}
+          selected={search.player}
+          onSelect={playerFilter}
+          className="flex gap-1 overflow-x-auto border-b border-rail px-2 py-2 xl:hidden"
+        />
+        <div
+          className={`mx-auto w-full max-w-6xl px-4 py-4 transition-opacity ${stale ? "opacity-60 delay-200" : ""}`}
+        >
+          <Suspense fallback={loading}>
+            <Matches
+              key={JSON.stringify(shown)}
+              me={me}
+              search={shown}
+              onPlayer={(player) => playerFilter([player])}
+            />
+          </Suspense>
         </div>
       </main>
       <Members
         players={players}
         selected={search.player}
-        onSelect={(player) => update({ player })}
+        onSelect={playerFilter}
+        className="hidden w-60 shrink-0 overflow-y-auto bg-sidebar px-2 py-4 xl:block"
       />
     </div>
   );

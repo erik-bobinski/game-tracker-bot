@@ -103,15 +103,41 @@ const Rank = ({
   game: Game | undefined;
 }) => {
   const change = update?.tierChange;
-  const key = change?.to.iconKey ?? player.rankIconKey;
-  const icon = game?.rankIcons.find((rank) => rank.key === key)?.url;
+  const iconFor = (key: string | undefined) =>
+    game?.rankIcons.find((rank) => rank.key === key)?.url;
+  const icon = iconFor(change?.to.iconKey ?? player.rankIconKey);
   const label = change ? change.to.tier : player.rank;
   const delta = update?.delta;
   if (!label && delta === undefined) return <span>Unranked</span>;
+  const changeTone = change?.promoted ? "text-win" : "text-loss";
+  const previousIcon = iconFor(change?.from.iconKey);
   return (
     <span className="flex items-center gap-1.5">
+      {/* a new tier reads as the card draws it: old emblem › new one */}
+      {change && (
+        <span className="flex items-center gap-1">
+          {previousIcon ? (
+            <img
+              src={previousIcon}
+              alt={change.from.tier}
+              title={change.from.tier}
+              className="size-4"
+              loading="lazy"
+            />
+          ) : (
+            <span>{change.from.tier}</span>
+          )}
+          <span aria-hidden className={`font-bold ${changeTone}`}>
+            ›
+          </span>
+        </span>
+      )}
       {icon && <img src={icon} alt="" className="size-4" loading="lazy" />}
-      {label && <span className="text-ink">{label}</span>}
+      {label && (
+        <span className={change ? `font-bold ${changeTone}` : "text-ink"}>
+          {label}
+        </span>
+      )}
       {delta !== undefined && update && (
         <span
           className={
@@ -122,23 +148,29 @@ const Rank = ({
           {Math.abs(delta)} {update.unit}
         </span>
       )}
-      {change && (
-        <span className={change.promoted ? "text-win" : "text-loss"}>
-          {change.promoted ? "promoted" : "demoted"}
-        </span>
-      )}
     </span>
   );
 };
 
+// the badges beside a name, in the card's order: a new tier, flairs, MVP
 const Flairs = ({
   flairs,
   mvp,
+  promoted,
 }: {
   flairs: ReadonlyArray<string>;
   mvp: boolean;
+  // set when the match moved them into another tier
+  promoted: boolean | undefined;
 }) => (
   <>
+    {promoted !== undefined && (
+      <span
+        className={`shrink-0 rounded-sm px-1 text-[11px] font-bold text-rail ${promoted ? "bg-win" : "bg-loss"}`}
+      >
+        {promoted ? "RANK UP" : "DERANK"}
+      </span>
+    )}
     {mvp && (
       <span className="shrink-0 rounded-sm bg-accent px-1 text-[11px] font-bold text-rail">
         MVP
@@ -187,7 +219,11 @@ const PlayerRow = ({
         >
           {playerName(player)}
         </span>
-        <Flairs flairs={player.flairs ?? []} mvp={mvp} />
+        <Flairs
+          flairs={player.flairs ?? []}
+          mvp={mvp}
+          promoted={friend?.rankUpdate?.tierChange?.promoted}
+        />
       </p>
       <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted">
         {friend && (
@@ -251,7 +287,7 @@ const Summary = ({
   onOpen,
 }: Headline & { onOpen: () => void }) => (
   <article
-    className={`relative flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded border-l-4 bg-embed px-3 py-2.5 hover:bg-raised sm:flex-nowrap ${bar[outcome]}`}
+    className={`relative flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded border-l-4 bg-embed px-3 py-2.5 hover:bg-raised md:flex-nowrap ${bar[outcome]}`}
   >
     {game && (
       <img
@@ -262,7 +298,7 @@ const Summary = ({
       />
     )}
     {/* the headline keeps its line; a crowded lobby's friends wrap instead */}
-    <div className="min-w-0 flex-1 sm:min-w-56">
+    <div className="min-w-0 flex-1 md:min-w-56">
       <h2 className="text-sm font-extrabold">
         <button
           type="button"
@@ -282,8 +318,8 @@ const Summary = ({
         {details.filter(Boolean).join(" · ")}
       </p>
     </div>
-    <div className="flex basis-full items-center justify-between gap-x-4 pl-11 sm:basis-auto sm:pl-0">
-      <ul className="flex flex-wrap gap-x-4 gap-y-1 sm:justify-end">
+    <div className="flex basis-full items-center justify-between gap-x-4 pl-11 md:basis-auto md:pl-0">
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 md:justify-end">
         {friends.map(({ friend, portrait, result, resultTone }) => (
           <li
             key={friend.discordUserId}
@@ -306,7 +342,7 @@ const Summary = ({
           </li>
         ))}
       </ul>
-      <span className="shrink-0 text-right text-xs whitespace-nowrap text-faint sm:w-44">
+      <span className="shrink-0 text-right text-xs whitespace-nowrap text-faint md:w-44">
         <Time at={entry.playedAt} short />
       </span>
     </div>
