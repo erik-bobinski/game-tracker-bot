@@ -124,7 +124,24 @@ multi-player reports while you're alone in the test server.
 
 ```sh
 bun dev           # restarts on change, loads .env
-bun run check     # format, lint, typecheck, tests and audit, as CI runs them
+bun run dev:web   # the website with hot reload, passing /api and /auth to the bot on PORT
+bun run build:web # builds the website into web/dist, which the bot serves at /feed
+bun run check     # every check CI runs, as listed in package.json
+```
+
+The website (`web/`) is React, TanStack Router and Tailwind, reading the bot's
+`HttpApi` from `src/services/web/api.ts` through Effect atoms. Signing in needs
+`DISCORD_CLIENT_SECRET` and `PUBLIC_URL`; see `.env.example`.
+
+Infisical's `dev` environment is what Railway's dev service runs, and its
+`/local` folder overrides `PUBLIC_URL` and `PORT` for your own machine, with the
+site on http://localhost:3001. The local bot logs in with the dev token too, so
+stop Railway's dev service first. The project id is the app project's, from
+`infisical sm projects list`:
+
+```sh
+infisical run --projectId "$ID" --env dev -- \
+  infisical run --projectId "$ID" --env dev --path /local -- bun dev
 ```
 
 ## Architecture

@@ -20,6 +20,8 @@ disagrees with this file, fix one of them in the same PR.
 - **Match report** (`MatchReport`): the match details plus its tracked players. Built once per match, posted once per server.
 - **Card**: the PNG rendered from a report by `match-card.tsx`. **Embed**: the Discord text and fallback that go with it (`embed.ts`).
 - **Delivery**: one `match_deliveries` row per (game, match, server) waiting to post. Deleted when it posts; dropped after a day.
+- **Match history**: every report that posted, for the website. `matches` holds each match as reported; `match_posts` one row per tracked player per server it posted in, with their rank movement. A post goes with its subscription or game account, and a match with its last post.
+- **Feed**: the website's list of match history a signed-in **viewer** can see: matches posted in servers they have a subscription in, with only the tracked players there. **Session**: a website sign-in (`sessions`), only for someone with an account, deleted with it.
 - **Enrichment**: optional per-match extras fetched after discovery (ranks, crests). A failed enrichment never blocks the report.
 - **Rank movement**: the LP/RR change between two rank snapshots of the same queue. Only ranked matches produce snapshots.
 
