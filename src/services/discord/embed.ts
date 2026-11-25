@@ -130,7 +130,7 @@ const teamField = (
   value: players.map((player) => playerRows(player, context)).join("\n"),
 });
 
-const ordinal = (n: number) => {
+export const ordinal = (n: number) => {
   const mod100 = n % 100;
   const suffix =
     mod100 >= 11 && mod100 <= 13

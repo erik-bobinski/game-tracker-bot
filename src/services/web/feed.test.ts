@@ -6,6 +6,7 @@ import { HttpRouter } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { Database, DatabaseLive } from "../database/index.ts";
 import { Discord } from "../discord/index.ts";
+import { GameAdapters } from "../game/game-adapters/index.ts";
 import {
   EpochMillis,
   MatchId,
@@ -130,6 +131,7 @@ test("the feed shows a viewer only their servers' reports", async () => {
         Layer.provide([
           database,
           BunHttpServer.layerHttpServices,
+          Layer.succeed(GameAdapters, { all: [] }),
           Layer.succeed(Discord, {
             notifyMatch: () => Effect.void,
             getServer: (guildId) =>
@@ -199,6 +201,7 @@ test("the feed shows a viewer only their servers' reports", async () => {
             players: [{ discordUserId: "alice", discordName: "alice" }],
           },
         ],
+        games: [],
       });
 
       expect((await page()).next).toBe(null);

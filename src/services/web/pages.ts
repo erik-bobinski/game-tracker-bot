@@ -104,6 +104,7 @@ export const landingPage = (site: Site, demos: ReadonlyArray<Demo>) => {
     `<h1>${name}</h1>
 <p class="lead">Posts League of Legends, Teamfight Tactics and VALORANT results to your Discord server as soon as a signed-up player finishes a game.</p>
 <a class="button" href="${escapeHtml(site.inviteUrl)}">Add to Discord</a>
+<p>Already signed up? <a href="/feed">See your servers' matches</a>.</p>
 <h2>How it works</h2>
 <p>From adding the bot to its first report. The bot's messages are quoted as it sends them; the matches are samples with made-up players.</p>
 <h3>1. The bot joins a server</h3>

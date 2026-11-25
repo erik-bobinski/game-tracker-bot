@@ -124,8 +124,14 @@ multi-player reports while you're alone in the test server.
 
 ```sh
 bun dev           # restarts on change, loads .env
+bun run dev:web   # the website with hot reload, passing /api and /auth to the bot on PORT
+bun run build:web # builds the website into web/dist, which the bot serves at /feed
 bun run check     # every check CI runs, as listed in package.json
 ```
+
+The website (`web/`) is React, TanStack Router and Tailwind, reading the bot's
+`HttpApi` from `src/services/web/api.ts` through Effect atoms. Signing in needs
+`DISCORD_CLIENT_SECRET` and `PUBLIC_URL`; see `.env.example`.
 
 ## Architecture
 

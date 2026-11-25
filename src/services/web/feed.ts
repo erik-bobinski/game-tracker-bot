@@ -5,14 +5,30 @@ import { Effect, Option } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 import { Database } from "../database/index.ts";
 import { Discord } from "../discord/index.ts";
+import { GameAdapters } from "../game/game-adapters/index.ts";
+import { gameNames } from "../game/index.ts";
 import { SiteApi, Viewer } from "./api.ts";
 
 const PAGE_SIZE = 20;
+
+// A few icons ship in the repo's assets folder as file urls, which the card
+// renderer reads; a browser gets them from the site instead.
+const browserUrl = (url: string) =>
+  url.startsWith("file:") ? `/game-assets/${url.split("/").at(-1)}` : url;
 
 export const FeedLive = HttpApiBuilder.group(SiteApi, "feed", (handlers) =>
   Effect.gen(function* () {
     const database = yield* Database;
     const discord = yield* Discord;
+    const games = (yield* GameAdapters).all.map((adapter) => ({
+      game: adapter.game,
+      name: gameNames[adapter.game],
+      iconUrl: browserUrl(adapter.iconUrl),
+      rankIcons: adapter.rankIcons.map(({ key, url }) => ({
+        key,
+        url: browserUrl(url),
+      })),
+    }));
 
     return handlers
       .handle("me", () =>
@@ -49,6 +65,7 @@ export const FeedLive = HttpApiBuilder.group(SiteApi, "feed", (handlers) =>
               members.find((member) => member.discordUserId === discordUserId)
                 ?.discordName ?? "",
             servers,
+            games,
           };
         }).pipe(Effect.orDie),
       )

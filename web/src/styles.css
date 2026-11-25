@@ -1,0 +1,47 @@
+@import "tailwindcss";
+@import "@fontsource-variable/schibsted-grotesk";
+@import "@fontsource-variable/big-shoulders-display";
+
+/* A post-game lobby: a deep blue room, a scoreboard face for results, and
+   amber reserved for the friends the feed is about. */
+@theme {
+  --color-lobby: #151b26;
+  --color-surface: #1c2433;
+  --color-raised: #243047;
+  --color-line: #2b3547;
+  --color-ink: #e9edf4;
+  --color-muted: #8c97ab;
+  --color-faint: #5d6880;
+  --color-win: #4cc9a4;
+  --color-loss: #ef6461;
+  --color-draw: #c9b26b;
+  --color-friend: #f5b83d;
+
+  --font-sans: "Schibsted Grotesk Variable", system-ui, sans-serif;
+  --font-score: "Big Shoulders Display Variable", "Arial Narrow", sans-serif;
+}
+
+@layer base {
+  html {
+    background: var(--color-lobby);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--color-friend) 40%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-friend);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+  }
+}

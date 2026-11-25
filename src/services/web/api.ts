@@ -51,10 +51,23 @@ const Server = Schema.Struct({
   players: Schema.Array(Player),
 });
 
+// how the site draws a game: its icon, and its rank emblems by
+// MatchPlayerIdentity.rankIconKey
+const Game = Schema.Struct({
+  game: GameId,
+  name: Schema.String,
+  iconUrl: Schema.String,
+  rankIcons: Schema.Array(
+    Schema.Struct({ key: Schema.String, url: Schema.String }),
+  ),
+});
+
 const Me = Schema.Struct({
   ...Player.fields,
   servers: Schema.Array(Server),
+  games: Schema.Array(Game),
 });
+export interface Me extends Schema.Schema.Type<typeof Me> {}
 
 // where the next page starts: the last match of this one
 const Cursor = Schema.StringFromBase64Url.pipe(
@@ -65,12 +78,14 @@ const Cursor = Schema.StringFromBase64Url.pipe(
   ),
 );
 
+// an unset filter may be left out or undefined, so the site can pass its
+// url's search params straight through
 const FeedQuery = Schema.Struct({
-  server: Schema.optionalKey(Schema.String),
-  game: Schema.optionalKey(GameId),
-  player: Schema.optionalKey(Schema.String),
-  order: Schema.optionalKey(Schema.Literals(["newest", "oldest"])),
-  cursor: Schema.optionalKey(Cursor),
+  server: Schema.optional(Schema.String),
+  game: Schema.optional(GameId),
+  player: Schema.optional(Schema.String),
+  order: Schema.optional(Schema.Literals(["newest", "oldest"])),
+  cursor: Schema.optional(Cursor),
 });
 
 // a match as it was reported, with its tracked players in the viewer's servers
@@ -89,11 +104,14 @@ const FeedMatch = Schema.Struct({
   ),
 });
 
+export interface FeedMatch extends Schema.Schema.Type<typeof FeedMatch> {}
+
 const FeedPage = Schema.Struct({
   matches: Schema.Array(FeedMatch),
   // null on the last page
   next: Schema.NullOr(Cursor),
 });
+export interface FeedPage extends Schema.Schema.Type<typeof FeedPage> {}
 
 export const SiteApi = HttpApi.make("site").add(
   HttpApiGroup.make("feed")

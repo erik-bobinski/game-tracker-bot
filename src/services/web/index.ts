@@ -1,6 +1,11 @@
 import { BunHttpServer } from "@effect/platform-bun";
 import { Array as Arr, Config, Effect, Layer, Option, Schema } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
+import {
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+  HttpStaticServer,
+} from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { Database } from "../database/index.ts";
 import { linkAccount } from "../account/index.ts";
@@ -196,10 +201,31 @@ const ApiLive = HttpApiBuilder.layer(SiteApi).pipe(
   Layer.provide(SignedInLive),
 );
 
+// The site, built into web/dist by `bun run build:web`: one page for /feed
+// and its fingerprinted assets, which never change under the same name. The
+// game icons kept in the repo are served alongside.
+const site = new URL("../../../web/dist/", import.meta.url).pathname;
+const SiteLive = Layer.mergeAll(
+  HttpStaticServer.layer({
+    root: new URL("../../../assets/", import.meta.url).pathname,
+    prefix: "/game-assets",
+    cacheControl: "public, max-age=86400",
+  }),
+  HttpRouter.add("GET", "/feed", HttpServerResponse.file(`${site}index.html`)),
+  HttpStaticServer.layer({
+    root: `${site}assets`,
+    prefix: "/assets",
+    cacheControl: "public, max-age=31536000, immutable",
+  }),
+);
+
 // Railway routes its public domain to PORT
-export const WebLive = HttpRouter.serve(Layer.mergeAll(Routes, ApiLive), {
-  disableLogger: true,
-}).pipe(
+export const WebLive = HttpRouter.serve(
+  Layer.mergeAll(Routes, ApiLive, SiteLive),
+  {
+    disableLogger: true,
+  },
+).pipe(
   Layer.provide(
     BunHttpServer.layerConfig({
       port: Config.Port("PORT").pipe(Config.withDefault(3000)),
