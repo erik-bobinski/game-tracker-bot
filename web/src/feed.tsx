@@ -6,7 +6,7 @@ import { useAtomSuspense, useAtomValue } from "@effect/atom-react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { HttpApiError } from "effect/http-api";
 import { AsyncResult } from "effect/reactivity";
-import { Check, LayoutGrid, LogOut } from "lucide-react";
+import { Check, LayoutGrid, LogOut, X } from "lucide-react";
 import { Suspense, useDeferredValue, useState, useTransition } from "react";
 import type { FeedPage, Me } from "../../src/services/web/api.ts";
 import { Site } from "./client.ts";
@@ -162,10 +162,12 @@ const Channels = ({
           <Link
             key={game?.game ?? "all"}
             to="/feed"
-            search={{
-              ...search,
-              game: game && toggle(search.game, game.game),
-            }}
+            // worked out on click from the url as it is then, as a click
+            // before the last one's matches have loaded still adds to it
+            search={(previous) => ({
+              ...previous,
+              game: game && toggle(previous.game, game.game),
+            })}
             className={`flex shrink-0 items-center gap-2 rounded px-2 py-1.5 text-sm whitespace-nowrap hover:bg-raised hover:text-ink ${selected ? "bg-raised text-ink" : "text-muted"}`}
           >
             <GameMark game={game} size="size-5" />
@@ -200,18 +202,20 @@ const Members = ({
 }: {
   players: ReadonlyArray<Player>;
   selected: ReadonlyArray<string> | undefined;
-  onSelect: (discordUserIds: ReadonlyArray<string> | undefined) => void;
+  // a player to add or take out, or undefined to show everyone
+  onSelect: (discordUserId: string | undefined) => void;
   className: string;
 }) => (
   <aside aria-label="Tracked players" className={className}>
     <p className="hidden h-7 items-center justify-between px-2 pb-2 text-xs font-bold text-muted xl:flex">
-      Tracked, {players.length}
+      Tracked: {players.length}
       {selected && (
         <button
           type="button"
           onClick={() => onSelect(undefined)}
-          className="rounded px-1.5 py-0.5 font-normal hover:bg-raised hover:text-ink"
+          className="flex items-center gap-1 rounded border border-accent/60 px-1.5 py-0.5 text-accent hover:bg-accent hover:text-rail"
         >
+          <X aria-hidden className="size-3" />
           Show everyone
         </button>
       )}
@@ -223,16 +227,22 @@ const Members = ({
           key={player.discordUserId}
           type="button"
           aria-pressed={active}
-          onClick={() => onSelect(toggle(selected, player.discordUserId))}
+          onClick={() => onSelect(player.discordUserId)}
           title={
             active
               ? `Hide ${player.discordName}'s matches`
               : `Show ${player.discordName}'s matches`
           }
-          className="flex shrink-0 items-center gap-3 rounded px-2 py-1.5 text-left text-sm whitespace-nowrap text-muted hover:bg-raised hover:text-ink aria-pressed:bg-raised aria-pressed:text-accent xl:w-full"
+          className="flex shrink-0 items-center gap-3 rounded px-2 py-1.5 text-left text-sm whitespace-nowrap text-muted hover:bg-raised hover:text-ink aria-pressed:bg-raised aria-pressed:text-ink xl:w-full"
         >
           <Avatar src={player.avatarUrl} />
           <span className="truncate">{player.discordName}</span>
+          {active && (
+            <Check
+              aria-hidden
+              className="ml-auto size-4 shrink-0 text-accent"
+            />
+          )}
         </button>
       );
     })}
@@ -374,11 +384,19 @@ const SignedIn = ({ me }: { me: Me }) => {
         .map((player) => [player.discordUserId, player]),
     ).values(),
   ].sort((a, b) => a.discordName.localeCompare(b.discordName));
-  const update = (next: Partial<Search>) =>
-    navigate({ to: "/feed", search: (previous) => ({ ...previous, ...next }) });
+  // from the url as it is when it runs, not as this render saw it: the
+  // router only commits a navigation once its matches have loaded
+  const update = (next: (previous: Search) => Partial<Search>) =>
+    navigate({
+      to: "/feed",
+      search: (previous) => ({ ...previous, ...next(previous) }),
+    });
   const games = me.games.filter((g) => search.game?.includes(g.game));
-  const playerFilter = (player: ReadonlyArray<string> | undefined) =>
-    update({ player });
+  const togglePlayer = (player: string | undefined) =>
+    update((previous) => ({
+      player:
+        player === undefined ? undefined : toggle(previous.player, player),
+    }));
   // the filters respond at once; the matches follow when they've loaded, and
   // only dim if that takes a moment
   const shown = useDeferredValue(search);
@@ -412,7 +430,9 @@ const SignedIn = ({ me }: { me: Me }) => {
               ["oldest", "Oldest"],
             ]}
             onChange={(value) =>
-              update({ order: value === "oldest" ? "oldest" : undefined })
+              update(() => ({
+                order: value === "oldest" ? "oldest" : undefined,
+              }))
             }
           />
           <span className="lg:hidden">
@@ -422,7 +442,7 @@ const SignedIn = ({ me }: { me: Me }) => {
         <Members
           players={players}
           selected={search.player}
-          onSelect={playerFilter}
+          onSelect={togglePlayer}
           className="flex gap-1 overflow-x-auto border-b border-rail px-2 py-2 xl:hidden"
         />
         <div
@@ -433,7 +453,7 @@ const SignedIn = ({ me }: { me: Me }) => {
               key={JSON.stringify(shown)}
               me={me}
               search={shown}
-              onPlayer={(player) => playerFilter([player])}
+              onPlayer={(player) => update(() => ({ player: [player] }))}
             />
           </Suspense>
         </div>
@@ -441,7 +461,7 @@ const SignedIn = ({ me }: { me: Me }) => {
       <Members
         players={players}
         selected={search.player}
-        onSelect={playerFilter}
+        onSelect={togglePlayer}
         className="hidden w-60 shrink-0 overflow-y-auto bg-sidebar px-2 py-4 xl:block"
       />
     </div>
