@@ -1,7 +1,7 @@
 // The website's API: what a signed-in player can read about the servers they're
 // tracked in. Only schemas live here, so the site can build its client from it.
 
-import { Context, Schema } from "effect";
+import { Context, Schema, SchemaTransformation } from "effect";
 import {
   HttpApi,
   HttpApiEndpoint,
@@ -84,13 +84,31 @@ const Cursor = Schema.StringFromBase64Url.pipe(
   ),
 );
 
-// an unset filter may be left out or undefined, so the site can pass its
-// url's search params straight through
-const FeedQuery = Schema.Struct({
+// a filter that takes several values in one param, as "lol,valorant", so it
+// reads the same in the site's url as in the api's
+const List = <S extends Schema.Codec<string, string>>(item: S) =>
+  Schema.String.pipe(
+    Schema.decodeTo(
+      Schema.Array(item),
+      SchemaTransformation.transform<ReadonlyArray<string>, string>({
+        decode: (list) => list.split(","),
+        encode: (items) => items.join(","),
+      }),
+    ),
+  );
+
+// what the feed can be narrowed to: matches in any of the games, played by any
+// of the players. An unset filter may be left out or undefined, so the site
+// can pass its url's search params straight through.
+export const FeedFilters = Schema.Struct({
   server: Schema.optional(Schema.String),
-  game: Schema.optional(GameId),
-  player: Schema.optional(Schema.String),
+  game: Schema.optional(List(GameId)),
+  player: Schema.optional(List(Schema.String)),
   order: Schema.optional(Schema.Literals(["newest", "oldest"])),
+});
+
+const FeedQuery = Schema.Struct({
+  ...FeedFilters.fields,
   cursor: Schema.optional(Cursor),
 });
 
