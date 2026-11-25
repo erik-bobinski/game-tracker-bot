@@ -174,7 +174,7 @@ export const privacyPage = (site: Site) => {
 <li><strong>Your Riot account:</strong> your Riot ID, and for each game you play, Riot's player ID for you and your region, the IDs and start times of your last ten reported matches, your last rank in each ranked queue, and, for games that need it, when you signed in with Riot to opt in.</li>
 <li><strong>Each server:</strong> its ID, the channel reports go to, and whether they're paused.</li>
 <li><strong>Website sign-ins:</strong> if you sign in to the website with Discord, a scrambled copy of your sign-in cookie, your user ID and when it expires, 30 days later. Discord only tells it your user ID; it doesn't keep Discord's sign-in token, and it can't read your servers or messages.</li>
-<li><strong>The reports it posted:</strong> each match's scoreboard as it was posted, which includes the other players in the game, the servers it was posted in, and your rank change from it, so the website can show them to the players tracked in that server.</li>
+<li><strong>The reports it posted:</strong> each match's scoreboard as it was posted, which includes the other players in the game, the servers it was posted in, and your rank change from it, so the website can show them to the players tracked in that server. Games from before the website existed were fetched from Riot again once, going back no further than when you signed up in each server.</li>
 </ul>
 <p>It doesn't store your Riot password, Riot sign-in tokens or your email. Signing in with Riot only tells the bot which Riot account is yours; the sign-in is discarded right after.</p>
 <h2>What it shows</h2>
