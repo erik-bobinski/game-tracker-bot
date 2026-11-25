@@ -207,8 +207,10 @@ const Members = ({
   className: string;
 }) => (
   <aside aria-label="Tracked players" className={className}>
-    <p className="hidden h-7 items-center justify-between px-2 pb-2 text-xs font-bold text-muted xl:flex">
-      Tracked: {players.length}
+    <p
+      className={`${selected ? "flex" : "hidden xl:flex"} h-7 shrink-0 items-center justify-between px-2 text-xs font-bold text-muted xl:mb-2`}
+    >
+      <span className="hidden xl:inline">Tracked: {players.length}</span>
       {selected && (
         <button
           type="button"
@@ -443,7 +445,7 @@ const SignedIn = ({ me }: { me: Me }) => {
           players={players}
           selected={search.player}
           onSelect={togglePlayer}
-          className="flex gap-1 overflow-x-auto border-b border-rail px-2 py-2 xl:hidden"
+          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-rail px-2 py-2 xl:hidden"
         />
         <div
           className={`mx-auto w-full max-w-6xl px-4 py-4 transition-opacity ${stale ? "opacity-60 delay-200" : ""}`}
