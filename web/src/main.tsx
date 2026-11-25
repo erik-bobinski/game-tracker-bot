@@ -22,6 +22,17 @@ const FeedSearch = Schema.Struct({
 
 const rootRoute = createRootRoute();
 const router = createRouter({
+  // every filter is a plain string, so the url carries them as plain params
+  // (?server=123), not the json the router writes by default (?server="123")
+  parseSearch: (search) => Object.fromEntries(new URLSearchParams(search)),
+  stringifySearch: (search) => {
+    const params = new URLSearchParams(
+      Object.entries(Schema.encodeUnknownSync(FeedSearch)(search)).flatMap(
+        ([key, value]) => (value === undefined ? [] : [[key, value]]),
+      ),
+    ).toString();
+    return params ? `?${params}` : "";
+  },
   routeTree: rootRoute.addChildren([
     createRoute({
       getParentRoute: () => rootRoute,

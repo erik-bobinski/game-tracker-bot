@@ -1,10 +1,12 @@
-// The signed-in feed: the servers the viewer is tracked in down the side, and
-// the matches reported there, narrowed by the filters in the url.
+// The signed-in feed, laid out like the Discord it mirrors: servers in a rail,
+// games as channels, tracked players as members, and the matches reported
+// there in between, narrowed by the filters in the url.
 
 import { useAtomValue } from "@effect/atom-react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { HttpApiError } from "effect/http-api";
 import { AsyncResult } from "effect/reactivity";
+import { Hash, LayoutGrid, LogOut } from "lucide-react";
 import { useState } from "react";
 import type { FeedPage, Me } from "../../src/services/web/api.ts";
 import { Site } from "./client.ts";
@@ -13,106 +15,223 @@ import { MatchEntry } from "./match.tsx";
 const route = getRouteApi("/feed");
 type Search = ReturnType<typeof route.useSearch>;
 type Cursor = NonNullable<FeedPage["next"]>;
+type Player = Me["servers"][number]["players"][number];
 
-const SignOut = ({ className }: { className: string }) => (
-  <form method="post" action="/auth/sign-out" className={className}>
-    <button type="submit" className="text-sm text-muted hover:text-ink">
-      Sign out
+// "Friday Night Ranked" -> "FNR", as Discord labels a server with no icon
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .map((word) => word.charAt(0))
+    .join("")
+    .slice(0, 3)
+    .toUpperCase();
+
+// "League of Legends" -> "league-of-legends"
+const channelName = (name: string) =>
+  name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+const SignOut = ({ label }: { label: boolean }) => (
+  <form method="post" action="/auth/sign-out">
+    <button
+      type="submit"
+      title="Sign out"
+      className="flex items-center gap-2 rounded p-1.5 text-muted hover:bg-raised hover:text-ink"
+    >
+      <LogOut aria-hidden className="size-4" />
+      {label ? <span className="text-xs">Sign out</span> : null}
     </button>
   </form>
 );
 
-const ServerIcon = ({
-  name,
-  iconUrl,
+// a rail button: round until hovered or chosen, with Discord's white pill
+// marking the chosen one
+const RailItem = ({
+  label,
+  active,
+  search,
+  children,
 }: {
-  name: string;
-  iconUrl: string | null;
-}) =>
-  iconUrl ? (
-    <img src={iconUrl} alt="" className="size-7 rounded-full" />
-  ) : (
+  label: string;
+  active: boolean;
+  search: Search;
+  children: React.ReactNode;
+}) => (
+  <Link
+    to="/feed"
+    search={search}
+    aria-label={label}
+    title={label}
+    activeOptions={{ explicitUndefined: true }}
+    className="group relative flex shrink-0 justify-center lg:w-full"
+  >
     <span
       aria-hidden
-      className="grid size-7 place-items-center rounded-full bg-raised text-xs font-semibold"
+      className={`absolute -bottom-2 h-1 rounded-t bg-ink transition-all lg:top-1/2 lg:bottom-auto lg:left-0 lg:h-auto lg:w-1 lg:-translate-y-1/2 lg:rounded-t-none lg:rounded-r ${active ? "w-8 lg:h-10" : "w-0 group-hover:w-4 lg:h-0 lg:group-hover:h-5"}`}
+    />
+    <span
+      className={`grid size-12 place-items-center overflow-hidden text-sm font-bold transition-all ${active ? "rounded-2xl bg-accent text-rail" : "rounded-full bg-raised text-ink group-hover:rounded-2xl group-hover:bg-accent group-hover:text-rail"}`}
     >
-      {name.charAt(0).toUpperCase()}
+      {children}
     </span>
-  );
+  </Link>
+);
 
-const serverLink =
-  "flex shrink-0 items-center gap-3 rounded-md px-3 py-2 text-sm whitespace-nowrap text-muted hover:bg-surface hover:text-ink data-[active=true]:bg-surface data-[active=true]:font-semibold data-[active=true]:text-ink";
-
-const Sidebar = ({ me, search }: { me: Me; search: Search }) => (
-  <aside className="flex flex-col border-b border-line lg:sticky lg:top-0 lg:h-dvh lg:border-r lg:border-b-0">
-    <div className="flex items-center justify-between px-5 pt-5">
-      <p className="font-score text-2xl font-bold">Match feed</p>
-      <SignOut className="lg:hidden" />
-    </div>
-    <nav
-      aria-label="Servers"
-      className="flex gap-1 overflow-x-auto px-3 py-3 lg:flex-col"
+const ServerRail = ({ me, search }: { me: Me; search: Search }) => (
+  <nav
+    aria-label="Servers"
+    className="flex shrink-0 items-center gap-3 overflow-x-auto bg-rail px-3 py-3 lg:w-[72px] lg:flex-col lg:overflow-y-auto lg:px-0"
+  >
+    <RailItem
+      label="All servers"
+      active={!search.server}
+      search={{ ...search, server: undefined, player: undefined }}
     >
-      <Link
-        to="/feed"
-        search={{ ...search, server: undefined, player: undefined }}
-        className={serverLink}
-        activeOptions={{ includeSearch: false }}
-        aria-current={search.server ? undefined : "page"}
-        data-active={!search.server}
+      <LayoutGrid aria-hidden className="size-5" />
+    </RailItem>
+    <span
+      aria-hidden
+      className="h-8 w-0.5 shrink-0 rounded bg-raised lg:h-0.5 lg:w-8"
+    />
+    {me.servers.map((server) => (
+      <RailItem
+        key={server.guildId}
+        label={server.name}
+        active={search.server === server.guildId}
+        search={{ ...search, server: server.guildId, player: undefined }}
       >
-        <span
-          aria-hidden
-          className="grid size-7 place-items-center rounded-full bg-raised text-xs"
-        >
-          {me.servers.length}
-        </span>
-        All servers
-      </Link>
-      {me.servers.map((server) => (
+        {server.iconUrl ? (
+          <img src={server.iconUrl} alt="" className="size-full object-cover" />
+        ) : (
+          initials(server.name)
+        )}
+      </RailItem>
+    ))}
+  </nav>
+);
+
+const channelLink =
+  "flex shrink-0 items-center gap-1.5 rounded px-2 py-1.5 text-sm whitespace-nowrap text-muted hover:bg-raised hover:text-ink aria-[current=page]:bg-raised aria-[current=page]:text-ink";
+
+// the games, as the channels a report lands in
+const Channels = ({
+  me,
+  search,
+  serverName,
+}: {
+  me: Me;
+  search: Search;
+  serverName: string;
+}) => (
+  <aside className="flex shrink-0 flex-col bg-sidebar lg:w-60">
+    <h1 className="hidden h-12 items-center border-b border-rail px-4 text-sm font-bold lg:flex">
+      {serverName}
+    </h1>
+    <nav
+      aria-label="Games"
+      className="flex gap-1 overflow-x-auto px-2 py-2 lg:flex-col lg:py-3"
+    >
+      <p className="hidden px-2 pb-1 text-xs font-bold text-muted lg:block">
+        Games
+      </p>
+      {[
+        { game: undefined, name: "all-games" },
+        ...me.games.map((g) => ({ game: g.game, name: channelName(g.name) })),
+      ].map((channel) => (
         <Link
-          key={server.guildId}
+          key={channel.name}
           to="/feed"
-          search={{ ...search, server: server.guildId, player: undefined }}
-          className={serverLink}
-          aria-current={search.server === server.guildId ? "page" : undefined}
-          data-active={search.server === server.guildId}
+          search={{ ...search, game: channel.game }}
+          activeOptions={{ explicitUndefined: true }}
+          className={channelLink}
         >
-          <ServerIcon name={server.name} iconUrl={server.iconUrl} />
-          {server.name}
+          <Hash aria-hidden className="size-4 shrink-0" />
+          {channel.name}
         </Link>
       ))}
     </nav>
-    <div className="mt-auto hidden items-center justify-between border-t border-line px-5 py-4 lg:flex">
-      <span className="text-sm">{me.discordName}</span>
-      <SignOut className="" />
+    <div className="mt-auto hidden items-center justify-between bg-rail/60 px-3 py-2 lg:flex">
+      <span className="flex min-w-0 items-center gap-2">
+        <span
+          aria-hidden
+          className="grid size-8 shrink-0 place-items-center rounded-full bg-accent text-xs font-bold text-rail"
+        >
+          {initials(me.discordName)}
+        </span>
+        <span className="truncate text-sm font-bold">{me.discordName}</span>
+      </span>
+      <SignOut label={false} />
     </div>
   </aside>
 );
 
-const Select = ({
-  label,
-  value,
+// the tracked players, as the member list; picking one narrows the feed to
+// them, and picking them again shows everyone
+const Members = ({
+  players,
+  selected,
+  onSelect,
+}: {
+  players: ReadonlyArray<Player>;
+  selected: string | undefined;
+  onSelect: (discordUserId: string | undefined) => void;
+}) => (
+  <aside
+    aria-label="Tracked players"
+    className="hidden w-60 shrink-0 overflow-y-auto bg-sidebar px-2 py-4 xl:block"
+  >
+    <p className="px-2 pb-2 text-xs font-bold text-muted">
+      Tracked, {players.length}
+    </p>
+    {players.map((player) => {
+      const active = selected === player.discordUserId;
+      return (
+        <button
+          key={player.discordUserId}
+          type="button"
+          aria-pressed={active}
+          onClick={() => onSelect(active ? undefined : player.discordUserId)}
+          title={
+            active
+              ? "Show everyone's matches"
+              : `Show only ${player.discordName}'s matches`
+          }
+          className="flex w-full items-center gap-3 rounded px-2 py-1.5 text-left text-sm text-muted hover:bg-raised hover:text-ink aria-pressed:bg-raised aria-pressed:text-accent"
+        >
+          <span
+            aria-hidden
+            className="grid size-8 shrink-0 place-items-center rounded-full bg-raised text-xs font-bold text-ink"
+          >
+            {initials(player.discordName)}
+          </span>
+          <span className="truncate">{player.discordName}</span>
+        </button>
+      );
+    })}
+  </aside>
+);
+
+const Toggle = ({
   options,
+  value,
   onChange,
 }: {
-  label: string;
-  value: string;
   options: ReadonlyArray<readonly [value: string, label: string]>;
+  value: string;
   onChange: (value: string) => void;
 }) => (
-  <select
-    aria-label={label}
-    value={value}
-    onChange={(event) => onChange(event.target.value)}
-    className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink hover:border-faint"
-  >
-    {options.map(([optionValue, optionLabel]) => (
-      <option key={optionValue} value={optionValue}>
-        {optionLabel}
-      </option>
+  <span className="flex rounded bg-rail p-0.5">
+    {options.map(([optionValue, label]) => (
+      <button
+        key={optionValue}
+        type="button"
+        aria-pressed={value === optionValue}
+        onClick={() => onChange(optionValue)}
+        className="rounded px-2 py-1 text-xs text-muted hover:text-ink aria-pressed:bg-raised aria-pressed:text-ink"
+      >
+        {label}
+      </button>
     ))}
-  </select>
+  </span>
 );
 
 // one page of matches; the last page offers the next
@@ -152,11 +271,11 @@ const Page = ({
           />
         ))}
         {cursor === undefined && value.matches.length === 0 && (
-          <div className="rounded-lg border border-dashed border-line px-6 py-10">
-            <p className="font-semibold">No matches here yet</p>
+          <div className="py-16 text-center">
+            <p className="font-bold">No matches here yet</p>
             <p className="mt-1 text-sm text-muted">
               {search.game || search.player
-                ? "Nothing matches these filters. Clear them to see every report."
+                ? "Nothing matches these filters. Pick all-games or another player."
                 : "Reports show up here once the bot posts them in Discord."}
             </p>
           </div>
@@ -165,7 +284,7 @@ const Page = ({
           <button
             type="button"
             onClick={() => value.next && onMore(value.next)}
-            className="w-full rounded-lg border border-line py-3 text-sm text-muted hover:border-faint hover:text-ink"
+            className="w-full rounded bg-embed py-3 text-sm text-muted hover:bg-accent hover:text-rail"
           >
             Load more matches
           </button>
@@ -213,98 +332,110 @@ const SignedIn = ({ me }: { me: Me }) => {
         .flatMap((s) => s.players)
         .map((player) => [player.discordUserId, player]),
     ).values(),
-  ];
+  ].sort((a, b) => a.discordName.localeCompare(b.discordName));
   const update = (next: Partial<Search>) =>
     navigate({ to: "/feed", search: (previous) => ({ ...previous, ...next }) });
+  const game = me.games.find((g) => g.game === search.game);
 
   return (
-    <div className="min-h-dvh lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
-      <Sidebar me={me} search={search} />
-      <main className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-8">
-        <div className="mb-6 flex flex-wrap items-center gap-3">
-          <h1 className="mr-auto text-xl font-semibold">
-            {server?.name ?? "All your servers"}
-          </h1>
-          <Select
-            label="Game"
-            value={search.game ?? ""}
-            options={[
-              ["", "All games"],
-              ...me.games.map((g) => [g.game, g.name] as const),
-            ]}
-            onChange={(value) =>
-              update({ game: me.games.find((g) => g.game === value)?.game })
-            }
+    <div className="flex min-h-dvh flex-col lg:h-dvh lg:flex-row">
+      <ServerRail me={me} search={search} />
+      <Channels
+        me={me}
+        search={search}
+        serverName={server?.name ?? "All your servers"}
+      />
+      <main className="flex min-w-0 flex-1 flex-col lg:overflow-y-auto">
+        <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-3 border-b border-rail bg-page px-4">
+          <Hash
+            aria-hidden
+            className="hidden size-5 shrink-0 text-muted sm:block"
           />
-          <Select
-            label="Player"
+          <h2 className="mr-auto hidden truncate font-bold sm:block">
+            {game ? channelName(game.name) : "all-games"}
+          </h2>
+          <select
+            aria-label="Player"
             value={search.player ?? ""}
-            options={[
-              ["", "Everyone"],
-              ...players.map((p) => [p.discordUserId, p.discordName] as const),
-            ]}
-            onChange={(value) => update({ player: value || undefined })}
-          />
-          <Select
-            label="Order"
+            onChange={(event) =>
+              update({ player: event.target.value || undefined })
+            }
+            className="mr-auto max-w-36 rounded bg-rail px-2 py-1 text-xs text-ink hover:bg-raised sm:mr-0 xl:hidden"
+          >
+            <option value="">Everyone</option>
+            {players.map((p) => (
+              <option key={p.discordUserId} value={p.discordUserId}>
+                {p.discordName}
+              </option>
+            ))}
+          </select>
+          <Toggle
             value={search.order ?? "newest"}
             options={[
-              ["newest", "Newest first"],
-              ["oldest", "Oldest first"],
+              ["newest", "Newest"],
+              ["oldest", "Oldest"],
             ]}
             onChange={(value) =>
               update({ order: value === "oldest" ? "oldest" : undefined })
             }
           />
+          <span className="lg:hidden">
+            <SignOut label={false} />
+          </span>
+        </header>
+        <div className="mx-auto w-full max-w-4xl px-4 py-4">
+          <Matches
+            key={JSON.stringify(search)}
+            me={me}
+            search={search}
+            onPlayer={(player) => update({ player })}
+          />
         </div>
-        <Matches
-          key={JSON.stringify(search)}
-          me={me}
-          search={search}
-          onPlayer={(player) => update({ player })}
-        />
       </main>
+      <Members
+        players={players}
+        selected={search.player}
+        onSelect={(player) => update({ player })}
+      />
     </div>
   );
 };
 
 const Centered = ({ children }: { children: React.ReactNode }) => (
-  <main className="grid min-h-dvh place-items-center px-6">
-    <div className="max-w-md">{children}</div>
+  <main className="grid min-h-dvh place-items-center bg-rail px-6">
+    <div className="w-full max-w-md rounded-md bg-page p-8">{children}</div>
   </main>
+);
+
+const unreachable = (
+  <Centered>
+    <p>Couldn't reach the bot. Reload the page to try again.</p>
+  </Centered>
 );
 
 export const Feed = () => {
   const me = useAtomValue(Site.query("feed", "me", {}));
   return AsyncResult.matchWithError(me, {
-    onInitial: () => <Centered>{null}</Centered>,
+    onInitial: () => <main className="min-h-dvh bg-rail" />,
     onError: (error) =>
       error instanceof HttpApiError.Unauthorized ? (
         <Centered>
-          <h1 className="font-score text-5xl leading-none font-bold">
-            Every match your servers report
-          </h1>
-          <p className="mt-4 text-muted">
-            Sign in with the Discord account you signed up with. You'll see the
-            reports from each server the bot tracks you in.
+          <h1 className="text-2xl font-extrabold">Match feed</h1>
+          <p className="mt-3 text-sm text-muted">
+            Every match the bot reports in your servers, in one place. Sign in
+            with the Discord account you signed up with.
           </p>
           <a
             href="/auth/discord"
-            className="mt-6 inline-block rounded-md bg-[#5865f2] px-5 py-2.5 font-semibold text-white hover:bg-[#4752c4]"
+            className="mt-6 block rounded bg-[#5865f2] px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-[#4752c4]"
           >
             Sign in with Discord
           </a>
         </Centered>
       ) : (
-        <Centered>
-          <p>Couldn't reach the bot. Reload the page to try again.</p>
-        </Centered>
+        unreachable
       ),
-    onDefect: () => (
-      <Centered>
-        <p>Couldn't reach the bot. Reload the page to try again.</p>
-      </Centered>
-    ),
+    onDefect: () => unreachable,
     onSuccess: ({ value }) => <SignedIn me={value} />,
   });
 };

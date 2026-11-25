@@ -1,39 +1,50 @@
 @import "tailwindcss";
-@import "@fontsource-variable/schibsted-grotesk";
-@import "@fontsource-variable/big-shoulders-display";
+@import "@fontsource-variable/jetbrains-mono";
 
-/* A post-game lobby: a deep blue room, a scoreboard face for results, and
-   amber reserved for the friends the feed is about. */
+/* Laid out like Discord, where these reports start: a server rail, games as
+   channels, tracked players as members and each match as an embed. Set in
+   JetBrains Mono, with a green-tinted cyan for anything that's yours or
+   clickable. Discord's own green and red carry results. */
 @theme {
-  --color-lobby: #151b26;
-  --color-surface: #1c2433;
-  --color-raised: #243047;
-  --color-line: #2b3547;
-  --color-ink: #e9edf4;
-  --color-muted: #8c97ab;
-  --color-faint: #5d6880;
-  --color-win: #4cc9a4;
-  --color-loss: #ef6461;
-  --color-draw: #c9b26b;
-  --color-friend: #f5b83d;
+  --color-rail: #0b0c0e;
+  --color-sidebar: #131417;
+  --color-page: #18191c;
+  --color-embed: #1f2024;
+  --color-raised: #2a2b30;
+  --color-line: #2e3036;
+  --color-ink: #f2f3f5;
+  --color-muted: #949ba4;
+  --color-faint: #5c5f66;
+  --color-accent: #2dd9c5;
+  --color-win: #23a55a;
+  --color-loss: #f23f43;
+  --color-draw: #f0b232;
 
-  --font-sans: "Schibsted Grotesk Variable", system-ui, sans-serif;
-  --font-score: "Big Shoulders Display Variable", "Arial Narrow", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
 }
 
 @layer base {
   html {
-    background: var(--color-lobby);
+    background: var(--color-page);
     color: var(--color-ink);
-    font-family: var(--font-sans);
+    font-family: var(--font-mono);
     -webkit-font-smoothing: antialiased;
   }
   ::selection {
-    background: color-mix(in srgb, var(--color-friend) 40%, transparent);
+    background: var(--color-accent);
+    color: var(--color-rail);
   }
   :focus-visible {
-    outline: 2px solid var(--color-friend);
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
+  }
+  /* anything that does something on click says so on hover */
+  a,
+  button,
+  select,
+  summary,
+  label[for] {
+    cursor: pointer;
   }
 }
 

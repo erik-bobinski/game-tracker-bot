@@ -1,8 +1,9 @@
 // One reported match, drawn from its data rather than the Discord card's
 // image, so every name and number is text: selectable, searchable, linkable.
-// Verdicts and wording come from the same helpers the Discord report uses.
+// The whole lobby shows, with the tracked friends marked. Verdicts and
+// wording come from the same helpers the Discord report uses.
 
-import { ChevronDown } from "lucide-react";
+import { Match } from "effect";
 import {
   formatDuration,
   matchVerdict,
@@ -31,11 +32,12 @@ const tone = {
   unknown: "text-muted",
 } as const satisfies Record<Outcome, string>;
 
-const spine = {
-  win: "bg-win",
-  loss: "bg-loss",
-  draw: "bg-draw",
-  unknown: "bg-faint",
+// the embed's left bar, as Discord colours a report's
+const bar = {
+  win: "border-win",
+  loss: "border-loss",
+  draw: "border-draw",
+  unknown: "border-faint",
 } as const satisfies Record<Outcome, string>;
 
 const teamOutcome = (team: MatchTeam): Outcome =>
@@ -43,46 +45,47 @@ const teamOutcome = (team: MatchTeam): Outcome =>
 
 const teamWords = { win: "won", loss: "lost", draw: "drew", unknown: "" };
 
-const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+const clock = new Intl.DateTimeFormat("en", {
+  hour: "numeric",
+  minute: "2-digit",
+});
+const calendar = new Intl.DateTimeFormat("en", { dateStyle: "short" });
 const fullDate = new Intl.DateTimeFormat("en", {
-  dateStyle: "medium",
+  dateStyle: "full",
   timeStyle: "short",
 });
 
-const ago = (date: number) => {
-  const minutes = Math.round((date - Date.now()) / 60_000);
-  if (Math.abs(minutes) < 60) return relative.format(minutes, "minute");
-  const hours = Math.round(minutes / 60);
-  if (Math.abs(hours) < 24) return relative.format(hours, "hour");
-  return relative.format(Math.round(hours / 24), "day");
+// when it was played, the way Discord stamps a message: "Today at 9:41 PM"
+const stamp = (date: number) => {
+  const startOfDay = (at: Date) =>
+    new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime();
+  const daysAgo = Math.round(
+    (startOfDay(new Date()) - startOfDay(new Date(date))) / 86_400_000,
+  );
+  const time = clock.format(date);
+  return Match.value(daysAgo).pipe(
+    Match.when(0, () => `Today at ${time}`),
+    Match.when(1, () => `Yesterday at ${time}`),
+    Match.orElse(() => `${calendar.format(date)} ${time}`),
+  );
 };
 
-const deltaText = (update: RankUpdate | null) =>
-  update?.delta === undefined
-    ? undefined
-    : `${update.delta > 0 ? "+" : update.delta < 0 ? "−" : "±"}${Math.abs(update.delta)} ${update.unit}`;
-
-const Portrait = ({
-  src,
-  name,
-  size,
-}: {
-  src: string | undefined;
-  name: string;
-  size: "large" | "small";
-}) => {
-  const box = size === "large" ? "size-10 rounded-md" : "size-6 rounded";
-  return src ? (
-    <img src={src} alt="" loading="lazy" className={`${box} bg-raised`} />
+const Portrait = ({ src, name }: { src: string | undefined; name: string }) =>
+  src ? (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      className="size-8 rounded-full bg-raised"
+    />
   ) : (
     <span
       aria-hidden
-      className={`${box} grid place-items-center bg-raised text-xs font-semibold text-muted`}
+      className="grid size-8 place-items-center rounded-full bg-raised text-xs font-bold text-muted"
     >
       {name.charAt(0).toUpperCase()}
     </span>
   );
-};
 
 const Rank = ({
   player,
@@ -97,24 +100,20 @@ const Rank = ({
   const key = change?.to.iconKey ?? player.rankIconKey;
   const icon = game?.rankIcons.find((rank) => rank.key === key)?.url;
   const label = change ? change.to.tier : player.rank;
-  const delta = deltaText(update);
-  if (!label && !delta)
-    return <span className="text-sm text-faint">Unranked</span>;
+  const delta = update?.delta;
+  if (!label && delta === undefined) return <span>Unranked</span>;
   return (
-    <span className="flex items-center gap-1.5 text-sm">
-      {icon && <img src={icon} alt="" className="size-5" loading="lazy" />}
-      {label && <span>{label}</span>}
-      {delta && (
+    <span className="flex items-center gap-1.5">
+      {icon && <img src={icon} alt="" className="size-4" loading="lazy" />}
+      {label && <span className="text-ink">{label}</span>}
+      {delta !== undefined && update && (
         <span
           className={
-            (update?.delta ?? 0) > 0
-              ? "text-win"
-              : (update?.delta ?? 0) < 0
-                ? "text-loss"
-                : "text-muted"
+            delta > 0 ? "text-win" : delta < 0 ? "text-loss" : "text-muted"
           }
         >
-          {delta}
+          {delta > 0 ? "+" : delta < 0 ? "−" : "±"}
+          {Math.abs(delta)} {update.unit}
         </span>
       )}
       {change && (
@@ -132,101 +131,133 @@ const Flairs = ({
 }: {
   flairs: ReadonlyArray<string>;
   mvp: boolean;
-}) =>
-  mvp || flairs.length > 0 ? (
-    <span className="flex gap-1">
-      {mvp && (
-        <span className="rounded bg-friend/15 px-1.5 text-xs font-semibold text-friend">
-          MVP
-        </span>
-      )}
-      {flairs.map((flair) => (
-        <span
-          key={flair}
-          className="rounded bg-raised px-1.5 text-xs font-semibold text-ink"
-        >
-          {flair}
-        </span>
-      ))}
-    </span>
-  ) : null;
+}) => (
+  <>
+    {mvp && (
+      <span className="shrink-0 rounded-sm bg-accent px-1 text-[11px] font-bold text-rail">
+        MVP
+      </span>
+    )}
+    {flairs.map((flair) => (
+      <span
+        key={flair}
+        className="shrink-0 rounded-sm bg-raised px-1 text-[11px] font-bold"
+      >
+        {flair}
+      </span>
+    ))}
+  </>
+);
 
-// a tracked player's line: who they are, how they did, where their rank went
-const FriendRow = ({
-  friend,
+// one player's line in the scoreboard; a tracked friend is marked in orange
+// and their discord name filters the feed to them
+const PlayerRow = ({
   player,
-  game,
-  result,
+  friend,
   portrait,
-  character,
   mvp,
+  result,
+  resultTone,
+  game,
   onPlayer,
 }: {
-  friend: Friend;
   player: MatchPlayerIdentity;
-  game: Game | undefined;
-  result: React.ReactNode;
-  portrait: string | undefined;
-  character: string | undefined;
+  friend: Friend | undefined;
+  portrait: { readonly src: string | undefined; readonly name: string };
   mvp: boolean;
+  result: string;
+  resultTone: string;
+  game: Game | undefined;
   onPlayer: (discordUserId: string) => void;
 }) => (
-  <li className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[2.5rem_minmax(0,1fr)_9rem_minmax(10rem,auto)]">
-    <Portrait
-      src={portrait}
-      name={character ?? friend.discordName}
-      size="large"
-    />
+  <li
+    className={`grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-3 border-l-2 py-1.5 pr-2 pl-2 ${friend ? "border-accent bg-accent/10" : "border-transparent"}`}
+  >
+    <Portrait src={portrait.src} name={portrait.name} />
     <div className="min-w-0">
-      <p className="flex flex-wrap items-center gap-x-2">
-        <button
-          type="button"
-          onClick={() => onPlayer(friend.discordUserId)}
-          title={`Show only ${friend.discordName}'s matches`}
-          className="font-semibold text-friend decoration-2 underline-offset-4 hover:underline"
+      <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+        <span
+          className={`truncate text-sm font-bold ${friend ? "text-accent" : ""}`}
         >
-          {friend.discordName}
-        </button>
+          {playerName(player)}
+        </span>
         <Flairs flairs={player.flairs ?? []} mvp={mvp} />
       </p>
-      <p className="truncate text-sm text-muted">
-        {player.riotName}#{player.riotTag}
-        {character ? `, ${character}` : ""}
-      </p>
+      <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted">
+        {friend && (
+          <button
+            type="button"
+            onClick={() => onPlayer(friend.discordUserId)}
+            title={`Show only ${friend.discordName}'s matches`}
+            className="rounded-sm px-0.5 text-accent hover:bg-accent hover:text-rail"
+          >
+            @{friend.discordName}
+          </button>
+        )}
+        <Rank player={player} update={friend?.rankUpdate ?? null} game={game} />
+      </div>
     </div>
-    <div className="text-right">{result}</div>
-    <div className="col-span-full pl-[3.25rem] sm:col-span-1 sm:pl-0">
-      <Rank player={player} update={friend.rankUpdate} game={game} />
+    <div className="text-right">
+      <p className={`text-sm font-bold tabular-nums ${resultTone}`}>{result}</p>
+      {player.stat && (
+        <p className="hidden text-[11px] whitespace-nowrap text-muted sm:block">
+          {player.stat}
+        </p>
+      )}
     </div>
   </li>
 );
 
-const Stat = ({ value, detail }: { value: string; detail: string }) => (
-  <>
-    <p className="font-score text-2xl leading-none font-semibold tabular-nums">
-      {value}
-    </p>
-    {detail && <p className="mt-1 text-xs text-muted">{detail}</p>}
-  </>
-);
-
-const Lobby = ({
-  count,
+// the frame every match shares, shaped like the Discord embed it was posted
+// as: the game as author, the verdict as title, the lobby as fields, and when
+// it was played in the footer
+const Entry = ({
+  outcome,
+  label,
+  score,
+  entry,
+  game,
+  details,
   children,
 }: {
-  count: number;
+  outcome: Outcome;
+  label: string;
+  score: readonly [number, number] | undefined;
+  entry: FeedMatch;
+  game: Game | undefined;
+  details: ReadonlyArray<string | undefined>;
   children: React.ReactNode;
 }) => (
-  <details className="group mt-4 border-t border-line pt-3">
-    <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 text-sm text-muted hover:text-ink [&::-webkit-details-marker]:hidden">
-      <ChevronDown
-        aria-hidden
-        className="size-4 transition-transform group-open:rotate-180"
-      />
-      Full lobby, {count} players
-    </summary>
-    <div className="mt-3">{children}</div>
-  </details>
+  <article
+    className={`rounded border-l-4 bg-embed px-4 py-3 sm:px-5 sm:py-4 ${bar[outcome]}`}
+  >
+    <p className="flex items-center gap-2 text-xs font-bold">
+      {game && (
+        <img src={game.iconUrl} alt="" className="size-5 rounded-full" />
+      )}
+      {game?.name}
+    </p>
+    <h2 className="mt-2 flex items-baseline gap-3 text-2xl font-extrabold sm:text-3xl">
+      <span className={tone[outcome]}>{label}</span>
+      {score && (
+        <span className="tabular-nums">
+          {score[0]}–{score[1]}
+        </span>
+      )}
+    </h2>
+    <p className="mt-1 text-sm text-muted">
+      {details.filter(Boolean).join(", ")}
+    </p>
+    <div className="mt-4">{children}</div>
+    <footer className="mt-3 text-xs text-muted">
+      <time
+        dateTime={new Date(entry.playedAt).toISOString()}
+        title={fullDate.format(entry.playedAt)}
+      >
+        {stamp(entry.playedAt)}
+      </time>
+    </footer>
+  </article>
 );
 
 const VersusMatchEntry = ({
@@ -240,15 +271,10 @@ const VersusMatchEntry = ({
   game: Game | undefined;
   onPlayer: (discordUserId: string) => void;
 }) => {
-  const rankUpdates = new Map(
-    entry.players.flatMap((friend) =>
-      friend.rankUpdate ? [[friend.puuid, friend.rankUpdate] as const] : [],
-    ),
-  );
   const { key, verdict, trackedTeam, teams } = matchVerdict({
     tracked: entry.players,
     match,
-    rankUpdates,
+    rankUpdates: new Map(),
   });
   const friends = new Map(
     entry.players.map((friend) => [friend.puuid, friend]),
@@ -269,93 +295,41 @@ const VersusMatchEntry = ({
         match.surrendered ? "ended by surrender" : undefined,
       ]}
     >
-      <ul className="mt-4 space-y-3">
-        {entry.players.flatMap((friend) => {
-          const player = match.players.find((p) => p.puuid === friend.puuid);
-          return player
-            ? [
-                <FriendRow
-                  key={friend.discordUserId}
-                  friend={friend}
-                  player={player}
-                  game={game}
-                  portrait={player.characterIconUrl}
-                  character={player.character}
-                  mvp={player.puuid === mvp}
-                  onPlayer={onPlayer}
-                  result={
-                    <Stat
-                      value={`${player.kills} / ${player.deaths} / ${player.assists}`}
-                      detail={player.stat}
-                    />
-                  }
-                />,
-              ]
-            : [];
+      <div className="grid gap-6 md:grid-cols-2">
+        {teams.map((team, index) => {
+          const players = match.players.filter((p) => p.team === team.id);
+          const outcome = teamOutcome(team);
+          return (
+            <section key={team.id} aria-label={teamLabel(index)}>
+              <h3 className="mb-1 border-b border-line pb-1 text-xs">
+                <span className="font-bold">{teamLabel(index)}</span>{" "}
+                <span className={tone[outcome]}>{teamWords[outcome]}</span>
+                <span className="text-muted">
+                  , {players.reduce((kills, p) => kills + p.kills, 0)} kills
+                </span>
+              </h3>
+              <ul>
+                {players.map((player) => (
+                  <PlayerRow
+                    key={player.puuid}
+                    player={player}
+                    friend={friends.get(player.puuid)}
+                    portrait={{
+                      src: player.characterIconUrl,
+                      name: player.character,
+                    }}
+                    mvp={player.puuid === mvp}
+                    result={`${player.kills}/${player.deaths}/${player.assists}`}
+                    resultTone=""
+                    game={game}
+                    onPlayer={onPlayer}
+                  />
+                ))}
+              </ul>
+            </section>
+          );
         })}
-      </ul>
-      <Lobby count={match.players.length}>
-        <div className="grid gap-5 md:grid-cols-2">
-          {teams.map((team, index) => {
-            const players = match.players.filter((p) => p.team === team.id);
-            const outcome = teamOutcome(team);
-            return (
-              <table key={team.id} className="w-full text-sm">
-                <caption className="mb-2 text-left">
-                  <span className="font-semibold">{teamLabel(index)}</span>{" "}
-                  <span className={tone[outcome]}>{teamWords[outcome]}</span>
-                  <span className="text-muted">
-                    , {players.reduce((kills, p) => kills + p.kills, 0)} kills
-                  </span>
-                </caption>
-                <thead className="sr-only">
-                  <tr>
-                    <th>Player</th>
-                    <th>Kills, deaths and assists</th>
-                    <th>Rank</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {players.map((player) => {
-                    const friend = friends.get(player.puuid);
-                    return (
-                      <tr
-                        key={player.puuid}
-                        className={friend ? "bg-friend/8" : undefined}
-                      >
-                        <td className="py-1 pr-2">
-                          <span className="flex min-w-0 items-center gap-2">
-                            <Portrait
-                              src={player.characterIconUrl}
-                              name={player.character}
-                              size="small"
-                            />
-                            <span
-                              className={`truncate ${friend ? "font-semibold text-friend" : ""}`}
-                            >
-                              {playerName(player)}
-                            </span>
-                          </span>
-                        </td>
-                        <td className="py-1 pr-2 text-right tabular-nums whitespace-nowrap">
-                          {player.kills} / {player.deaths} / {player.assists}
-                        </td>
-                        <td className="py-1">
-                          <Rank
-                            player={player}
-                            update={friend?.rankUpdate ?? null}
-                            game={game}
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            );
-          })}
-        </div>
-      </Lobby>
+      </div>
     </Entry>
   );
 };
@@ -376,152 +350,52 @@ const PlacementMatchEntry = ({
     match,
     rankUpdates: new Map(),
   });
-  const tracked = match.players.filter((p) => trackedPuuids.has(p.puuid));
-  const primary = tracked.length === 1 ? tracked[0] : undefined;
   const friends = new Map(
     entry.players.map((friend) => [friend.puuid, friend]),
   );
   const byPlacement = [...match.players].sort(
     (a, b) => a.placement - b.placement,
   );
+  // every friend's place, best first: "1st", or "1st and 4th"
+  const places = byPlacement
+    .filter((p) => trackedPuuids.has(p.puuid))
+    .map((p) => ordinal(p.placement));
+  const label =
+    places.length > 1
+      ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}`
+      : `${places[0] ?? "Match"} place`;
 
   return (
     <Entry
       outcome={key}
-      label={
-        primary
-          ? `${ordinal(primary.placement)} place`
-          : // every friend's place, best first: "1st and 4th"
-            tracked
-              .map((p) => p.placement)
-              .sort((a, b) => a - b)
-              .map(ordinal)
-              .join(", ")
-              .replace(/, ([^,]*)$/, " and $1")
-      }
+      label={label}
       score={undefined}
       entry={entry}
       game={game}
       details={[match.mode, formatDuration(match.durationSeconds)]}
     >
-      <ul className="mt-4 space-y-3">
-        {entry.players.flatMap((friend) => {
-          const player = match.players.find((p) => p.puuid === friend.puuid);
-          return player
-            ? [
-                <FriendRow
-                  key={friend.discordUserId}
-                  friend={friend}
-                  player={player}
-                  game={game}
-                  portrait={undefined}
-                  character={undefined}
-                  mvp={false}
-                  onPlayer={onPlayer}
-                  result={
-                    <Stat
-                      value={ordinal(player.placement)}
-                      detail={player.stat}
-                    />
-                  }
-                />,
-              ]
-            : [];
-        })}
+      <ul className="grid gap-x-6 md:grid-flow-col md:grid-cols-2 md:grid-rows-4">
+        {byPlacement.map((player) => (
+          <PlayerRow
+            key={player.puuid}
+            player={player}
+            friend={friends.get(player.puuid)}
+            portrait={{
+              src: undefined,
+              name:
+                friends.get(player.puuid)?.discordName ?? playerName(player),
+            }}
+            mvp={false}
+            result={ordinal(player.placement)}
+            resultTone={player.won ? "text-win" : "text-muted"}
+            game={game}
+            onPlayer={onPlayer}
+          />
+        ))}
       </ul>
-      <Lobby count={match.players.length}>
-        <table className="w-full text-sm">
-          <thead className="sr-only">
-            <tr>
-              <th>Place</th>
-              <th>Player</th>
-              <th>Result</th>
-              <th>Rank</th>
-            </tr>
-          </thead>
-          <tbody>
-            {byPlacement.map((player) => {
-              const friend = friends.get(player.puuid);
-              return (
-                <tr
-                  key={player.puuid}
-                  className={friend ? "bg-friend/8" : undefined}
-                >
-                  <td
-                    className={`w-10 py-1 font-score text-lg font-semibold tabular-nums ${player.won ? "text-win" : "text-muted"}`}
-                  >
-                    {ordinal(player.placement)}
-                  </td>
-                  <td
-                    className={`py-1 pr-2 ${friend ? "font-semibold text-friend" : ""}`}
-                  >
-                    {playerName(player)}
-                  </td>
-                  <td className="py-1 pr-2 text-muted">{player.stat}</td>
-                  <td className="py-1">
-                    <Rank
-                      player={player}
-                      update={friend?.rankUpdate ?? null}
-                      game={game}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Lobby>
     </Entry>
   );
 };
-
-// the frame every match shares: the verdict spine, headline and when
-const Entry = ({
-  outcome,
-  label,
-  score,
-  entry,
-  game,
-  details,
-  children,
-}: {
-  outcome: Outcome;
-  label: string;
-  score: readonly [number, number] | undefined;
-  entry: FeedMatch;
-  game: Game | undefined;
-  details: ReadonlyArray<string | undefined>;
-  children: React.ReactNode;
-}) => (
-  <article className="relative overflow-hidden rounded-lg bg-surface py-4 pr-4 pl-6 sm:pr-6 sm:pl-8">
-    <span
-      aria-hidden
-      className={`absolute inset-y-0 left-0 w-1.5 ${spine[outcome]}`}
-    />
-    <header className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-      <h2 className="flex items-baseline gap-3 font-score leading-none font-bold">
-        <span className={`text-4xl ${tone[outcome]}`}>{label}</span>
-        {score && (
-          <span className="text-4xl font-semibold tabular-nums">
-            {score[0]}–{score[1]}
-          </span>
-        )}
-      </h2>
-      <time
-        dateTime={new Date(entry.playedAt).toISOString()}
-        title={fullDate.format(entry.playedAt)}
-        className="text-sm text-muted"
-      >
-        {ago(entry.playedAt)}
-      </time>
-    </header>
-    <p className="mt-2 flex items-center gap-2 text-sm text-muted">
-      {game && <img src={game.iconUrl} alt="" className="size-4 rounded-sm" />}
-      <span>{[game?.name, ...details].filter(Boolean).join(", ")}</span>
-    </p>
-    {children}
-  </article>
-);
 
 export const MatchEntry = ({
   entry,
