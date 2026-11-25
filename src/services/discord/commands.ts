@@ -311,15 +311,8 @@ const signout = ({ database }: CommandDeps) =>
           return reply("You're not signed up here.");
         }
 
-        const { accountDeleted } = yield* database.leaveGuild({
-          guildId,
-          discordUserId: user.id,
-        });
-        return reply(
-          accountDeleted
-            ? `**${user.username}** signed out, all data deleted.`
-            : `**${user.username}** signed out of this server's reports. Reporting in your other servers continues.`,
-        );
+        yield* database.leaveGuild({ guildId, discordUserId: user.id });
+        return reply(`**${user.username}** signed out.`);
       }).pipe(
         Effect.catch((error) =>
           Effect.logError("signout failed", error).pipe(

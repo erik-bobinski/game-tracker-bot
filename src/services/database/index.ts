@@ -245,10 +245,7 @@ export class Database extends Context.Service<
     readonly leaveGuild: (input: {
       readonly guildId: string;
       readonly discordUserId: string;
-    }) => Effect.Effect<
-      { readonly accountDeleted: boolean },
-      SqlError | Schema.SchemaError
-    >;
+    }) => Effect.Effect<void, SqlError | Schema.SchemaError>;
     readonly getGuilds: () => Effect.Effect<
       ReadonlyArray<Guild>,
       SqlError | Schema.SchemaError
@@ -1007,8 +1004,7 @@ const makeDatabase = Effect.gen(function* () {
     subscription: typeof SubscriptionRow.Type,
   ) {
     yield* deleteSubscriptionRow(subscription);
-    const deleted = yield* pruneAccounts([subscription.discordUserId]);
-    return { accountDeleted: deleted > 0 };
+    yield* pruneAccounts([subscription.discordUserId]);
   }, sql.withTransaction);
 
   const GuildRow = Schema.Struct({
