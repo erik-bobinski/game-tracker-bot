@@ -171,7 +171,7 @@ const PlayerRow = ({
   onPlayer: (discordUserId: string) => void;
 }) => (
   <li
-    className={`grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-3 border-l-2 py-1.5 pr-2 pl-2 ${friend ? "border-accent bg-accent/10" : "border-transparent"}`}
+    className={`grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-2 border-l-2 sm:gap-x-3 py-1.5 pr-2 pl-2 ${friend ? "border-accent bg-accent/10" : "border-transparent"}`}
   >
     <Portrait src={portrait.src} name={portrait.name} />
     <div className="min-w-0">
@@ -229,7 +229,7 @@ const Entry = ({
   children: React.ReactNode;
 }) => (
   <article
-    className={`rounded border-l-4 bg-embed px-4 py-3 sm:px-5 sm:py-4 ${bar[outcome]}`}
+    className={`rounded border-l-4 bg-embed px-3 py-3 sm:px-5 sm:py-4 ${bar[outcome]}`}
   >
     <p className="flex items-center gap-2 text-xs font-bold">
       {game && (
