@@ -261,13 +261,14 @@ const Summary = ({
         className="size-7 shrink-0 rounded-full"
       />
     )}
-    <div className="min-w-0 flex-1">
+    {/* the headline keeps its line; a crowded lobby's friends wrap instead */}
+    <div className="min-w-0 flex-1 sm:min-w-56">
       <h2 className="text-sm font-extrabold">
         <button
           type="button"
           onClick={onOpen}
           aria-haspopup="dialog"
-          className="text-left after:absolute after:inset-0 after:rounded"
+          className="text-left whitespace-nowrap after:absolute after:inset-0 after:rounded"
         >
           <span className={tone[outcome]}>{label}</span>
           {score && (
