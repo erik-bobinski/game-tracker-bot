@@ -6,7 +6,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { HttpApiError } from "effect/http-api";
 import { AsyncResult } from "effect/reactivity";
-import { Hash, LayoutGrid, LogOut } from "lucide-react";
+import { LayoutGrid, LogOut } from "lucide-react";
 import { useState } from "react";
 import type { FeedPage, Me } from "../../src/services/web/api.ts";
 import { Site } from "./client.ts";
@@ -26,9 +26,23 @@ const initials = (name: string) =>
     .slice(0, 3)
     .toUpperCase();
 
-// "League of Legends" -> "league-of-legends"
-const channelName = (name: string) =>
-  name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+type Game = Me["games"][number];
+
+// a game's logo, or the grid that stands for all of them
+const GameMark = ({ game, size }: { game: Game | undefined; size: string }) =>
+  game ? (
+    <img
+      src={game.iconUrl}
+      alt=""
+      className={`${size} shrink-0 rounded-full`}
+    />
+  ) : (
+    <LayoutGrid aria-hidden className={`${size} shrink-0`} />
+  );
+
+const Avatar = ({ src }: { src: string }) => (
+  <img src={src} alt="" className="size-8 shrink-0 rounded-full bg-raised" />
+);
 
 const SignOut = ({ label }: { label: boolean }) => (
   <form method="post" action="/auth/sign-out">
@@ -110,9 +124,9 @@ const ServerRail = ({ me, search }: { me: Me; search: Search }) => (
 );
 
 const channelLink =
-  "flex shrink-0 items-center gap-1.5 rounded px-2 py-1.5 text-sm whitespace-nowrap text-muted hover:bg-raised hover:text-ink aria-[current=page]:bg-raised aria-[current=page]:text-ink";
+  "flex shrink-0 items-center gap-2 rounded px-2 py-1.5 text-sm whitespace-nowrap text-muted hover:bg-raised hover:text-ink aria-[current=page]:bg-raised aria-[current=page]:text-ink";
 
-// the games, as the channels a report lands in
+// the games, listed where Discord lists a server's channels
 const Channels = ({
   me,
   search,
@@ -133,30 +147,22 @@ const Channels = ({
       <p className="hidden px-2 pb-1 text-xs font-bold text-muted lg:block">
         Games
       </p>
-      {[
-        { game: undefined, name: "all-games" },
-        ...me.games.map((g) => ({ game: g.game, name: channelName(g.name) })),
-      ].map((channel) => (
+      {[undefined, ...me.games].map((game) => (
         <Link
-          key={channel.name}
+          key={game?.game ?? "all"}
           to="/feed"
-          search={{ ...search, game: channel.game }}
+          search={{ ...search, game: game?.game }}
           activeOptions={{ explicitUndefined: true }}
           className={channelLink}
         >
-          <Hash aria-hidden className="size-4 shrink-0" />
-          {channel.name}
+          <GameMark game={game} size="size-5" />
+          {game?.name ?? "All games"}
         </Link>
       ))}
     </nav>
     <div className="mt-auto hidden items-center justify-between bg-rail/60 px-3 py-2 lg:flex">
       <span className="flex min-w-0 items-center gap-2">
-        <span
-          aria-hidden
-          className="grid size-8 shrink-0 place-items-center rounded-full bg-accent text-xs font-bold text-rail"
-        >
-          {initials(me.discordName)}
-        </span>
+        <Avatar src={me.avatarUrl} />
         <span className="truncate text-sm font-bold">{me.discordName}</span>
       </span>
       <SignOut label={false} />
@@ -197,12 +203,7 @@ const Members = ({
           }
           className="flex w-full items-center gap-3 rounded px-2 py-1.5 text-left text-sm text-muted hover:bg-raised hover:text-ink aria-pressed:bg-raised aria-pressed:text-accent"
         >
-          <span
-            aria-hidden
-            className="grid size-8 shrink-0 place-items-center rounded-full bg-raised text-xs font-bold text-ink"
-          >
-            {initials(player.discordName)}
-          </span>
+          <Avatar src={player.avatarUrl} />
           <span className="truncate">{player.discordName}</span>
         </button>
       );
@@ -347,12 +348,11 @@ const SignedIn = ({ me }: { me: Me }) => {
       />
       <main className="flex min-w-0 flex-1 flex-col lg:overflow-y-auto">
         <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-3 border-b border-rail bg-page px-4">
-          <Hash
-            aria-hidden
-            className="hidden size-5 shrink-0 text-muted sm:block"
-          />
+          <span className="hidden text-muted sm:block">
+            <GameMark game={game} size="size-5" />
+          </span>
           <h2 className="mr-auto hidden truncate font-bold sm:block">
-            {game ? channelName(game.name) : "all-games"}
+            {game?.name ?? "All games"}
           </h2>
           <select
             aria-label="Player"

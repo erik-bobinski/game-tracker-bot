@@ -43,12 +43,18 @@ const Player = Schema.Struct({
   discordName: Schema.String,
 });
 
+// a player as the site's member list shows them, with their discord picture
+const Member = Schema.Struct({
+  ...Player.fields,
+  avatarUrl: Schema.String,
+});
+
 // a server the viewer is tracked in, and everyone tracked there
 const Server = Schema.Struct({
   guildId: Schema.String,
   name: Schema.String,
   iconUrl: Schema.NullOr(Schema.String),
-  players: Schema.Array(Player),
+  players: Schema.Array(Member),
 });
 
 // how the site draws a game: its icon, and its rank emblems by
@@ -63,7 +69,7 @@ const Game = Schema.Struct({
 });
 
 const Me = Schema.Struct({
-  ...Player.fields,
+  ...Member.fields,
   servers: Schema.Array(Server),
   games: Schema.Array(Game),
 });

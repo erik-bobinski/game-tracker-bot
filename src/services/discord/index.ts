@@ -69,8 +69,15 @@ export class Discord extends Context.Service<
         readonly iconUrl: string | undefined;
       }>
     >;
+    // a user's profile picture, for the website; Discord's default one for
+    // anyone it can't look up
+    readonly getAvatarUrl: (discordUserId: string) => Effect.Effect<string>;
   }
 >()("app/Discord") {}
+
+// the picture Discord shows someone who hasn't set one, picked from their id
+export const defaultAvatarUrl = (discordUserId: string) =>
+  `https://cdn.discordapp.com/embed/avatars/${/^\d+$/.test(discordUserId) ? (BigInt(discordUserId) >> 22n) % 6n : 0}.png`;
 
 // what posting a report takes: seeing the channel, sending, the card as an
 // attachment or the embed it falls back to, and rank emojis
@@ -343,9 +350,41 @@ const makeDiscord = Effect.gen(function* () {
     },
   );
 
+  // pictures change more often than server names, but an hour stale is fine;
+  // a failed lookup falls back without being kept
+  const avatars = yield* Cache.makeWith(
+    (discordUserId: string) =>
+      rest.getUser(discordUserId).pipe(
+        Effect.map((user) =>
+          Option.some(
+            user.avatar
+              ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64`
+              : defaultAvatarUrl(user.id),
+          ),
+        ),
+        Effect.tapError((error) =>
+          Effect.logWarning("avatar lookup failed", error).pipe(
+            Effect.annotateLogs({ discordUserId }),
+          ),
+        ),
+        Effect.orElseSucceed(() => Option.none<string>()),
+      ),
+    {
+      capacity: 5_000,
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) && Option.isSome(exit.value)
+          ? "1 hour"
+          : Duration.zero,
+    },
+  );
+
   return Discord.of({
     notifyMatch,
     getServer: (guildId) => Cache.get(servers, guildId),
+    getAvatarUrl: (discordUserId) =>
+      Cache.get(avatars, discordUserId).pipe(
+        Effect.map(Option.getOrElse(() => defaultAvatarUrl(discordUserId))),
+      ),
     application: {
       id: application.id,
       name: application.name,

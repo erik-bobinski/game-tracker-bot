@@ -134,6 +134,7 @@ test("the feed shows a viewer only their servers' reports", async () => {
           Layer.succeed(GameAdapters, { all: [] }),
           Layer.succeed(Discord, {
             notifyMatch: () => Effect.void,
+            getAvatarUrl: (id) => Effect.succeed(`avatar-${id}`),
             getServer: (guildId) =>
               Effect.succeed(
                 Option.some({ name: `server ${guildId}`, iconUrl: undefined }),
@@ -184,21 +185,36 @@ test("the feed shows a viewer only their servers' reports", async () => {
       expect(me).toEqual({
         discordUserId: "alice",
         discordName: "alice",
+        avatarUrl: "avatar-alice",
         servers: [
           {
             guildId: "a",
             name: "server a",
             iconUrl: null,
             players: [
-              { discordUserId: "alice", discordName: "alice" },
-              { discordUserId: "bob", discordName: "bob" },
+              {
+                discordUserId: "alice",
+                discordName: "alice",
+                avatarUrl: "avatar-alice",
+              },
+              {
+                discordUserId: "bob",
+                discordName: "bob",
+                avatarUrl: "avatar-bob",
+              },
             ],
           },
           {
             guildId: "b",
             name: "server b",
             iconUrl: null,
-            players: [{ discordUserId: "alice", discordName: "alice" }],
+            players: [
+              {
+                discordUserId: "alice",
+                discordName: "alice",
+                avatarUrl: "avatar-alice",
+              },
+            ],
           },
         ],
         games: [],

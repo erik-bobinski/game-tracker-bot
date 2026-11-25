@@ -178,7 +178,7 @@ export const privacyPage = (site: Site) => {
 </ul>
 <p>It doesn't store your Riot password, Riot sign-in tokens or your email. Signing in with Riot only tells the bot which Riot account is yours; the sign-in is discarded right after.</p>
 <h2>What it shows</h2>
-<p>When you finish a game, the bot posts the game's scoreboard, as Riot publishes it, in the channel of each server you signed up in: your name, champion or agent, stats and rank, and those of the other players in the game. Anyone who can read that channel can see it, and the other players tracked in that server can see it on the website. Signing up, or linking your Riot account, makes your match data visible to the members of those servers.</p>
+<p>When you finish a game, the bot posts the game's scoreboard, as Riot publishes it, in the channel of each server you signed up in: your name, champion or agent, stats and rank, and those of the other players in the game. Anyone who can read that channel can see it, and the other players tracked in that server can see it on the website, along with your Discord name and profile picture. The picture is fetched from Discord when the page loads, not stored. Signing up, or linking your Riot account, makes your match data visible to the members of those servers.</p>
 <h2>Who else handles it</h2>
 <ul>
 <li>Riot Games' API, which the bot reads accounts, matches and ranks from.</li>

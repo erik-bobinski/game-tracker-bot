@@ -98,6 +98,7 @@ const world = (
               Effect.sync(() => {
                 posts.push(report);
               }),
+            getAvatarUrl: (id) => Effect.succeed(`avatar-${id}`),
             getServer: () => Effect.succeed(Option.none()),
             application: { id: "", name: "test", inviteUrl: "" },
           }),

@@ -167,6 +167,7 @@ const main = Effect.gen(function* () {
             Layer.succeed(Database, db),
             Layer.succeed(GameAdapters, { all: [bounded] }),
             Layer.succeed(Discord, {
+              getAvatarUrl: (id) => Effect.succeed(`avatar-${id}`),
               getServer: () => Effect.succeed(Option.none()),
               application: { id: "", name: "Live verification", inviteUrl: "" },
               notifyMatch: (target, report) =>

@@ -62,6 +62,7 @@ test("deliveries survive restart, newer matches and partial server failure", asy
     DatabaseLive,
     Layer.succeed(GameAdapters, { all: [adapter] }),
     Layer.succeed(Discord, {
+      getAvatarUrl: (id) => Effect.succeed(`avatar-${id}`),
       getServer: () => Effect.succeed(Option.none()),
       application: { id: "", name: "test", inviteUrl: "" },
       notifyMatch: (target, report) =>
@@ -391,6 +392,7 @@ test("catch-up posts a bounded backlog after downtime", async () => {
         DatabaseLive,
         Layer.succeed(GameAdapters, { all: [adapter] }),
         Layer.succeed(Discord, {
+          getAvatarUrl: (id) => Effect.succeed(`avatar-${id}`),
           getServer: () => Effect.succeed(Option.none()),
           application: { id: "", name: "test", inviteUrl: "" },
           notifyMatch: (_target, report) =>

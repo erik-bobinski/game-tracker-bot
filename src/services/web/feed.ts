@@ -4,7 +4,7 @@
 import { Effect, Option } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 import { Database } from "../database/index.ts";
-import { Discord } from "../discord/index.ts";
+import { defaultAvatarUrl, Discord } from "../discord/index.ts";
 import { GameAdapters } from "../game/game-adapters/index.ts";
 import { gameNames } from "../game/index.ts";
 import { SiteApi, Viewer } from "./api.ts";
@@ -36,6 +36,19 @@ export const FeedLive = HttpApiBuilder.group(SiteApi, "feed", (handlers) =>
           const { discordUserId } = yield* Viewer;
           const members = yield* database.getServerMembers(discordUserId);
           const guildIds = [...new Set(members.map((m) => m.guildId))];
+          // each player once, however many of the viewer's servers they're in
+          const avatars = new Map(
+            yield* Effect.forEach(
+              new Set(members.map((m) => m.discordUserId)),
+              (id) =>
+                discord
+                  .getAvatarUrl(id)
+                  .pipe(Effect.map((url) => [id, url] as const)),
+              { concurrency: 8 },
+            ),
+          );
+          const avatarUrl = (id: string) =>
+            avatars.get(id) ?? defaultAvatarUrl(id);
           const servers = yield* Effect.forEach(
             guildIds,
             (guildId) =>
@@ -54,6 +67,7 @@ export const FeedLive = HttpApiBuilder.group(SiteApi, "feed", (handlers) =>
                     .map(({ discordUserId, discordName }) => ({
                       discordUserId,
                       discordName,
+                      avatarUrl: avatarUrl(discordUserId),
                     })),
                 })),
               ),
@@ -64,6 +78,7 @@ export const FeedLive = HttpApiBuilder.group(SiteApi, "feed", (handlers) =>
             discordName:
               members.find((member) => member.discordUserId === discordUserId)
                 ?.discordName ?? "",
+            avatarUrl: avatarUrl(discordUserId),
             servers,
             games,
           };
