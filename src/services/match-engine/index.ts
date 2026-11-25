@@ -540,7 +540,35 @@ const makeMatchEngine = Effect.gen(function* () {
     );
   });
 
-  return { pollOnce, importHistory };
+  // saved matches a migration queued because their adapter now reads them
+  // differently: each is fetched again and its scoreboard replaced, without
+  // posting. One riot can't answer stays queued for the next start.
+  const refetchMatches = Effect.fn("MatchEngine.refetchMatches")(function* () {
+    const queued = yield* database.getRefetches();
+    if (queued.length === 0) return;
+    let failures = 0;
+    yield* Effect.forEach(
+      queued,
+      ({ game, matchId, region }) =>
+        Effect.gen(function* () {
+          const adapter = gameAdapters.all.find((a) => a.game === game);
+          if (!adapter) return;
+          const match = yield* adapter.getMatch(matchId, region ?? undefined);
+          yield* database.refetched({ game, matchId }, match);
+        }).pipe(
+          Effect.catchTag("GameApiError", (error) => {
+            failures += 1;
+            return logApiWarning("refetch skipped a match", error);
+          }),
+        ),
+      { concurrency: 4, discard: true },
+    );
+    yield* Effect.logInfo("saved matches refetched").pipe(
+      Effect.annotateLogs({ queued: queued.length, failures }),
+    );
+  });
+
+  return { pollOnce, importHistory, refetchMatches };
 });
 
 export class MatchEngine extends Context.Service<

@@ -190,6 +190,18 @@ export class Database extends Context.Service<
       void,
       SqlError | Schema.SchemaError
     >;
+    // saved matches an adapter now reads differently, each with the region of
+    // a player who was in it, to fetch through
+    readonly getRefetches: () => Effect.Effect<
+      ReadonlyArray<typeof Refetch.Type>,
+      SqlError | Schema.SchemaError
+    >;
+    // replaces a saved match's scoreboard and takes it off the refetch list;
+    // undefined, for a match riot no longer has, only takes it off
+    readonly refetched: (
+      key: { readonly game: GameId; readonly matchId: MatchId },
+      match: MatchDetails | undefined,
+    ) => Effect.Effect<void, SqlError | Schema.SchemaError>;
     // inserts the account or replaces its riot account, adding its servers to
     // the ones it already reports in
     readonly addAccount: (
@@ -309,6 +321,12 @@ export class Database extends Context.Service<
 >()("app/Database") {}
 
 const ReportedMatches = Schema.fromJsonString(Schema.Array(ReportedMatch));
+
+const Refetch = Schema.Struct({
+  game: GameId,
+  matchId: MatchId,
+  region: Schema.NullOr(Schema.String),
+});
 const RankSnapshotsJson = Schema.fromJsonString(RankSnapshots);
 
 const AccountRow = Schema.Struct({
@@ -534,6 +552,18 @@ const migrations = SqliteMigrator.fromRecord({
   "10_add_history_imported": Effect.gen(function* () {
     const sql = yield* SqlClient;
     yield* sql`ALTER TABLE settings ADD COLUMN history_imported INTEGER NOT NULL DEFAULT 0`;
+  }),
+  // matches to fetch again on the next start, starting with the arena games
+  // saved as a 5v5 before arena was read as placements
+  "11_add_match_refetches": Effect.gen(function* () {
+    const sql = yield* SqlClient;
+    yield* sql`CREATE TABLE match_refetches (
+      game TEXT NOT NULL, match_id TEXT NOT NULL,
+      PRIMARY KEY (game, match_id)
+    )`;
+    yield* sql`INSERT INTO match_refetches (game, match_id)
+      SELECT game, match_id FROM matches
+      WHERE game = 'lol' AND json_extract(details, '$.mode') = 'CHERRY'`;
   }),
 });
 
@@ -1214,6 +1244,35 @@ const makeDatabase = Effect.gen(function* () {
     },
   );
 
+  const getRefetches = SqlSchema.findAll({
+    Request: Schema.Struct({}),
+    Result: Refetch,
+    execute: () => sql`
+      SELECT r.game, r.match_id AS "matchId",
+        (SELECT g.region FROM match_posts p
+          JOIN account_games g
+            ON g.discord_user_id = p.discord_user_id AND g.game = p.game
+          WHERE p.game = r.game AND p.match_id = r.match_id
+            AND g.region IS NOT NULL
+          LIMIT 1) AS region
+      FROM match_refetches r`,
+  });
+
+  const refetched = Effect.fn("Database.refetched")(function* (
+    key: { readonly game: GameId; readonly matchId: MatchId },
+    match: MatchDetails | undefined,
+  ) {
+    if (match) {
+      const details = yield* Schema.encodeEffect(
+        Schema.fromJsonString(MatchDetails),
+      )(match);
+      yield* sql`UPDATE matches SET details = ${details}
+          WHERE game = ${key.game} AND match_id = ${key.matchId}`;
+    }
+    yield* sql`DELETE FROM match_refetches
+        WHERE game = ${key.game} AND match_id = ${key.matchId}`;
+  }, sql.withTransaction);
+
   yield* Effect.logInfo("database ready; migrations applied").pipe(
     Effect.annotateLogs({ dbPath }),
   );
@@ -1440,6 +1499,8 @@ const makeDatabase = Effect.gen(function* () {
     getSubscriptions,
     getHistoryImported,
     setHistoryImported,
+    getRefetches: () => getRefetches({}),
+    refetched,
     addAccount,
     addGame,
     updateRiotId,

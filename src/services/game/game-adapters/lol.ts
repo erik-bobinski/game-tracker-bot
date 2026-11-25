@@ -12,34 +12,39 @@ import {
   type GameAdapter,
 } from "./adapter.ts";
 import type {
+  MatchDetails,
   MatchId,
+  PlacementPlayer,
   Puuid,
   RankInfo,
   RankSnapshots,
   RankUpdate,
   Region,
-  VersusMatch,
   VersusPlayer,
 } from "../index.ts";
 import type { LolLeagueEntry, LolMatch } from "../game-api/lol/match-schema.ts";
 
+// Riot's name for Arena in every queue it's played in. New Arena queues show
+// up before Riot lists them (1750, six trios, wasn't), so it's read by mode.
+const ARENA = "CHERRY";
+
 const queue = (queueId: number, gameMode: string) =>
-  new Map<number, string>([
-    [400, "Normal Draft"],
-    [420, "Ranked Solo/Duo"],
-    [430, "Normal Blind"],
-    [440, "Ranked Flex"],
-    [450, "ARAM"],
-    [480, "Swiftplay"],
-    [490, "Quickplay"],
-    [700, "Clash"],
-    [900, "URF"],
-    [1020, "One for All"],
-    [1300, "Nexus Blitz"],
-    [1700, "Arena"],
-    [1710, "Arena"],
-    [1900, "URF"],
-  ]).get(queueId) ?? gameMode;
+  gameMode === ARENA
+    ? "Arena"
+    : (new Map<number, string>([
+        [400, "Normal Draft"],
+        [420, "Ranked Solo/Duo"],
+        [430, "Normal Blind"],
+        [440, "Ranked Flex"],
+        [450, "ARAM"],
+        [480, "Swiftplay"],
+        [490, "Quickplay"],
+        [700, "Clash"],
+        [900, "URF"],
+        [1020, "One for All"],
+        [1300, "Nexus Blitz"],
+        [1900, "URF"],
+      ]).get(queueId) ?? gameMode);
 
 const compact = (value: number) =>
   value >= 1_000 ? `${(value / 1_000).toFixed(1)}k` : String(value);
@@ -51,36 +56,67 @@ const GAME_DATA =
 
 const LANES = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
 
-export const lolMatchToDetails = (match: LolMatch): VersusMatch => {
+type LolParticipant = LolMatch["info"]["participants"][number];
+
+// what every mode shows of a player: who they were, on what champion
+const lolPlayer = (participant: LolParticipant) => {
+  const multiKill =
+    participant.largestMultiKill >= 5
+      ? "Penta Kill"
+      : participant.largestMultiKill === 4
+        ? "Quadra Kill"
+        : undefined;
+  return {
+    puuid: participant.puuid,
+    riotName: participant.riotIdGameName,
+    riotTag: participant.riotIdTagline,
+    character: participant.championName,
+    characterIconUrl: `${GAME_DATA}/v1/champion-icons/${participant.championId}.png`,
+    flairs: multiKill ? [multiKill] : undefined,
+  };
+};
+
+export const lolMatchToDetails = (match: LolMatch): MatchDetails => {
+  const base = {
+    matchId: match.metadata.matchId,
+    game: "lol" as const,
+    date: match.info.gameStartTimestamp,
+    mode: queue(match.info.queueId, match.info.gameMode),
+    routingRegion: match.info.platformId.toLowerCase(),
+    durationSeconds: match.info.gameDuration,
+  };
+
+  // arena is won by placing: teams of two or three finish 1st, 2nd and so
+  // on, and riot counts the top half as winners
+  if (match.info.gameMode === ARENA) {
+    return {
+      ...base,
+      kind: "placement",
+      players: match.info.participants.map((participant): PlacementPlayer => ({
+        ...lolPlayer(participant),
+        placement: participant.placement,
+        won: participant.win,
+        stat: `${participant.kills}/${participant.deaths}/${participant.assists} · ${compact(participant.totalDamageDealtToChampions)} dmg`,
+      })),
+    };
+  }
+
   // modes without lanes give everyone "", so the stable sort keeps Riot's order
   const players: Array<VersusPlayer> = [...match.info.participants]
     .sort(
       (a, b) => LANES.indexOf(a.teamPosition) - LANES.indexOf(b.teamPosition),
     )
-    .map((participant) => {
-      const multiKill =
-        participant.largestMultiKill >= 5
-          ? "Penta Kill"
-          : participant.largestMultiKill === 4
-            ? "Quadra Kill"
-            : undefined;
-      return {
-        puuid: participant.puuid,
-        team: String(participant.teamId),
-        riotName: participant.riotIdGameName,
-        riotTag: participant.riotIdTagline,
-        character: participant.championName,
-        characterIconUrl: `${GAME_DATA}/v1/champion-icons/${participant.championId}.png`,
-        kills: participant.kills,
-        deaths: participant.deaths,
-        assists: participant.assists,
-        stat: `${participant.totalMinionsKilled + participant.neutralMinionsKilled} CS · ${compact(participant.totalDamageDealtToChampions)} dmg`,
-        sortKey:
-          (participant.kills + participant.assists) /
-          Math.max(participant.deaths, 1),
-        flairs: multiKill ? [multiKill] : undefined,
-      };
-    });
+    .map((participant) => ({
+      ...lolPlayer(participant),
+      team: String(participant.teamId),
+      kills: participant.kills,
+      deaths: participant.deaths,
+      assists: participant.assists,
+      stat: `${participant.totalMinionsKilled + participant.neutralMinionsKilled} CS · ${compact(participant.totalDamageDealtToChampions)} dmg`,
+      sortKey:
+        (participant.kills + participant.assists) /
+        Math.max(participant.deaths, 1),
+    }));
 
   const teams = [100, 200].map((teamId) => ({
     id: String(teamId),
@@ -91,13 +127,8 @@ export const lolMatchToDetails = (match: LolMatch): VersusMatch => {
   }));
 
   return {
+    ...base,
     kind: "versus",
-    matchId: match.metadata.matchId,
-    game: "lol",
-    date: match.info.gameStartTimestamp,
-    mode: queue(match.info.queueId, match.info.gameMode),
-    routingRegion: match.info.platformId.toLowerCase(),
-    durationSeconds: match.info.gameDuration,
     surrendered: match.info.participants.some(
       (participant) => participant.gameEndedInSurrender,
     ),

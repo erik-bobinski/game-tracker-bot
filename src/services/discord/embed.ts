@@ -37,7 +37,7 @@ const boldName = (name: string) =>
   `**${name.replace(/[\\*_~`|[\]()<>#-]/g, "\\$&")}**`;
 
 export const playerName = (
-  player: MatchPlayerIdentity & { readonly character?: string },
+  player: MatchPlayerIdentity & { readonly character?: string | undefined },
 ) => player.riotName || player.character || "Unknown player";
 
 const nameList = (names: ReadonlyArray<string>) => {
@@ -287,6 +287,7 @@ const placementBoard = (
         : "";
       return joinParts([
         `${prefix}${name} — ${ordinal(player.placement)} Place`,
+        player.character,
         player.stat,
         update?.delta !== undefined
           ? `${update.delta >= 0 ? "+" : ""}${update.delta} ${update.unit}${update.current ? ` (${update.current})` : ""}`
@@ -296,6 +297,26 @@ const placementBoard = (
       ]);
     })
     .join("\n");
+
+// a placement lobby as its top and bottom half by place, so teammates who
+// share a place stay together: 1st-4th of eight in tft, the top three of six
+// trios in arena
+export const placementHalves = (players: ReadonlyArray<PlacementPlayer>) => {
+  const sorted = [...players].sort((a, b) => a.placement - b.placement);
+  const places = new Set(sorted.map((player) => player.placement)).size;
+  const cut = Math.ceil(places / 2);
+  return {
+    halves: [
+      { places: cut, players: sorted.filter((p) => p.placement <= cut) },
+      {
+        places: places - cut,
+        players: sorted.filter((p) => p.placement > cut),
+      },
+    ],
+    // whether players finish as teams rather than alone
+    teams: places < sorted.length,
+  };
+};
 
 export const placementVerdict = (report: PlacementReport) => {
   const trackedPuuids = new Set(report.tracked.map(({ puuid }) => puuid));
