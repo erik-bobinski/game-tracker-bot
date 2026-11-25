@@ -133,6 +133,17 @@ The website (`web/`) is React, TanStack Router and Tailwind, reading the bot's
 `HttpApi` from `src/services/web/api.ts` through Effect atoms. Signing in needs
 `DISCORD_CLIENT_SECRET` and `PUBLIC_URL`; see `.env.example`.
 
+Infisical's `dev` environment is what Railway's dev service runs, and its
+`/local` folder overrides `PUBLIC_URL` and `PORT` for your own machine, with the
+site on http://localhost:3001. The local bot logs in with the dev token too, so
+stop Railway's dev service first. The project id is the app project's, from
+`infisical sm projects list`:
+
+```sh
+infisical run --projectId "$ID" --env dev -- \
+  infisical run --projectId "$ID" --env dev --path /local -- bun dev
+```
+
 ## Architecture
 
 TypeScript on [Effect](https://effect.website) v4 and [Bun](https://bun.sh),
