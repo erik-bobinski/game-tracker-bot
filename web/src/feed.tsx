@@ -2,12 +2,12 @@
 // games as channels, tracked players as members, and the matches reported
 // there in between, narrowed by the filters in the url.
 
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSuspense, useAtomValue } from "@effect/atom-react";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { HttpApiError } from "effect/http-api";
 import { AsyncResult } from "effect/reactivity";
 import { LayoutGrid, LogOut } from "lucide-react";
-import { useState } from "react";
+import { Suspense, useDeferredValue, useState, useTransition } from "react";
 import type { FeedPage, Me } from "../../src/services/web/api.ts";
 import { Site } from "./client.ts";
 import { MatchRow } from "./match.tsx";
@@ -235,12 +235,16 @@ const Toggle = ({
   </span>
 );
 
-// one page of matches; the last page offers the next
+const loading = <p className="py-6 text-sm text-muted">Loading matches</p>;
+
+// one page of matches; the last page offers the next. It suspends while
+// loading, so the matches already on screen stay until these replace them.
 const Page = ({
   me,
   search,
   cursor,
   isLast,
+  loadingMore,
   onMore,
   onPlayer,
 }: {
@@ -248,14 +252,16 @@ const Page = ({
   search: Search;
   cursor: Cursor | undefined;
   isLast: boolean;
+  loadingMore: boolean;
   onMore: (cursor: Cursor) => void;
   onPlayer: (discordUserId: string) => void;
 }) => {
-  const result = useAtomValue(
+  const result = useAtomSuspense(
     Site.query("feed", "feed", { query: { ...search, cursor } }),
+    { includeFailure: true },
   );
   return AsyncResult.match(result, {
-    onInitial: () => <p className="py-6 text-sm text-muted">Loading matches</p>,
+    onInitial: () => loading,
     onFailure: () => (
       <p className="py-6 text-sm text-loss">
         Couldn't load matches. Reload the page to try again.
@@ -284,10 +290,11 @@ const Page = ({
         {isLast && value.next && (
           <button
             type="button"
+            disabled={loadingMore}
             onClick={() => value.next && onMore(value.next)}
-            className="w-full rounded bg-embed py-3 text-sm text-muted hover:bg-accent hover:text-rail"
+            className="w-full rounded bg-embed py-3 text-sm text-muted hover:bg-accent hover:text-rail disabled:bg-embed disabled:text-muted"
           >
-            Load more matches
+            {loadingMore ? "Loading matches" : "Load more matches"}
           </button>
         )}
       </>
@@ -305,6 +312,8 @@ const Matches = ({
   onPlayer: (discordUserId: string) => void;
 }) => {
   const [cursors, setCursors] = useState<ReadonlyArray<Cursor>>([]);
+  // the next page loads behind the button rather than blanking the feed
+  const [loadingMore, startTransition] = useTransition();
   const pages = [undefined, ...cursors];
   return (
     <div className="space-y-1.5">
@@ -315,7 +324,10 @@ const Matches = ({
           search={search}
           cursor={cursor}
           isLast={index === pages.length - 1}
-          onMore={(next) => setCursors([...cursors, next])}
+          loadingMore={loadingMore}
+          onMore={(next) =>
+            startTransition(() => setCursors([...cursors, next]))
+          }
           onPlayer={onPlayer}
         />
       ))}
@@ -337,6 +349,10 @@ const SignedIn = ({ me }: { me: Me }) => {
   const update = (next: Partial<Search>) =>
     navigate({ to: "/feed", search: (previous) => ({ ...previous, ...next }) });
   const game = me.games.find((g) => g.game === search.game);
+  // the filters respond at once; the matches follow when they've loaded, and
+  // only dim if that takes a moment
+  const shown = useDeferredValue(search);
+  const stale = JSON.stringify(shown) !== JSON.stringify(search);
 
   return (
     <div className="flex min-h-dvh flex-col lg:h-dvh lg:flex-row">
@@ -383,13 +399,17 @@ const SignedIn = ({ me }: { me: Me }) => {
             <SignOut label={false} />
           </span>
         </header>
-        <div className="mx-auto w-full max-w-4xl px-4 py-4">
-          <Matches
-            key={JSON.stringify(search)}
-            me={me}
-            search={search}
-            onPlayer={(player) => update({ player })}
-          />
+        <div
+          className={`mx-auto w-full max-w-6xl px-4 py-4 transition-opacity ${stale ? "opacity-60 delay-200" : ""}`}
+        >
+          <Suspense fallback={loading}>
+            <Matches
+              key={JSON.stringify(shown)}
+              me={me}
+              search={shown}
+              onPlayer={(player) => update({ player })}
+            />
+          </Suspense>
         </div>
       </main>
       <Members
