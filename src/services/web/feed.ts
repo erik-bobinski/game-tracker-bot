@@ -9,7 +9,8 @@ import { GameAdapters } from "../game/game-adapters/index.ts";
 import { gameNames } from "../game/index.ts";
 import { SiteApi, Viewer } from "./api.ts";
 
-const PAGE_SIZE = 20;
+// matches show as one-line summaries, so a page holds plenty
+const PAGE_SIZE = 50;
 
 // A few icons ship in the repo's assets folder as file urls, which the card
 // renderer reads; a browser gets them from the site instead.

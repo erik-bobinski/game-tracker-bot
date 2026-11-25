@@ -418,7 +418,129 @@ const makeMatchEngine = Effect.gen(function* () {
     };
   });
 
-  return { pollOnce };
+  // Once per database, before the first poll: the website's history starts
+  // with the matches the bot posted before it existed, which it never kept.
+  // Each player's newest matches are fetched again and saved for the servers
+  // they were signed up in when they played, without posting. It runs before
+  // polling because henrik's getMatch reads the history a poll overwrites.
+  const importHistory = Effect.fn("MatchEngine.importHistory")(function* () {
+    if (yield* database.getHistoryImported()) return;
+    const [accounts, guilds, subscriptions] = yield* Effect.all([
+      database.getAccounts(),
+      database.getGuilds(),
+      database.getSubscriptions(),
+    ]);
+    const reporting = new Set(
+      guilds.flatMap((guild) =>
+        guild.channelId && !guild.paused ? [guild.guildId] : [],
+      ),
+    );
+    let matchesImported = 0;
+    let failures = 0;
+
+    for (const adapter of gameAdapters.all) {
+      const players = accounts.flatMap((account) => {
+        const state = account.games[adapter.game];
+        if (!state || (adapter.requiresOptIn && !state.optedInAt)) return [];
+        // a game that needs a riot sign-in reported nothing before it
+        const optedInAt = state.optedInAt ? Date.parse(state.optedInAt) : 0;
+        const since = new Map(
+          subscriptions.flatMap((sub) =>
+            sub.discordUserId === account.discordUserId &&
+            reporting.has(sub.guildId)
+              ? [[sub.guildId, Math.max(sub.subscribedAt, optedInAt)] as const]
+              : [],
+          ),
+        );
+        return since.size === 0
+          ? []
+          : [{ discordUserId: account.discordUserId, ...state, since }];
+      });
+      // a match several tracked players were in is fetched once
+      const matchIds = new Map<MatchId, Region | undefined>();
+      yield* Effect.forEach(
+        players,
+        (player) =>
+          adapter
+            .getRecentMatchIds(
+              player.puuid,
+              player.region,
+              CATCH_UP_MATCH_COUNT,
+            )
+            .pipe(
+              Effect.map((ids) => {
+                for (const id of ids) {
+                  if (!matchIds.has(id)) matchIds.set(id, player.region);
+                }
+              }),
+              Effect.catchTag("GameApiError", (error) => {
+                failures += 1;
+                return logApiWarning("history import skipped a player", error);
+              }),
+            ),
+        { concurrency: 8, discard: true },
+      );
+
+      yield* Effect.forEach(
+        matchIds,
+        ([matchId, region]) =>
+          Effect.gen(function* () {
+            const match = yield* adapter.getMatch(matchId, region);
+            if (!match) return;
+            const played = players.filter((player) =>
+              match.players.some((p) => p.puuid === player.puuid),
+            );
+            const signedUp = (guildId: string) =>
+              played.filter(
+                (player) =>
+                  match.date >= (player.since.get(guildId) ?? Infinity),
+              );
+            const guildIds = [...reporting].filter(
+              (guildId) => signedUp(guildId).length > 0,
+            );
+            if (guildIds.length === 0) return;
+            // like a delivery retry: no saved ranks, so only movement that
+            // needs none (exact per-match RR) is shown
+            const enrichment = yield* enrichOrSkip(adapter, {
+              match,
+              trackedPlayers: played.map(({ puuid, region }) => ({
+                puuid,
+                region,
+                previousRankSnapshots: {},
+              })),
+            });
+            for (const guildId of guildIds) {
+              yield* database.importMatch(
+                { game: adapter.game, matchId, guildId },
+                {
+                  match: enrichment.match,
+                  players: signedUp(guildId).map((player) => ({
+                    discordUserId: player.discordUserId,
+                    puuid: player.puuid,
+                    rankUpdate: enrichment.rankUpdates.get(player.puuid),
+                  })),
+                },
+              );
+            }
+            matchesImported += 1;
+          }).pipe(
+            Effect.catchTag("GameApiError", (error) => {
+              failures += 1;
+              return logApiWarning("history import skipped a match", error);
+            }),
+          ),
+        { concurrency: 8, discard: true },
+      );
+    }
+
+    // anything an api couldn't answer is tried again on the next start
+    if (failures === 0) yield* database.setHistoryImported();
+    yield* Effect.logInfo("match history imported").pipe(
+      Effect.annotateLogs({ matchesImported, failures }),
+    );
+  });
+
+  return { pollOnce, importHistory };
 });
 
 export class MatchEngine extends Context.Service<

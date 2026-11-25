@@ -103,10 +103,10 @@ test("the feed shows a viewer only their servers' reports", async () => {
         expiresAt: EpochMillis.make(Date.now() + 60_000),
       });
     }).pipe(Effect.provide(database), Effect.runPromise);
-    // a page holds 20, so these push the others onto a second page
+    // a page holds 50, so these push the others onto a second page
     const morePosts = Effect.gen(function* () {
       const db = yield* Database;
-      for (let i = 0; i < 20; i += 1) {
+      for (let i = 0; i < 50; i += 1) {
         const id = `more${String(i).padStart(2, "0")}`;
         yield* db.finishDelivery(
           { game: "tft", matchId: MatchId.make(id), guildId: "b" },
@@ -225,8 +225,8 @@ test("the feed shows a viewer only their servers' reports", async () => {
       const first = await page();
       expect(first.matches.map((m) => m.matchId)).toEqual(
         Array.from(
-          { length: 20 },
-          (_, i) => `more${String(19 - i).padStart(2, "0")}`,
+          { length: 50 },
+          (_, i) => `more${String(49 - i).padStart(2, "0")}`,
         ),
       );
       expect(first.next).not.toBe(null);
