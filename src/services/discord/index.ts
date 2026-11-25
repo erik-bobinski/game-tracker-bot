@@ -1,9 +1,13 @@
 import { BunHttpClient, BunSocket } from "@effect/platform-bun";
 import {
+  Cache,
   Config,
   Context,
+  Duration,
   Effect,
+  Exit,
   Layer,
+  Option,
   Redacted,
   Ref,
   Schema,
@@ -51,13 +55,29 @@ export class Discord extends Context.Service<
       target: ReportTarget,
       report: MatchReport,
     ) => Effect.Effect<void, DiscordError>;
-    // the bot's name, and the link that adds it to a server
+    // the bot's name, and the link that adds it to a server. Its id is also
+    // the OAuth client id the website signs people in with.
     readonly application: {
+      readonly id: string;
       readonly name: string;
       readonly inviteUrl: string;
     };
+    // a server's name and icon, for the website; none if the bot can't see it
+    readonly getServer: (guildId: string) => Effect.Effect<
+      Option.Option<{
+        readonly name: string;
+        readonly iconUrl: string | undefined;
+      }>
+    >;
+    // a user's profile picture, for the website; Discord's default one for
+    // anyone it can't look up
+    readonly getAvatarUrl: (discordUserId: string) => Effect.Effect<string>;
   }
 >()("app/Discord") {}
+
+// the picture Discord shows someone who hasn't set one, picked from their id
+export const defaultAvatarUrl = (discordUserId: string) =>
+  `https://cdn.discordapp.com/embed/avatars/${/^\d+$/.test(discordUserId) ? (BigInt(discordUserId) >> 22n) % 6n : 0}.png`;
 
 // what posting a report takes: seeing the channel, sending, the card as an
 // attachment or the embed it falls back to, and rank emojis
@@ -304,9 +324,69 @@ const makeDiscord = Effect.gen(function* () {
 
   const application = yield* rest.getMyOauth2Application();
 
+  // names change rarely, so an hour stale is fine; a failed lookup isn't kept
+  const servers = yield* Cache.makeWith(
+    (guildId: string) =>
+      rest.getGuild(guildId).pipe(
+        Effect.map((guild) => ({
+          name: guild.name,
+          iconUrl: guild.icon
+            ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`
+            : undefined,
+        })),
+        Effect.tapError((error) =>
+          Effect.logWarning("server lookup failed", error).pipe(
+            Effect.annotateLogs({ guildId }),
+          ),
+        ),
+        Effect.option,
+      ),
+    {
+      capacity: 1_000,
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) && Option.isSome(exit.value)
+          ? "1 hour"
+          : Duration.zero,
+    },
+  );
+
+  // pictures change more often than server names, but an hour stale is fine;
+  // a failed lookup falls back without being kept
+  const avatars = yield* Cache.makeWith(
+    (discordUserId: string) =>
+      rest.getUser(discordUserId).pipe(
+        Effect.map((user) =>
+          Option.some(
+            user.avatar
+              ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64`
+              : defaultAvatarUrl(user.id),
+          ),
+        ),
+        Effect.tapError((error) =>
+          Effect.logWarning("avatar lookup failed", error).pipe(
+            Effect.annotateLogs({ discordUserId }),
+          ),
+        ),
+        Effect.orElseSucceed(() => Option.none<string>()),
+      ),
+    {
+      capacity: 5_000,
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) && Option.isSome(exit.value)
+          ? "1 hour"
+          : Duration.zero,
+    },
+  );
+
   return Discord.of({
     notifyMatch,
+    getServer: (guildId) => Cache.get(servers, guildId),
+    getAvatarUrl: (discordUserId) =>
+      Cache.get(avatars, discordUserId).pipe(
+        Effect.map(Option.getOrElse(() => defaultAvatarUrl(discordUserId))),
+      ),
     application: {
+      id: application.id,
       name: application.name,
       inviteUrl: `https://discord.com/oauth2/authorize?client_id=${application.id}&scope=bot+applications.commands&permissions=${reportPermissions}`,
     },

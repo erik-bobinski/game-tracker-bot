@@ -7,6 +7,7 @@ import {
   FileSystem,
   Layer,
   Logger,
+  Option,
   Redacted,
   Schema,
 } from "effect";
@@ -166,7 +167,9 @@ const main = Effect.gen(function* () {
             Layer.succeed(Database, db),
             Layer.succeed(GameAdapters, { all: [bounded] }),
             Layer.succeed(Discord, {
-              application: { name: "Live verification", inviteUrl: "" },
+              getAvatarUrl: (id) => Effect.succeed(`avatar-${id}`),
+              getServer: () => Effect.succeed(Option.none()),
+              application: { id: "", name: "Live verification", inviteUrl: "" },
               notifyMatch: (target, report) =>
                 Effect.gen(function* () {
                   if (

@@ -9,17 +9,19 @@
   "scripts": {
     "start": "bun src/index.ts",
     "dev": "bun --watch src/index.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "build:web": "vite build --config web/vite.config.ts",
     "admin": "bun src/admin/index.ts",
     "verify": "bun run test:live",
     "test:live": "bun src/verify/live.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p web",
     "lint": "oxlint",
     "knip": "knip",
     "test": "bun test",
     "audit": "bun audit --audit-level=high",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "bun run format:check && bun run lint && bun run typecheck && bun run knip && bun run test && bun run audit"
+    "check": "bun run format:check && bun run lint && bun run typecheck && bun run build:web && bun run knip && bun run test && bun run audit"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.6",
@@ -31,12 +33,24 @@
     "satori": "0.33.5"
   },
   "devDependencies": {
+    "@effect/atom-react": "4.0.6",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@oxlint/plugins": "1.89.0",
+    "@tailwindcss/vite": "4.3.5",
+    "@tanstack/react-router": "1.170.46",
     "@types/bun": "1.4.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
     "knip": "6.43.0",
+    "lucide-react": "1.71.0",
     "oxlint": "1.89.0",
     "prettier": "3.9.10",
-    "typescript": "7.0.2"
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tailwindcss": "4.3.5",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
   },
   "overrides": {
     "fflate": "0.7.5"

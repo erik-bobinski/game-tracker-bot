@@ -1,6 +1,12 @@
 import { BunHttpServer } from "@effect/platform-bun";
 import { Array as Arr, Config, Effect, Layer, Option, Schema } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
+import {
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+  HttpStaticServer,
+} from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import { Database } from "../database/index.ts";
 import { linkAccount } from "../account/index.ts";
 import { buildMockMatchReport } from "../discord/dev-commands.ts";
@@ -11,6 +17,9 @@ import { GameAdapters } from "../game/game-adapters/index.ts";
 import { onlyOptedInNamed } from "../game/game-adapters/valorant.ts";
 import { gameIds, gameNames } from "../game/index.ts";
 import { Rso } from "../rso/index.ts";
+import { SiteApi } from "./api.ts";
+import { FeedLive } from "./feed.ts";
+import { addSignInRoutes, SignedInLive } from "./sign-in.ts";
 import {
   escapeHtml,
   landingPage,
@@ -112,6 +121,7 @@ const Routes = HttpRouter.use((router) =>
         HttpServerResponse.text(riotVerification),
       );
     }
+    yield* addSignInRoutes(router, site);
     if (Option.isNone(rso)) return;
 
     // where riot sends someone back to after they sign in through /link
@@ -185,8 +195,37 @@ const Routes = HttpRouter.use((router) =>
   }),
 );
 
+// the handlers need the session middleware as much as the api does
+const ApiLive = HttpApiBuilder.layer(SiteApi).pipe(
+  Layer.provide(FeedLive),
+  Layer.provide(SignedInLive),
+);
+
+// The site, built into web/dist by `bun run build:web`: one page for /feed
+// and its fingerprinted assets, which never change under the same name. The
+// game icons kept in the repo are served alongside.
+const site = new URL("../../../web/dist/", import.meta.url).pathname;
+const SiteLive = Layer.mergeAll(
+  HttpStaticServer.layer({
+    root: new URL("../../../assets/", import.meta.url).pathname,
+    prefix: "/game-assets",
+    cacheControl: "public, max-age=86400",
+  }),
+  HttpRouter.add("GET", "/feed", HttpServerResponse.file(`${site}index.html`)),
+  HttpStaticServer.layer({
+    root: `${site}assets`,
+    prefix: "/assets",
+    cacheControl: "public, max-age=31536000, immutable",
+  }),
+);
+
 // Railway routes its public domain to PORT
-export const WebLive = HttpRouter.serve(Routes, { disableLogger: true }).pipe(
+export const WebLive = HttpRouter.serve(
+  Layer.mergeAll(Routes, ApiLive, SiteLive),
+  {
+    disableLogger: true,
+  },
+).pipe(
   Layer.provide(
     BunHttpServer.layerConfig({
       port: Config.Port("PORT").pipe(Config.withDefault(3000)),

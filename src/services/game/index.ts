@@ -24,64 +24,90 @@ export const discordGameChoices = gameIds.map((id) => ({
   value: id,
 }));
 
+export const Puuid = Schema.String.pipe(Schema.brand("Puuid"));
+export type Puuid = typeof Puuid.Type;
+
+export const MatchId = Schema.String.pipe(Schema.brand("MatchId"));
+export type MatchId = typeof MatchId.Type;
+
 export const EpochMillis = Schema.Number.pipe(Schema.brand("EpochMillis"));
 export type EpochMillis = typeof EpochMillis.Type;
 
-export interface MatchPlayerIdentity {
-  readonly puuid: Puuid;
-  readonly riotName: string;
-  readonly riotTag: string;
-  readonly stat: string;
-  readonly rank?: string | undefined;
-  readonly rankIconKey?: string | undefined;
-  readonly rankDivision?: string | undefined;
-  readonly flairs?: ReadonlyArray<string> | undefined;
-}
+// Matches are saved for the website exactly as they were reported, so they're
+// schemas: what's saved is decoded with the same shapes the adapters build.
+// Optional fields stay `| undefined` because adapters set them explicitly.
+const MatchPlayerIdentity = Schema.Struct({
+  puuid: Puuid,
+  riotName: Schema.String,
+  riotTag: Schema.String,
+  stat: Schema.String,
+  rank: Schema.optional(Schema.String),
+  rankIconKey: Schema.optional(Schema.String),
+  rankDivision: Schema.optional(Schema.String),
+  flairs: Schema.optional(Schema.Array(Schema.String)),
+});
+export interface MatchPlayerIdentity extends Schema.Schema.Type<
+  typeof MatchPlayerIdentity
+> {}
 
-export interface VersusPlayer extends MatchPlayerIdentity {
-  readonly team: string;
-  readonly character: string;
-  readonly characterIconUrl?: string | undefined;
-  readonly kills: number;
-  readonly deaths: number;
-  readonly assists: number;
-  readonly sortKey: number;
-}
+const VersusPlayer = Schema.Struct({
+  ...MatchPlayerIdentity.fields,
+  team: Schema.String,
+  character: Schema.String,
+  characterIconUrl: Schema.optional(Schema.String),
+  kills: Schema.Number,
+  deaths: Schema.Number,
+  assists: Schema.Number,
+  sortKey: Schema.Number,
+});
+export interface VersusPlayer extends Schema.Schema.Type<typeof VersusPlayer> {}
 
-export interface PlacementPlayer extends MatchPlayerIdentity {
-  readonly placement: number;
-  readonly won: boolean;
-}
+const PlacementPlayer = Schema.Struct({
+  ...MatchPlayerIdentity.fields,
+  placement: Schema.Number,
+  won: Schema.Boolean,
+});
+export interface PlacementPlayer extends Schema.Schema.Type<
+  typeof PlacementPlayer
+> {}
 
-export interface MatchTeam {
-  readonly id: string;
-  /** Omitted when the match ended in a draw */
-  readonly won?: boolean | undefined;
-  readonly score?: readonly [number, number] | undefined;
-}
+const MatchTeam = Schema.Struct({
+  id: Schema.String,
+  // omitted when the match ended in a draw
+  won: Schema.optional(Schema.Boolean),
+  score: Schema.optional(Schema.Tuple([Schema.Number, Schema.Number])),
+});
+export interface MatchTeam extends Schema.Schema.Type<typeof MatchTeam> {}
 
-interface MatchBase {
-  readonly matchId: MatchId;
-  readonly game: GameId;
-  readonly date: EpochMillis;
-  readonly mode: string;
-  readonly routingRegion?: string | undefined;
-  readonly map?: string | undefined;
-  readonly durationSeconds: number;
-}
+const MatchBase = Schema.Struct({
+  matchId: MatchId,
+  game: GameId,
+  date: EpochMillis,
+  mode: Schema.String,
+  routingRegion: Schema.optional(Schema.String),
+  map: Schema.optional(Schema.String),
+  durationSeconds: Schema.Number,
+});
 
-export interface VersusMatch extends MatchBase {
-  readonly kind: "versus";
-  readonly surrendered: boolean;
-  readonly players: ReadonlyArray<VersusPlayer>;
-  readonly teams: ReadonlyArray<MatchTeam>;
-}
+const VersusMatch = Schema.Struct({
+  ...MatchBase.fields,
+  kind: Schema.Literal("versus"),
+  surrendered: Schema.Boolean,
+  players: Schema.Array(VersusPlayer),
+  teams: Schema.Array(MatchTeam),
+});
+export interface VersusMatch extends Schema.Schema.Type<typeof VersusMatch> {}
 
-export interface PlacementMatch extends MatchBase {
-  readonly kind: "placement";
-  readonly players: ReadonlyArray<PlacementPlayer>;
-}
+const PlacementMatch = Schema.Struct({
+  ...MatchBase.fields,
+  kind: Schema.Literal("placement"),
+  players: Schema.Array(PlacementPlayer),
+});
+export interface PlacementMatch extends Schema.Schema.Type<
+  typeof PlacementMatch
+> {}
 
+export const MatchDetails = Schema.Union([VersusMatch, PlacementMatch]);
 export type MatchDetails = VersusMatch | PlacementMatch;
 
 // Where an account plays, in whatever form that game's api wants: a riot
@@ -93,26 +119,24 @@ export interface ResolvedAccount {
   readonly region: Region | undefined;
 }
 
-export interface RankInfo {
-  readonly tier: string;
-  readonly detail?: string | undefined;
+const RankInfo = Schema.Struct({
+  tier: Schema.String,
+  detail: Schema.optional(Schema.String),
   // matches a GameAdapter.rankIcons key, so it renders with the same emojis
-  readonly iconKey?: string | undefined;
-}
+  iconKey: Schema.optional(Schema.String),
+});
+export interface RankInfo extends Schema.Schema.Type<typeof RankInfo> {}
 
-export interface RankUpdate {
-  readonly delta?: number | undefined;
-  readonly current?: string | undefined;
-  readonly unit: string;
+export const RankUpdate = Schema.Struct({
+  delta: Schema.optional(Schema.Number),
+  current: Schema.optional(Schema.String),
+  unit: Schema.String,
   // set when the match moved them into another tier
-  readonly tierChange?:
-    | {
-        readonly from: RankInfo;
-        readonly to: RankInfo;
-        readonly promoted: boolean;
-      }
-    | undefined;
-}
+  tierChange: Schema.optional(
+    Schema.Struct({ from: RankInfo, to: RankInfo, promoted: Schema.Boolean }),
+  ),
+});
+export interface RankUpdate extends Schema.Schema.Type<typeof RankUpdate> {}
 
 // the last standing an adapter persisted, keyed by whatever queue identifier
 // that game ranks separately, so the next report can diff against it
@@ -126,9 +150,3 @@ export const RankSnapshots = Schema.Record(
   }),
 );
 export type RankSnapshots = typeof RankSnapshots.Type;
-
-export const Puuid = Schema.String.pipe(Schema.brand("Puuid"));
-export type Puuid = typeof Puuid.Type;
-
-export const MatchId = Schema.String.pipe(Schema.brand("MatchId"));
-export type MatchId = typeof MatchId.Type;
