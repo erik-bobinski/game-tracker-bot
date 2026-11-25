@@ -10,7 +10,7 @@ import { LayoutGrid, LogOut } from "lucide-react";
 import { useState } from "react";
 import type { FeedPage, Me } from "../../src/services/web/api.ts";
 import { Site } from "./client.ts";
-import { MatchEntry } from "./match.tsx";
+import { MatchRow } from "./match.tsx";
 
 const route = getRouteApi("/feed");
 type Search = ReturnType<typeof route.useSearch>;
@@ -264,7 +264,7 @@ const Page = ({
     onSuccess: ({ value }) => (
       <>
         {value.matches.map((entry) => (
-          <MatchEntry
+          <MatchRow
             key={`${entry.game}:${entry.matchId}`}
             entry={entry}
             game={me.games.find((game) => game.game === entry.game)}
@@ -307,7 +307,7 @@ const Matches = ({
   const [cursors, setCursors] = useState<ReadonlyArray<Cursor>>([]);
   const pages = [undefined, ...cursors];
   return (
-    <div className="space-y-4">
+    <div className="space-y-1.5">
       {pages.map((cursor, index) => (
         <Page
           key={cursor ? `${cursor.game}:${cursor.matchId}` : "first"}

@@ -1,9 +1,12 @@
 // One reported match, drawn from its data rather than the Discord card's
 // image, so every name and number is text: selectable, searchable, linkable.
-// The whole lobby shows, with the tracked friends marked. Verdicts and
-// wording come from the same helpers the Discord report uses.
+// The feed lists each as a one-line summary; opening it shows the whole
+// lobby, with the tracked friends marked. Verdicts and wording come from the
+// same helpers the Discord report uses.
 
 import { Match } from "effect";
+import { X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import {
   formatDuration,
   matchVerdict,
@@ -55,8 +58,9 @@ const fullDate = new Intl.DateTimeFormat("en", {
   timeStyle: "short",
 });
 
-// when it was played, the way Discord stamps a message: "Today at 9:41 PM"
-const stamp = (date: number) => {
+// when it was played, the way Discord stamps a message: "Today at 9:41 PM",
+// or on a phone just "9:41 PM", "Yesterday" or the date
+const stamp = (date: number, short: boolean) => {
   const startOfDay = (at: Date) =>
     new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime();
   const daysAgo = Math.round(
@@ -64,9 +68,11 @@ const stamp = (date: number) => {
   );
   const time = clock.format(date);
   return Match.value(daysAgo).pipe(
-    Match.when(0, () => `Today at ${time}`),
-    Match.when(1, () => `Yesterday at ${time}`),
-    Match.orElse(() => `${calendar.format(date)} ${time}`),
+    Match.when(0, () => (short ? time : `Today at ${time}`)),
+    Match.when(1, () => (short ? "Yesterday" : `Yesterday at ${time}`)),
+    Match.orElse(() =>
+      short ? calendar.format(date) : `${calendar.format(date)} ${time}`,
+    ),
   );
 };
 
@@ -208,9 +214,107 @@ const PlayerRow = ({
   </li>
 );
 
-// the frame every match shares, shaped like the Discord embed it was posted
-// as: the game as author, the verdict as title, the lobby as fields, and when
-// it was played in the footer
+// what a match's summary and its full report both lead with
+interface Headline {
+  readonly outcome: Outcome;
+  readonly label: string;
+  readonly score: readonly [number, number] | undefined;
+  readonly entry: FeedMatch;
+  readonly game: Game | undefined;
+  readonly details: ReadonlyArray<string | undefined>;
+  // each tracked friend's own line: their kda or placement
+  readonly friends: ReadonlyArray<{
+    readonly friend: Friend;
+    readonly portrait: string | undefined;
+    readonly result: string;
+    readonly resultTone: string;
+  }>;
+}
+
+const Time = ({ at, short }: { at: number; short: boolean }) => (
+  <time dateTime={new Date(at).toISOString()} title={fullDate.format(at)}>
+    {short && <span className="sm:hidden">{stamp(at, true)}</span>}
+    <span className={short ? "hidden sm:inline" : ""}>{stamp(at, false)}</span>
+  </time>
+);
+
+// the feed's line for a match: game, verdict and score, where it was played,
+// how the friends did and when. The whole line opens the full report.
+const Summary = ({
+  outcome,
+  label,
+  score,
+  entry,
+  game,
+  details,
+  friends,
+  onOpen,
+}: Headline & { onOpen: () => void }) => (
+  <article
+    className={`relative flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded border-l-4 bg-embed px-3 py-2.5 hover:bg-raised sm:flex-nowrap ${bar[outcome]}`}
+  >
+    {game && (
+      <img
+        src={game.iconUrl}
+        alt={game.name}
+        title={game.name}
+        className="size-7 shrink-0 rounded-full"
+      />
+    )}
+    <div className="min-w-0 flex-1">
+      <h2 className="text-sm font-extrabold">
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-haspopup="dialog"
+          className="text-left after:absolute after:inset-0 after:rounded"
+        >
+          <span className={tone[outcome]}>{label}</span>
+          {score && (
+            <span className="ml-2 tabular-nums">
+              {score[0]}–{score[1]}
+            </span>
+          )}
+        </button>
+      </h2>
+      <p className="truncate text-xs text-muted">
+        {details.filter(Boolean).join(" · ")}
+      </p>
+    </div>
+    <div className="flex basis-full items-center justify-between gap-x-4 pl-11 sm:basis-auto sm:pl-0">
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 sm:justify-end">
+        {friends.map(({ friend, portrait, result, resultTone }) => (
+          <li
+            key={friend.discordUserId}
+            className="flex items-center gap-1.5 text-xs"
+          >
+            {portrait && (
+              <img
+                src={portrait}
+                alt=""
+                loading="lazy"
+                className="size-5 rounded-full bg-raised"
+              />
+            )}
+            <span className="max-w-28 truncate text-accent">
+              {friend.discordName}
+            </span>
+            <span className={`font-bold tabular-nums ${resultTone}`}>
+              {result}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <span className="shrink-0 text-right text-xs whitespace-nowrap text-faint sm:w-44">
+        <Time at={entry.playedAt} short />
+      </span>
+    </div>
+  </article>
+);
+
+// the full report, shaped like the Discord embed it was posted as: the game
+// as author, the verdict as title, the lobby as fields, and when it was
+// played in the footer
 const Entry = ({
   outcome,
   label,
@@ -219,15 +323,7 @@ const Entry = ({
   game,
   details,
   children,
-}: {
-  outcome: Outcome;
-  label: string;
-  score: readonly [number, number] | undefined;
-  entry: FeedMatch;
-  game: Game | undefined;
-  details: ReadonlyArray<string | undefined>;
-  children: React.ReactNode;
-}) => (
+}: Headline & { children: React.ReactNode }) => (
   <article
     className={`rounded border-l-4 bg-embed px-3 py-3 sm:px-5 sm:py-4 ${bar[outcome]}`}
   >
@@ -250,27 +346,26 @@ const Entry = ({
     </p>
     <div className="mt-4">{children}</div>
     <footer className="mt-3 text-xs text-muted">
-      <time
-        dateTime={new Date(entry.playedAt).toISOString()}
-        title={fullDate.format(entry.playedAt)}
-      >
-        {stamp(entry.playedAt)}
-      </time>
+      <Time at={entry.playedAt} short={false} />
     </footer>
   </article>
 );
+
+interface View {
+  readonly entry: FeedMatch;
+  readonly game: Game | undefined;
+  readonly onPlayer: (discordUserId: string) => void;
+  // undefined shows the full report
+  readonly onOpen: (() => void) | undefined;
+}
 
 const VersusMatchEntry = ({
   entry,
   match,
   game,
   onPlayer,
-}: {
-  entry: FeedMatch;
-  match: VersusMatch;
-  game: Game | undefined;
-  onPlayer: (discordUserId: string) => void;
-}) => {
+  onOpen,
+}: View & { match: VersusMatch }) => {
   const { key, verdict, trackedTeam, teams } = matchVerdict({
     tracked: entry.players,
     match,
@@ -281,20 +376,35 @@ const VersusMatchEntry = ({
   );
   const mvp = [...match.players].sort((a, b) => b.sortKey - a.sortKey)[0]
     ?.puuid;
+  const headline: Headline = {
+    outcome: key,
+    label: verdict.label,
+    score: trackedTeam?.score,
+    entry,
+    game,
+    details: [
+      match.map ? `${match.mode} on ${match.map}` : match.mode,
+      formatDuration(match.durationSeconds),
+      match.surrendered ? "ended by surrender" : undefined,
+    ],
+    friends: match.players.flatMap((player) => {
+      const friend = friends.get(player.puuid);
+      return friend
+        ? [
+            {
+              friend,
+              portrait: player.characterIconUrl,
+              result: `${player.kills}/${player.deaths}/${player.assists}`,
+              resultTone: "",
+            },
+          ]
+        : [];
+    }),
+  };
+  if (onOpen) return <Summary {...headline} onOpen={onOpen} />;
 
   return (
-    <Entry
-      outcome={key}
-      label={verdict.label}
-      score={trackedTeam?.score}
-      entry={entry}
-      game={game}
-      details={[
-        match.map ? `${match.mode} on ${match.map}` : match.mode,
-        formatDuration(match.durationSeconds),
-        match.surrendered ? "ended by surrender" : undefined,
-      ]}
-    >
+    <Entry {...headline}>
       <div className="grid gap-6 md:grid-cols-2">
         {teams.map((team, index) => {
           const players = match.players.filter((p) => p.team === team.id);
@@ -339,12 +449,8 @@ const PlacementMatchEntry = ({
   match,
   game,
   onPlayer,
-}: {
-  entry: FeedMatch;
-  match: PlacementMatch;
-  game: Game | undefined;
-  onPlayer: (discordUserId: string) => void;
-}) => {
+  onOpen,
+}: View & { match: PlacementMatch }) => {
   const { key, trackedPuuids } = placementVerdict({
     tracked: entry.players,
     match,
@@ -365,15 +471,31 @@ const PlacementMatchEntry = ({
       ? `${places.slice(0, -1).join(", ")} and ${places.at(-1)}`
       : `${places[0] ?? "Match"} place`;
 
+  const headline: Headline = {
+    outcome: key,
+    label,
+    score: undefined,
+    entry,
+    game,
+    details: [match.mode, formatDuration(match.durationSeconds)],
+    friends: byPlacement.flatMap((player) => {
+      const friend = friends.get(player.puuid);
+      return friend
+        ? [
+            {
+              friend,
+              portrait: undefined,
+              result: ordinal(player.placement),
+              resultTone: player.won ? "text-win" : "text-muted",
+            },
+          ]
+        : [];
+    }),
+  };
+  if (onOpen) return <Summary {...headline} onOpen={onOpen} />;
+
   return (
-    <Entry
-      outcome={key}
-      label={label}
-      score={undefined}
-      entry={entry}
-      game={game}
-      details={[match.mode, formatDuration(match.durationSeconds)]}
-    >
+    <Entry {...headline}>
       <ul className="grid gap-x-6 md:grid-flow-col md:grid-cols-2 md:grid-rows-4">
         {byPlacement.map((player) => (
           <PlayerRow
@@ -397,7 +519,56 @@ const PlacementMatchEntry = ({
   );
 };
 
-export const MatchEntry = ({
+const MatchView = (view: View) =>
+  view.entry.match.kind === "versus" ? (
+    <VersusMatchEntry {...view} match={view.entry.match} />
+  ) : (
+    <PlacementMatchEntry {...view} match={view.entry.match} />
+  );
+
+// a big dialog over the feed; escape, the close button or a click outside
+// closes it
+const Modal = ({
+  label,
+  onClose,
+  children,
+}: {
+  label: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) => {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (dialog.current && !dialog.current.open) dialog.current.showModal();
+  }, []);
+  return (
+    <dialog
+      ref={dialog}
+      aria-label={label}
+      onClose={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) dialog.current?.close();
+      }}
+      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(72rem,calc(100vw-2rem))] overflow-y-auto rounded bg-transparent p-0 text-ink backdrop:bg-black/75"
+    >
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => dialog.current?.close()}
+          title="Close"
+          aria-label="Close"
+          className="absolute top-3 right-3 rounded p-1.5 text-muted hover:bg-raised hover:text-ink"
+        >
+          <X aria-hidden className="size-5" />
+        </button>
+        {children}
+      </div>
+    </dialog>
+  );
+};
+
+// a match's line in the feed, opening its full report
+export const MatchRow = ({
   entry,
   game,
   onPlayer,
@@ -405,19 +576,29 @@ export const MatchEntry = ({
   entry: FeedMatch;
   game: Game | undefined;
   onPlayer: (discordUserId: string) => void;
-}) =>
-  entry.match.kind === "versus" ? (
-    <VersusMatchEntry
-      entry={entry}
-      match={entry.match}
-      game={game}
-      onPlayer={onPlayer}
-    />
-  ) : (
-    <PlacementMatchEntry
-      entry={entry}
-      match={entry.match}
-      game={game}
-      onPlayer={onPlayer}
-    />
+}) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <MatchView
+        entry={entry}
+        game={game}
+        onPlayer={onPlayer}
+        onOpen={() => setOpen(true)}
+      />
+      {open && (
+        <Modal
+          label={`${game?.name ?? "Match"} report`}
+          onClose={() => setOpen(false)}
+        >
+          <MatchView
+            entry={entry}
+            game={game}
+            onPlayer={onPlayer}
+            onOpen={undefined}
+          />
+        </Modal>
+      )}
+    </>
   );
+};
