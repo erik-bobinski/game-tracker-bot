@@ -59,7 +59,7 @@ const Server = Schema.Struct({
 
 // how the site draws a game: its icon, and its rank emblems by
 // MatchPlayerIdentity.rankIconKey
-const Game = Schema.Struct({
+export const Game = Schema.Struct({
   game: GameId,
   name: Schema.String,
   iconUrl: Schema.String,
@@ -68,7 +68,7 @@ const Game = Schema.Struct({
   ),
 });
 
-const Me = Schema.Struct({
+export const Me = Schema.Struct({
   ...Member.fields,
   servers: Schema.Array(Server),
   games: Schema.Array(Game),
@@ -76,7 +76,7 @@ const Me = Schema.Struct({
 export interface Me extends Schema.Schema.Type<typeof Me> {}
 
 // where the next page starts: the last match of this one
-const Cursor = Schema.StringFromBase64Url.pipe(
+export const Cursor = Schema.StringFromBase64Url.pipe(
   Schema.decodeTo(
     Schema.fromJsonString(
       Schema.Struct({ playedAt: EpochMillis, game: GameId, matchId: MatchId }),
@@ -113,7 +113,7 @@ const FeedQuery = Schema.Struct({
 });
 
 // a match as it was reported, with its tracked players in the viewer's servers
-const FeedMatch = Schema.Struct({
+export const FeedMatch = Schema.Struct({
   game: GameId,
   matchId: MatchId,
   playedAt: EpochMillis,
@@ -130,7 +130,7 @@ const FeedMatch = Schema.Struct({
 
 export interface FeedMatch extends Schema.Schema.Type<typeof FeedMatch> {}
 
-const FeedPage = Schema.Struct({
+export const FeedPage = Schema.Struct({
   matches: Schema.Array(FeedMatch),
   // null on the last page
   next: Schema.NullOr(Cursor),
