@@ -34,8 +34,18 @@ Infisical's, so `env DEV_MODE=true LIVE_GAME=lol` tests another game. CI keeps
 its own copies of the identifiers as GitHub environment secrets (see below), so
 change both together.
 
-If the CLI isn't logged in, `infisical login` signs in with Google through a
-browser. It needs a terminal, so in an agent shell run it under
+On Ciaran, agents sign in as the `ciaran-agent` machine identity (Universal
+Auth, Viewer on this project only), so no browser is needed. Its client ID and
+secret are in `~/.config/infisical/ciaran-agent.env`; set a token before
+`infisical run`, in a subshell so the secret stays out of the test's env:
+
+```sh
+export INFISICAL_TOKEN="$(set -a; . ~/.config/infisical/ciaran-agent.env; \
+  infisical login --method=universal-auth --silent --plain)"
+```
+
+Elsewhere, if the CLI isn't logged in, `infisical login` signs in with Google
+through a browser. It needs a terminal, so in an agent shell run it under
 `script -qfc 'infisical login' <log>` to get the sign-in link. If the browser
 shows a token instead of returning to the CLI, take it from the user through a
 secret prompt, pipe it into a fresh `infisical login`, and delete the log.
